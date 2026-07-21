@@ -1,0 +1,1619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>公司 AI 代码检查底线规则 V1.1</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;max-width:736px;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Company Code Review V1 Rubric" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Company Code Review V1.1 Rubric&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(--background) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: light-dark(rgb(255 255 255), rgb(24 24 24));
+  --foreground: light-dark(rgb(26 28 31), rgb(255 255 255));
+  --card: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --card-foreground: var(--foreground);
+  --popover: light-dark(rgb(255 255 255), rgb(45 45 45));
+  --popover-foreground: var(--foreground);
+  --primary: light-dark(rgb(51 156 255), rgb(131 195 255));
+  --primary-foreground: light-dark(rgb(255 255 255), rgb(13 13 13));
+  --secondary: light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: light-dark(
+    rgb(26 28 31 / 49.4%),
+    rgb(255 255 255 / 49.8%)
+  );
+  --accent: light-dark(rgb(229 242 255), rgb(13 39 63));
+  --accent-foreground: var(--primary);
+  --destructive: light-dark(rgb(226 85 7), rgb(255 133 73));
+  --border: light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%));
+  --input: light-dark(
+    rgb(26 28 31 / 11.8%),
+    color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+  );
+  --ring: light-dark(rgb(51 156 255), rgb(131 195 255 / 76%));
+  --font-size-base: 14px;
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: 12.5px;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+  --color-background-primary: var(--background);
+  --color-text-primary: var(--foreground);
+  --color-border-secondary: var(--border);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--viz-font-weight-medium);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+    [aria-pressed=&quot;true&quot;],
+    [aria-selected=&quot;true&quot;],
+    .is-selected
+  ) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;style&gt;
+#company-review-rubric {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 28px;
+  color: var(--foreground);
+}
+
+#company-review-rubric * {
+  box-sizing: border-box;
+}
+
+#company-review-rubric .hero {
+  display: grid;
+  gap: 16px;
+  padding-block: 8px 20px;
+}
+
+#company-review-rubric .eyebrow,
+#company-review-rubric .meta,
+#company-review-rubric .kicker {
+  color: var(--muted-foreground);
+}
+
+#company-review-rubric .hero-copy {
+  max-width: 880px;
+}
+
+#company-review-rubric .hero-copy p {
+  margin-top: 10px;
+}
+
+#company-review-rubric .summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#company-review-rubric .summary-grid .card {
+  display: grid;
+  gap: 4px;
+}
+
+#company-review-rubric .summary-value {
+  font-weight: 500;
+}
+
+#company-review-rubric .toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-block: 12px;
+  border-block: 1px solid var(--border);
+}
+
+#company-review-rubric section {
+  display: grid;
+  gap: 14px;
+  scroll-margin-top: 16px;
+}
+
+#company-review-rubric section + section {
+  padding-top: 26px;
+  border-top: 1px solid var(--border);
+}
+
+#company-review-rubric .section-head {
+  display: grid;
+  max-width: 920px;
+  gap: 6px;
+}
+
+#company-review-rubric .callout {
+  padding-inline-start: 14px;
+  border-inline-start: 3px solid var(--primary);
+}
+
+#company-review-rubric .callout p + p {
+  margin-top: 6px;
+}
+
+#company-review-rubric .two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+#company-review-rubric .three-col {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+#company-review-rubric .plain-group {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+#company-review-rubric ul,
+#company-review-rubric ol {
+  margin: 0;
+  padding-inline-start: 22px;
+}
+
+#company-review-rubric li + li {
+  margin-top: 5px;
+}
+
+#company-review-rubric .table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+#company-review-rubric table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#company-review-rubric th,
+#company-review-rubric td {
+  padding: 10px 9px;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+#company-review-rubric th {
+  color: var(--muted-foreground);
+}
+
+#company-review-rubric tbody tr:hover {
+  background: var(--accent);
+}
+
+#company-review-rubric .rule-table th:first-child,
+#company-review-rubric .rule-table td:first-child {
+  width: 88px;
+  white-space: nowrap;
+}
+
+#company-review-rubric .rule-table th:nth-child(2) {
+  width: 28%;
+}
+
+#company-review-rubric .rule-table th:nth-child(3),
+#company-review-rubric .rule-table th:nth-child(4) {
+  width: 31%;
+}
+
+#company-review-rubric .rule-family {
+  display: grid;
+  gap: 10px;
+}
+
+#company-review-rubric .rule-family + .rule-family {
+  margin-top: 12px;
+}
+
+#company-review-rubric .family-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+#company-review-rubric .badge-neutral,
+#company-review-rubric .badge-gate,
+#company-review-rubric .badge-manual {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+#company-review-rubric .badge-neutral {
+  color: var(--accent-foreground);
+  background: var(--accent);
+}
+
+#company-review-rubric .badge-gate {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+#company-review-rubric .badge-manual {
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+}
+
+#company-review-rubric pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+#company-review-rubric pre code {
+  font-family: var(--font-mono);
+  white-space: pre;
+}
+
+#company-review-rubric .formula {
+  display: grid;
+  gap: 10px;
+}
+
+#company-review-rubric .flow {
+  display: grid;
+  gap: 8px;
+  padding-block: 4px;
+}
+
+#company-review-rubric .flow-step {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+#company-review-rubric .flow-index {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  font-weight: 500;
+}
+
+#company-review-rubric .flow-copy {
+  padding-top: 2px;
+}
+
+#company-review-rubric .decision-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#company-review-rubric .decision-strip .card {
+  display: grid;
+  gap: 5px;
+}
+
+#company-review-rubric .footer-note {
+  padding-block: 18px 8px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 760px) {
+  #company-review-rubric .summary-grid,
+  #company-review-rubric .three-col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #company-review-rubric .two-col,
+  #company-review-rubric .decision-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 460px) {
+  #company-review-rubric .summary-grid,
+  #company-review-rubric .three-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  #company-review-rubric {
+    gap: 18px;
+  }
+
+  #company-review-rubric .toc {
+    display: none;
+  }
+
+  #company-review-rubric section + section {
+    padding-top: 16px;
+  }
+
+  #company-review-rubric .table-wrap {
+    overflow: visible;
+  }
+
+  #company-review-rubric tr,
+  #company-review-rubric .card,
+  #company-review-rubric pre {
+    break-inside: avoid;
+  }
+}
+&lt;/style&gt;
+
+&lt;main id=&quot;company-review-rubric&quot;&gt;
+  &lt;header class=&quot;hero&quot;&gt;
+    &lt;div class=&quot;hero-copy&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;公司 AI 代码检查 · 第一阶段 V1.1 评审稿&lt;/p&gt;
+      &lt;h1&gt;代码质量底线规则与 Agent 判定标准&lt;/h1&gt;
+      &lt;p&gt;V1.1 继续只定义第一阶段必须拦住的严重低级错误，并把首次实战暴露出的判定、报告和资源约束变成可执行合同。本稿仍处于团队评审与试点阶段，不是固定的公司终版标准。&lt;/p&gt;
+      &lt;p class=&quot;meta&quot;&gt;版本：V1.1 · 日期：2026-07-15 · 状态：团队评审与试点中 · 配套总方案：&lt;a href=&quot;2026-07-14-company-ai-code-review-overview.html&quot;&gt;公司 AI 代码检查方案&lt;/a&gt;&lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;summary-grid&quot; aria-label=&quot;第一阶段范围摘要&quot;&gt;
+      &lt;div class=&quot;card&quot;&gt;&lt;span class=&quot;kicker&quot;&gt;检查范围&lt;/span&gt;&lt;span class=&quot;summary-value&quot;&gt;4 个底线维度&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;card&quot;&gt;&lt;span class=&quot;kicker&quot;&gt;规则规模&lt;/span&gt;&lt;span class=&quot;summary-value&quot;&gt;20 条底线规则&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;card&quot;&gt;&lt;span class=&quot;kicker&quot;&gt;阻断门槛&lt;/span&gt;&lt;span class=&quot;summary-value&quot;&gt;S3 + T3 + E2/E3&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;card&quot;&gt;&lt;span class=&quot;kicker&quot;&gt;默认资源&lt;/span&gt;&lt;span class=&quot;summary-value&quot;&gt;最多 3 个 Agent&lt;/span&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;nav class=&quot;toc&quot; aria-label=&quot;文档目录&quot;&gt;
+      &lt;a href=&quot;#positioning&quot;&gt;目标与边界&lt;/a&gt;
+      &lt;a href=&quot;#baseline&quot;&gt;审查基线&lt;/a&gt;
+      &lt;a href=&quot;#dimensions&quot;&gt;四个维度&lt;/a&gt;
+      &lt;a href=&quot;#rules&quot;&gt;20 条规则&lt;/a&gt;
+      &lt;a href=&quot;#decision&quot;&gt;判定机制&lt;/a&gt;
+      &lt;a href=&quot;#agent&quot;&gt;Agent 工作流&lt;/a&gt;
+      &lt;a href=&quot;#contract&quot;&gt;机器合同&lt;/a&gt;
+      &lt;a href=&quot;#validation&quot;&gt;验证矩阵&lt;/a&gt;
+      &lt;a href=&quot;#review&quot;&gt;评审问题&lt;/a&gt;
+    &lt;/nav&gt;
+  &lt;/header&gt;
+
+  &lt;section id=&quot;positioning&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;01 · Positioning&lt;/p&gt;
+      &lt;h2&gt;第一阶段只守住生产底线&lt;/h2&gt;
+      &lt;p&gt;第一阶段追求少报、报准，只阻断具备明确变更归因、现实触发事实、完整因果链和严重后果的底线缺陷。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;callout&quot;&gt;
+      &lt;p&gt;&lt;strong&gt;核心定义：&lt;/strong&gt;&lt;code&gt;PASS&lt;/code&gt; 表示“没有发现满足阻断条件的底线缺陷”，不表示“代码优秀”。&lt;/p&gt;
+      &lt;p&gt;存量问题只有在本次提交引入、扩大影响或使其可触发时，才进入阻断判断。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;two-col&quot;&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;
+        &lt;h3&gt;第一阶段需要拦住&lt;/h3&gt;
+        &lt;ul&gt;
+          &lt;li&gt;方案方向明显错误，并会随真实业务规模快速恶化。&lt;/li&gt;
+          &lt;li&gt;会直接产生严重业务错误、数据损坏或资金错误。&lt;/li&gt;
+          &lt;li&gt;上线后会造成中断、资源失控、重试风暴或永久卡死。&lt;/li&gt;
+          &lt;li&gt;会造成高影响安全事故、破坏性兼容变更或不可恢复发布。&lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;
+        &lt;h3&gt;第一阶段明确不评判&lt;/h3&gt;
+        &lt;ul&gt;
+          &lt;li&gt;命名、格式、代码风格和注释完整度。&lt;/li&gt;
+          &lt;li&gt;抽象是否优雅、少量重复和普通函数复杂度。&lt;/li&gt;
+          &lt;li&gt;全面测试覆盖率与全面可观测性成熟度。&lt;/li&gt;
+          &lt;li&gt;没有规模或运行依据的性能猜测。&lt;/li&gt;
+          &lt;li&gt;“还有更漂亮的写法”一类个人偏好。&lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;baseline&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;02 · Review Baseline&lt;/p&gt;
+      &lt;h2&gt;先固定审查基线，再判断是否由本次变更引入&lt;/h2&gt;
+      &lt;p&gt;CI 或调用方必须提供明确的 base、target 和 diff 选择理由。Agent 不得在 upstream diff 为空时静默改用更大的比较范围。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;pre&gt;&lt;code&gt;repository:
+target_branch:
+base_commit:
+target_commit:
+diff_selection_reason:
+changed_files:
+affected_entries:&lt;/code&gt;&lt;/pre&gt;
+    &lt;div class=&quot;callout&quot;&gt;
+      &lt;p&gt;如果 &lt;code&gt;base_commit&lt;/code&gt;、&lt;code&gt;target_commit&lt;/code&gt; 或 &lt;code&gt;diff_selection_reason&lt;/code&gt; 缺失，无法证明 &lt;code&gt;introduced_or_worsened_by_change&lt;/code&gt;，总体结果最高只能是 &lt;code&gt;INCOMPLETE&lt;/code&gt; 或 &lt;code&gt;MANUAL_REVIEW&lt;/code&gt;，不得 &lt;code&gt;BLOCK&lt;/code&gt;。&lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;dimensions&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;03 · Dimensions&lt;/p&gt;
+      &lt;h2&gt;四个底线维度&lt;/h2&gt;
+      &lt;p&gt;按“方案是否做对事情 → 结果是否正确 → 生产能否稳定运行 → 能否安全兼容地上线”的顺序检查。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;table-wrap&quot;&gt;&lt;table&gt;
+      &lt;thead&gt;&lt;tr&gt;&lt;th&gt;维度&lt;/th&gt;&lt;th&gt;核心问题&lt;/th&gt;&lt;th&gt;严重影响&lt;/th&gt;&lt;th&gt;规则数&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+      &lt;tbody&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;D1 方案方向与数据流&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;代码是否在高质量地实现一个明显错误的业务方案？&lt;/td&gt;&lt;td&gt;工作量乘法放大、任务永远追不上、错误真相源、同步链路被批处理拖垮&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;D2 业务结果与数据安全&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;正常、异常、重复执行和边界条件下，业务结果与数据是否正确？&lt;/td&gt;&lt;td&gt;错误结果、非法状态、资金错误、部分写入、重复副作用&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;D3 生产稳定性&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;在失败、并发、资源增长和关闭过程中，系统是否会失控？&lt;/td&gt;&lt;td&gt;中断、雪崩、死锁、泄漏、无限重试、永久卡死&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;D4 安全与上线变更安全&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;是否会造成权限、输入、敏感数据、兼容性或迁移事故？&lt;/td&gt;&lt;td&gt;越权、注入、泄密、破坏调用方、身份映射断裂、数据丢失&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;/tr&gt;
+      &lt;/tbody&gt;
+    &lt;/table&gt;&lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;rules&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;04 · Baseline Rules&lt;/p&gt;
+      &lt;h2&gt;第一阶段 20 条底线规则&lt;/h2&gt;
+      &lt;p&gt;每条规则同时给出阻断边界和不得阻断的边界。多个规则指向同一根因时必须合并。&lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;rule-family&quot;&gt;
+      &lt;div class=&quot;family-title&quot;&gt;&lt;h3&gt;D1 方案方向与数据流&lt;/h3&gt;&lt;span class=&quot;badge-neutral&quot;&gt;DES-001 ～ DES-005&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;table-wrap&quot;&gt;&lt;table class=&quot;rule-table&quot;&gt;
+        &lt;thead&gt;&lt;tr&gt;&lt;th&gt;ID&lt;/th&gt;&lt;th&gt;底线规则&lt;/th&gt;&lt;th&gt;允许阻断的典型情形&lt;/th&gt;&lt;th&gt;不得直接阻断的边界&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+        &lt;tbody&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;DES-001&lt;/code&gt;&lt;/td&gt;&lt;td&gt;处理驱动方向不得明显颠倒，导致两个持续增长的集合形成乘法级工作量。&lt;/td&gt;&lt;td&gt;调用链证明工作量接近 &lt;code&gt;N × M&lt;/code&gt;，真实规模证明任务无法按期完成、成本失控或持续积压。&lt;/td&gt;&lt;td&gt;某一维度有严格小上限；存在有界高效反向索引；缺少规模依据时只能人工确认。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;DES-002&lt;/code&gt;&lt;/td&gt;&lt;td&gt;存在自然增量游标或检查点时，不得在高频路径反复全量处理历史数据。&lt;/td&gt;&lt;td&gt;任务每次从头扫描持续增长的历史集合，执行周期必然超过调度周期。&lt;/td&gt;&lt;td&gt;数据集被明确限定；正确性要求全量校验且频率与成本已证明可接受。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;DES-003&lt;/code&gt;&lt;/td&gt;&lt;td&gt;不得在无界或持续增长的循环中逐条调用数据库、RPC 或第三方服务。&lt;/td&gt;&lt;td&gt;远程请求随记录数线性或更高增长，且缺少批量、索引、分页或并发上限。&lt;/td&gt;&lt;td&gt;列表有严格小上限；供应方只支持逐条调用且限流、调度和完成时间均有证据满足要求。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;DES-004&lt;/code&gt;&lt;/td&gt;&lt;td&gt;不得选错权威数据源，或形成无法保证一致性的多个真相源。&lt;/td&gt;&lt;td&gt;核心决策可能从冲突数据源读取，双写失败后没有恢复或确定优先级。&lt;/td&gt;&lt;td&gt;缓存具有清晰版本、失效与回源机制；副本只用于读取加速。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;DES-005&lt;/code&gt;&lt;/td&gt;&lt;td&gt;明显属于长耗时批处理的工作，不得直接放入同步请求关键链路。&lt;/td&gt;&lt;td&gt;请求等待无界扫描、批量回填或大量外部调用，导致超时、连接耗尽或级联故障。&lt;/td&gt;&lt;td&gt;工作量严格有界并满足延迟目标；异步会破坏明确强一致要求。&lt;/td&gt;&lt;/tr&gt;
+        &lt;/tbody&gt;
+      &lt;/table&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;rule-family&quot;&gt;
+      &lt;div class=&quot;family-title&quot;&gt;&lt;h3&gt;D2 业务结果与数据安全&lt;/h3&gt;&lt;span class=&quot;badge-neutral&quot;&gt;COR-001 ～ COR-005&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;table-wrap&quot;&gt;&lt;table class=&quot;rule-table&quot;&gt;
+        &lt;thead&gt;&lt;tr&gt;&lt;th&gt;ID&lt;/th&gt;&lt;th&gt;底线规则&lt;/th&gt;&lt;th&gt;允许阻断的典型情形&lt;/th&gt;&lt;th&gt;不得直接阻断的边界&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+        &lt;tbody&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;COR-001&lt;/code&gt;&lt;/td&gt;&lt;td&gt;实现不得与明确的业务规则、Spec 或公共接口契约相反。&lt;/td&gt;&lt;td&gt;代码与已确认契约直接矛盾，并在明确输入下返回错误结果或执行错误动作。&lt;/td&gt;&lt;td&gt;需求存在多种合理解释或尚未确认时只能人工确认。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;COR-002&lt;/code&gt;&lt;/td&gt;&lt;td&gt;不得破坏关键业务不变量或允许系统进入非法状态。&lt;/td&gt;&lt;td&gt;余额、库存、所有权、状态机、唯一性或领域约束可被明确路径破坏。&lt;/td&gt;&lt;td&gt;不变量没有文档或代码依据；仅认为另一种设计更优。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;COR-003&lt;/code&gt;&lt;/td&gt;&lt;td&gt;金额、数量、精度、时间、分页和边界计算不得产生明确错误。&lt;/td&gt;&lt;td&gt;溢出、舍入、时区、单位、包含边界或游标错误造成资金、遗漏或重复处理。&lt;/td&gt;&lt;td&gt;仅有格式偏好；误差由业务明确接受；没有实际触发输入。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;COR-004&lt;/code&gt;&lt;/td&gt;&lt;td&gt;事务边界不得使失败操作留下不可接受的部分成功状态。&lt;/td&gt;&lt;td&gt;核心多步写入失败后留下无法自动恢复的不一致或错误对外状态。&lt;/td&gt;&lt;td&gt;业务允许最终一致，且补偿、重试、对账和幂等路径完整可证。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;COR-005&lt;/code&gt;&lt;/td&gt;&lt;td&gt;重试、重复请求或重复消费不得重复产生不可逆业务副作用。&lt;/td&gt;&lt;td&gt;重复到达造成重复扣款、记账、发放、通知或外部操作。&lt;/td&gt;&lt;td&gt;操作天然幂等，或唯一约束、幂等键和状态检查直接证明安全。&lt;/td&gt;&lt;/tr&gt;
+        &lt;/tbody&gt;
+      &lt;/table&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;rule-family&quot;&gt;
+      &lt;div class=&quot;family-title&quot;&gt;&lt;h3&gt;D3 生产稳定性&lt;/h3&gt;&lt;span class=&quot;badge-neutral&quot;&gt;REL-001 ～ REL-005&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;table-wrap&quot;&gt;&lt;table class=&quot;rule-table&quot;&gt;
+        &lt;thead&gt;&lt;tr&gt;&lt;th&gt;ID&lt;/th&gt;&lt;th&gt;底线规则&lt;/th&gt;&lt;th&gt;允许阻断的典型情形&lt;/th&gt;&lt;th&gt;不得直接阻断的边界&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+        &lt;tbody&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;REL-001&lt;/code&gt;&lt;/td&gt;&lt;td&gt;内存、并发数、goroutine、队列、循环和结果集不得随外部输入无界增长。&lt;/td&gt;&lt;td&gt;用户流量或正常数据增长持续创建资源直到 OOM、连接耗尽或服务不可用。&lt;/td&gt;&lt;td&gt;上游和本地都有可证明硬上限；资源按批释放且峰值满足容量。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;REL-002&lt;/code&gt;&lt;/td&gt;&lt;td&gt;外部调用和长耗时操作必须具有必要的超时、取消或终止条件。&lt;/td&gt;&lt;td&gt;下游不返回时永久占用请求、线程、连接或任务租约并持续积累。&lt;/td&gt;&lt;td&gt;底层库统一强制超时；协议要求等待且有其他明确全局终止机制。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;REL-003&lt;/code&gt;&lt;/td&gt;&lt;td&gt;不得存在可直接证明的数据竞争、死锁、丢失更新或顺序依赖错误。&lt;/td&gt;&lt;td&gt;真实并发路径同时修改共享状态，导致结果丢失、卡死或重复处理。&lt;/td&gt;&lt;td&gt;串行性、锁、事务隔离或单线程模型可从代码和配置直接证明。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;REL-004&lt;/code&gt;&lt;/td&gt;&lt;td&gt;文件、连接、锁、事务和后台任务必须能够正确释放或关闭。&lt;/td&gt;&lt;td&gt;正常错误或取消路径持续泄漏关键资源，最终造成不可用或数据锁死。&lt;/td&gt;&lt;td&gt;资源由框架托管并有明确生命周期；对象局部、短期且有硬上限。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;REL-005&lt;/code&gt;&lt;/td&gt;&lt;td&gt;错误处理不得导致无限重试、重试风暴、进程崩溃、永久卡死或关键错误完全静默。&lt;/td&gt;&lt;td&gt;稳定错误触发零间隔重试、永不确认消息、退出关键进程或吞掉数据错误。&lt;/td&gt;&lt;td&gt;退出是受监督任务的明确恢复策略；上层统一记录、限次重试并告警。&lt;/td&gt;&lt;/tr&gt;
+        &lt;/tbody&gt;
+      &lt;/table&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;rule-family&quot;&gt;
+      &lt;div class=&quot;family-title&quot;&gt;&lt;h3&gt;D4 安全与上线变更安全&lt;/h3&gt;&lt;span class=&quot;badge-neutral&quot;&gt;SEC-001 ～ CHG-002&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;table-wrap&quot;&gt;&lt;table class=&quot;rule-table&quot;&gt;
+        &lt;thead&gt;&lt;tr&gt;&lt;th&gt;ID&lt;/th&gt;&lt;th&gt;底线规则&lt;/th&gt;&lt;th&gt;允许阻断的典型情形&lt;/th&gt;&lt;th&gt;不得直接阻断的边界&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+        &lt;tbody&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;SEC-001&lt;/code&gt;&lt;/td&gt;&lt;td&gt;不得绕过认证、授权、角色、资源所有权或租户隔离。&lt;/td&gt;&lt;td&gt;未授权主体通过明确请求读取、修改或执行受保护资源。&lt;/td&gt;&lt;td&gt;入口由不可绕过的上层网关保护；资源本身明确公开。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;SEC-002&lt;/code&gt;&lt;/td&gt;&lt;td&gt;不可信输入不得未经约束进入查询、命令、模板、路径或网络请求。&lt;/td&gt;&lt;td&gt;存在可构造的注入、目录穿越、SSRF、危险反序列化或命令执行路径。&lt;/td&gt;&lt;td&gt;参数化、允许列表、规范化和目标限制直接证明输入无法改变执行结构。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;SEC-003&lt;/code&gt;&lt;/td&gt;&lt;td&gt;密钥、令牌、密码和敏感业务数据不得被提交、输出或不当暴露。&lt;/td&gt;&lt;td&gt;有效凭证进入仓库或响应；日志输出可复用凭证、完整隐私数据或签名材料。&lt;/td&gt;&lt;td&gt;明确测试假数据；批准且不可逆脱敏的数据；仅凭变量名猜测敏感性。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;CHG-001&lt;/code&gt;&lt;/td&gt;&lt;td&gt;不得在未声明和未处理兼容性的情况下破坏现有调用方、已有配置或稳定身份与所有权映射。&lt;br&gt;&lt;strong&gt;A 公共协议与接口：&lt;/strong&gt;请求语法、认证方案、响应字段、状态码、事件和公开格式。&lt;br&gt;&lt;strong&gt;B 配置语义：&lt;/strong&gt;已有配置继续被读取并保持原意。&lt;br&gt;&lt;strong&gt;C 持久化身份与所有权兼容性：&lt;/strong&gt;用户、租户、资源所有权、幂等、缓存和外部账户稳定标识的派生方式。&lt;/td&gt;&lt;td&gt;现有调用方解析失败；配置被静默忽略或改义；所有权键改变导致存量数据无法访问；滚动发布时新旧版本语义冲突。&lt;/td&gt;&lt;td&gt;调用方与服务原子发布且有证据；完整版本化迁移、双读或兼容路径已验证；接口尚未发布且无使用方。&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;&lt;code&gt;CHG-002&lt;/code&gt;&lt;/td&gt;&lt;td&gt;数据迁移和发布方式不得造成数据丢失、不可恢复状态、关键表长期阻塞或新旧版本无法共存。&lt;/td&gt;&lt;td&gt;删除或重写生产数据、先部署依赖尚不存在结构的代码，且无安全迁移路径。&lt;/td&gt;&lt;td&gt;小型受控数据集；已有备份、分阶段迁移、回填验证和回滚演练证据。&lt;/td&gt;&lt;/tr&gt;
+        &lt;/tbody&gt;
+      &lt;/table&gt;&lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;decision&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;05 · Decision Gate&lt;/p&gt;
+      &lt;h2&gt;后果、触发确定性与证据共同决定结果&lt;/h2&gt;
+      &lt;p&gt;严重后果不代表当前环境一定会触发。V1.1 将两者拆开，避免把理论最坏情况直接当成阻断事实。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;three-col&quot;&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;&lt;span class=&quot;badge-gate&quot;&gt;S3 严重&lt;/span&gt;&lt;p&gt;触发后造成中断、关键数据损坏、资金错误、高影响越权、不可恢复发布或不可控成本。&lt;/p&gt;&lt;/div&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;&lt;span class=&quot;badge-manual&quot;&gt;S2 有限&lt;/span&gt;&lt;p&gt;问题真实但影响有限或容易恢复，不得自动阻断。&lt;/p&gt;&lt;/div&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;&lt;span class=&quot;badge-neutral&quot;&gt;S1 改进&lt;/span&gt;&lt;p&gt;工程、维护性或风格建议，不进入正式问题列表。&lt;/p&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;table-wrap&quot;&gt;&lt;table&gt;
+      &lt;thead&gt;&lt;tr&gt;&lt;th&gt;触发确定性&lt;/th&gt;&lt;th&gt;定义&lt;/th&gt;&lt;th&gt;处理&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+      &lt;tbody&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;T3 已证明&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;目标部署、现有配置、真实调用方或确定输入会触发。&lt;/td&gt;&lt;td&gt;满足其他门槛时可进入阻断。&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;T2 条件现实&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;触发条件具体且现实，但尚未证明当前环境满足。&lt;/td&gt;&lt;td&gt;&lt;code&gt;MANUAL_REVIEW&lt;/code&gt;&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;T1 理论风险&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;只有模式或理论可能性。&lt;/td&gt;&lt;td&gt;不得阻断。&lt;/td&gt;&lt;/tr&gt;
+      &lt;/tbody&gt;
+    &lt;/table&gt;&lt;/div&gt;
+    &lt;div class=&quot;table-wrap&quot;&gt;&lt;table&gt;
+      &lt;thead&gt;&lt;tr&gt;&lt;th&gt;证据等级&lt;/th&gt;&lt;th&gt;定义&lt;/th&gt;&lt;th&gt;协议结论边界&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+      &lt;tbody&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;E3 已验证&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;测试、命令、日志、静态工具或最小复现证实。&lt;/td&gt;&lt;td&gt;实际请求、测试或复现验证。&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;E2 代码证实&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;真实入口到生产影响可完整推导。&lt;/td&gt;&lt;td&gt;必须引用仓库契约、官方标准、框架行为或既有测试。&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;E1 存疑&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;缺少业务、规模、运行或权威契约。&lt;/td&gt;&lt;td&gt;只凭模型记忆最高为 E1。&lt;/td&gt;&lt;/tr&gt;
+      &lt;/tbody&gt;
+    &lt;/table&gt;&lt;/div&gt;
+    &lt;div class=&quot;table-wrap&quot;&gt;&lt;table&gt;
+      &lt;thead&gt;&lt;tr&gt;&lt;th&gt;统一场景&lt;/th&gt;&lt;th&gt;结果&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+      &lt;tbody&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;code&gt;S3 + T3 + E2/E3 + 本次引入 + 完整因果链&lt;/code&gt;&lt;/td&gt;&lt;td&gt;&lt;code&gt;BLOCK&lt;/code&gt;&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;code&gt;S3 + T2 + E2/E3&lt;/code&gt;&lt;/td&gt;&lt;td&gt;&lt;code&gt;MANUAL_REVIEW&lt;/code&gt;&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;&lt;code&gt;S2 + T3 + E3&lt;/code&gt;&lt;/td&gt;&lt;td&gt;&lt;code&gt;MANUAL_REVIEW&lt;/code&gt;&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;报告字段缺失或基线不明确&lt;/td&gt;&lt;td&gt;&lt;code&gt;INCOMPLETE&lt;/code&gt;&lt;/td&gt;&lt;/tr&gt;
+      &lt;/tbody&gt;
+    &lt;/table&gt;&lt;/div&gt;
+    &lt;div class=&quot;formula&quot;&gt;
+      &lt;h3&gt;唯一阻断公式&lt;/h3&gt;
+      &lt;pre&gt;&lt;code&gt;BLOCK =
+    severity == S3
+    AND trigger_confidence == T3
+    AND evidence_level IN (E2, E3)
+    AND introduced_or_worsened_by_change == true
+    AND trigger_condition_is_concrete == true
+    AND causal_chain_is_complete == true
+    AND finding_is_not_style_preference == true&lt;/code&gt;&lt;/pre&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;decision-strip&quot;&gt;
+      &lt;div class=&quot;card&quot;&gt;&lt;span class=&quot;badge-neutral&quot;&gt;PASS&lt;/span&gt;&lt;span&gt;未发现满足阻断条件的底线缺陷。&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;card&quot;&gt;&lt;span class=&quot;badge-manual&quot;&gt;MANUAL_REVIEW&lt;/span&gt;&lt;span&gt;问题可能严重，但触发事实或证据不足；例如 S3 + T2 + E2/E3。&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;card&quot;&gt;&lt;span class=&quot;badge-gate&quot;&gt;BLOCK&lt;/span&gt;&lt;span&gt;本次改动引入了 S3、T3 且 E2/E3 的完整底线缺陷。&lt;/span&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;callout&quot;&gt;&lt;p&gt;&lt;strong&gt;INCOMPLETE：&lt;/strong&gt;基线不明确、强制字段缺失、枚举非法、检查超时或执行失败。总体结果优先级为 &lt;code&gt;INCOMPLETE &amp;gt; BLOCK &amp;gt; MANUAL_REVIEW &amp;gt; PASS&lt;/code&gt;；INCOMPLETE 不能当作 PASS。&lt;/p&gt;&lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;agent&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;06 · Agent Workflow&lt;/p&gt;
+      &lt;h2&gt;沿真实业务路径检查，并限制代理扇出&lt;/h2&gt;
+      &lt;p&gt;Agent 可阅读改动之外的相关代码，但发现必须与明确审查基线有关。普通 CI 负责稳定工具检查。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;two-col&quot;&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;
+        &lt;h3&gt;执行步骤&lt;/h3&gt;
+        &lt;ol&gt;
+          &lt;li&gt;确认 base/target、改动目标和实际改变的行为。&lt;/li&gt;
+          &lt;li&gt;找到真实入口，追踪调用链、数据流和副作用。&lt;/li&gt;
+          &lt;li&gt;只激活与本次改动相关的规则族。&lt;/li&gt;
+          &lt;li&gt;形成候选并合并相同根因。&lt;/li&gt;
+          &lt;li&gt;验证是否由本次改动引入或加重。&lt;/li&gt;
+          &lt;li&gt;每个候选最多交给一个独立验证 Agent。&lt;/li&gt;
+          &lt;li&gt;输出机器合同，由普通程序计算最终 verdict。&lt;/li&gt;
+        &lt;/ol&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;
+        &lt;h3&gt;硬资源限制&lt;/h3&gt;
+        &lt;ul&gt;
+          &lt;li&gt;&lt;strong&gt;默认总 Agent 数不超过 3，包括主 Agent。&lt;/strong&gt;&lt;/li&gt;
+          &lt;li&gt;不得为每条规则、每个文件或每个角度分别启动 Agent。&lt;/li&gt;
+          &lt;li&gt;没有候选时不得启动验证 Agent。&lt;/li&gt;
+          &lt;li&gt;超过 3 个必须由 CI 配置或人工显式允许。&lt;/li&gt;
+          &lt;li&gt;报告记录计划数量、实际数量、原因、token、耗时和重试。&lt;/li&gt;
+          &lt;li&gt;自然语言“节制使用”不能替代执行器硬上限。&lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;contract&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;07 · Machine Contract&lt;/p&gt;
+      &lt;h2&gt;每条发现必须可校验、可定位、可行动&lt;/h2&gt;
+      &lt;p&gt;模型负责收集事实和解释因果链；普通程序负责校验字段并计算最终 verdict。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;two-col&quot;&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;
+        &lt;h3&gt;单条发现强制字段&lt;/h3&gt;
+        &lt;pre&gt;&lt;code&gt;rule_id:
+verdict:
+severity:
+trigger_confidence:
+evidence_level:
+introduced_or_worsened_by_change:
+code_locations:
+affected_call_path:
+trigger_condition:
+causal_chain:
+production_impact:
+verification_performed:
+minimal_fix:
+uncertainties:&lt;/code&gt;&lt;/pre&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;
+        &lt;h3&gt;报告级强制说明&lt;/h3&gt;
+        &lt;ul&gt;
+          &lt;li&gt;完整审查基线和实际受影响入口。&lt;/li&gt;
+          &lt;li&gt;读取的项目说明、Spec、契约和 CI 证据。&lt;/li&gt;
+          &lt;li&gt;激活的规则族和未激活原因。&lt;/li&gt;
+          &lt;li&gt;未检查范围和缺失上下文。&lt;/li&gt;
+          &lt;li&gt;Agent、Skill、规则集和 schema 版本。&lt;/li&gt;
+          &lt;li&gt;Agent 数、验证数、token、耗时和失败重试。&lt;/li&gt;
+          &lt;li&gt;总体结果：PASS、MANUAL_REVIEW、BLOCK 或 INCOMPLETE。&lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;callout&quot;&gt;&lt;p&gt;字段缺失、枚举非法、&lt;code&gt;affected_call_path&lt;/code&gt; 不从真实入口开始或 &lt;code&gt;causal_chain&lt;/code&gt; 为空时，模型声称的 BLOCK 必须被降级或将报告标记为 INCOMPLETE。&lt;/p&gt;&lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;validation&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;08 · Rule Validation Matrix&lt;/p&gt;
+      &lt;h2&gt;每条规则先通过正例、反例和证据不足案例&lt;/h2&gt;
+      &lt;p&gt;规则经过回放校准后才能参与自动阻断，不能因一次成功命中就宣布成熟。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;three-col&quot;&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;&lt;span class=&quot;badge-gate&quot;&gt;正例&lt;/span&gt;&lt;h3&gt;应命中&lt;/h3&gt;&lt;p&gt;真实或最小化的严重缺陷，验证规则召回和归类。&lt;/p&gt;&lt;/div&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;&lt;span class=&quot;badge-neutral&quot;&gt;反例&lt;/span&gt;&lt;h3&gt;不得阻断&lt;/h3&gt;&lt;p&gt;外观相似但具有硬上限、兼容路径或充分保护的正常代码。&lt;/p&gt;&lt;/div&gt;
+      &lt;div class=&quot;plain-group&quot;&gt;&lt;span class=&quot;badge-manual&quot;&gt;证据不足&lt;/span&gt;&lt;h3&gt;人工复核&lt;/h3&gt;&lt;p&gt;后果可能严重，但缺少当前配置、调用方、规模或权威契约。&lt;/p&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;p&gt;每个严重案例至少重复运行三次，记录规则命中、S/T/E 稳定性、重复根因、人工结论、Agent 数、token 和耗时。未通过三类案例的规则继续保持 report-only。&lt;/p&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;review&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;09 · Review Questions&lt;/p&gt;
+      &lt;h2&gt;本轮团队需要共同决定的问题&lt;/h2&gt;
+    &lt;/div&gt;
+    &lt;ol&gt;
+      &lt;li&gt;S/T/E 三轴边界是否足以区分严重上限和当前触发事实？&lt;/li&gt;
+      &lt;li&gt;CHG-001 的三个兼容性子类是否覆盖常见协议、配置和身份回归？&lt;/li&gt;
+      &lt;li&gt;哪些规则最容易停留在 T2 或 E1，需要项目提供什么上下文？&lt;/li&gt;
+      &lt;li&gt;默认最多 3 个 Agent 是否满足质量与成本平衡？&lt;/li&gt;
+      &lt;li&gt;机器合同字段是否足以让普通程序稳定计算 verdict？&lt;/li&gt;
+      &lt;li&gt;首批历史回放能否为每条拟阻断规则提供正例、反例和证据不足案例？&lt;/li&gt;
+    &lt;/ol&gt;
+  &lt;/section&gt;
+
+  &lt;footer class=&quot;footer-note&quot;&gt;公司 AI 代码检查底线规则 V1.1 · 团队评审与试点稿 · 2026-07-15&lt;/footer&gt;
+&lt;/main&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>

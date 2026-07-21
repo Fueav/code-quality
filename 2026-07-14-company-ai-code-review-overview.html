@@ -1,0 +1,1502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>公司 AI 代码检查方案</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;max-width:736px;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="公司 AI 代码检查方案" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;公司 AI 代码检查方案&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(--background) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: light-dark(rgb(255 255 255), rgb(24 24 24));
+  --foreground: light-dark(rgb(26 28 31), rgb(255 255 255));
+  --card: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --card-foreground: var(--foreground);
+  --popover: light-dark(rgb(255 255 255), rgb(45 45 45));
+  --popover-foreground: var(--foreground);
+  --primary: light-dark(rgb(51 156 255), rgb(131 195 255));
+  --primary-foreground: light-dark(rgb(255 255 255), rgb(13 13 13));
+  --secondary: light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: light-dark(
+    rgb(26 28 31 / 49.4%),
+    rgb(255 255 255 / 49.8%)
+  );
+  --accent: light-dark(rgb(229 242 255), rgb(13 39 63));
+  --accent-foreground: var(--primary);
+  --destructive: light-dark(rgb(226 85 7), rgb(255 133 73));
+  --border: light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%));
+  --input: light-dark(
+    rgb(26 28 31 / 11.8%),
+    color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+  );
+  --ring: light-dark(rgb(51 156 255), rgb(131 195 255 / 76%));
+  --font-size-base: 14px;
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: 12.5px;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+  --color-background-primary: var(--background);
+  --color-text-primary: var(--foreground);
+  --color-border-secondary: var(--border);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--viz-font-weight-medium);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+    [aria-pressed=&quot;true&quot;],
+    [aria-selected=&quot;true&quot;],
+    .is-selected
+  ) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id=&quot;company-ai-code-review&quot;&gt;
+  &lt;style&gt;
+    #company-ai-code-review {
+      width: 100%;
+      color: var(--foreground);
+    }
+
+    #company-ai-code-review * {
+      box-sizing: border-box;
+    }
+
+    #company-ai-code-review .hero {
+      padding: 1.5rem 0 2rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #company-ai-code-review .hero-grid,
+    #company-ai-code-review .two-col,
+    #company-ai-code-review .three-col {
+      display: grid;
+      gap: 1.25rem;
+    }
+
+    #company-ai-code-review .hero-grid {
+      grid-template-columns: minmax(0, 1.6fr) minmax(16rem, 0.8fr);
+      align-items: end;
+    }
+
+    #company-ai-code-review .two-col {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #company-ai-code-review .three-col {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    #company-ai-code-review .eyebrow {
+      color: var(--muted-foreground);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 0 0 0.5rem;
+    }
+
+    #company-ai-code-review .hero h1 {
+      margin: 0;
+      max-width: 18ch;
+      font-weight: 500;
+    }
+
+    #company-ai-code-review .hero-summary {
+      color: var(--muted-foreground);
+      max-width: 62ch;
+      margin: 1rem 0 0;
+    }
+
+    #company-ai-code-review .hero-rule {
+      border-left: 4px solid var(--primary);
+      padding-left: 1rem;
+    }
+
+    #company-ai-code-review .hero-rule strong,
+    #company-ai-code-review .hero-rule span {
+      display: block;
+    }
+
+    #company-ai-code-review .hero-rule span {
+      color: var(--muted-foreground);
+      margin-top: 0.4rem;
+    }
+
+    #company-ai-code-review nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #company-ai-code-review nav a {
+      color: var(--foreground);
+      text-decoration-color: var(--border);
+      text-underline-offset: 0.25rem;
+    }
+
+    #company-ai-code-review section {
+      padding: 2.25rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #company-ai-code-review section:last-of-type {
+      border-bottom: 0;
+    }
+
+    #company-ai-code-review .section-head {
+      display: grid;
+      grid-template-columns: minmax(12rem, 0.6fr) minmax(0, 1.4fr);
+      gap: 1.5rem;
+      align-items: start;
+      margin-bottom: 1.5rem;
+    }
+
+    #company-ai-code-review .section-head h2,
+    #company-ai-code-review .section-head p {
+      margin: 0;
+    }
+
+    #company-ai-code-review .section-head p {
+      color: var(--muted-foreground);
+      max-width: 68ch;
+    }
+
+    #company-ai-code-review .viz-stat-value {
+      white-space: nowrap;
+    }
+
+    #company-ai-code-review .problem-list,
+    #company-ai-code-review .plain-list,
+    #company-ai-code-review .deliver-list {
+      margin: 0;
+      padding-left: 1.25rem;
+    }
+
+    #company-ai-code-review .problem-list li,
+    #company-ai-code-review .plain-list li,
+    #company-ai-code-review .deliver-list li {
+      margin: 0.45rem 0;
+    }
+
+    #company-ai-code-review .review-flow {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    #company-ai-code-review .review-flow li {
+      border-top: 2px solid var(--border);
+      padding-top: 0.75rem;
+      min-width: 0;
+    }
+
+    #company-ai-code-review .review-flow li:nth-child(4),
+    #company-ai-code-review .review-flow li:nth-child(5) {
+      border-top-color: var(--viz-series-1);
+    }
+
+    #company-ai-code-review .review-flow strong,
+    #company-ai-code-review .review-flow span {
+      display: block;
+    }
+
+    #company-ai-code-review .review-flow span:last-child {
+      color: var(--muted-foreground);
+      margin-top: 0.35rem;
+    }
+
+    #company-ai-code-review .input-part {
+      padding-top: 0.8rem;
+      border-top: 2px solid var(--border);
+    }
+
+    #company-ai-code-review .input-part h3 {
+      margin: 0.55rem 0 0.4rem;
+    }
+
+    #company-ai-code-review .input-part p {
+      color: var(--muted-foreground);
+      margin: 0;
+    }
+
+    #company-ai-code-review .review-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0 1.25rem;
+    }
+
+    #company-ai-code-review .review-item {
+      padding: 0.9rem 0;
+      border-top: 1px solid var(--border);
+    }
+
+    #company-ai-code-review .review-item strong,
+    #company-ai-code-review .review-item span {
+      display: block;
+    }
+
+    #company-ai-code-review .review-item span {
+      color: var(--muted-foreground);
+      margin-top: 0.25rem;
+    }
+
+    #company-ai-code-review .decision-mark {
+      height: 0.35rem;
+      margin-bottom: 1rem;
+      background: var(--viz-series-1);
+    }
+
+    #company-ai-code-review .decision-review .decision-mark {
+      background: var(--viz-series-2);
+    }
+
+    #company-ai-code-review .decision-stop .decision-mark {
+      background: var(--destructive);
+    }
+
+    #company-ai-code-review .decision h3 {
+      margin-top: 0;
+    }
+
+    #company-ai-code-review .decision p {
+      color: var(--muted-foreground);
+    }
+
+    #company-ai-code-review .must-have {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0 1rem;
+      margin-top: 1.5rem;
+    }
+
+    #company-ai-code-review .must-have div {
+      padding: 0.8rem 0;
+      border-top: 1px solid var(--border);
+    }
+
+    #company-ai-code-review .security-side {
+      padding-top: 0.75rem;
+      border-top: 2px solid var(--border);
+    }
+
+    #company-ai-code-review .security-side h3 {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0;
+    }
+
+    #company-ai-code-review .pilot-timeline {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1.5rem;
+      counter-reset: pilot;
+    }
+
+    #company-ai-code-review .pilot-timeline li {
+      counter-increment: pilot;
+      padding-top: 0.75rem;
+      border-top: 3px solid var(--viz-series-1);
+    }
+
+    #company-ai-code-review .pilot-timeline li::before {
+      content: &quot;0&quot; counter(pilot);
+      color: var(--muted-foreground);
+      display: block;
+      margin-bottom: 0.45rem;
+    }
+
+    #company-ai-code-review .pilot-timeline strong,
+    #company-ai-code-review .pilot-timeline span {
+      display: block;
+    }
+
+    #company-ai-code-review .pilot-timeline span {
+      color: var(--muted-foreground);
+      margin-top: 0.35rem;
+    }
+
+    #company-ai-code-review .thresholds {
+      display: grid;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    #company-ai-code-review .threshold-row {
+      display: grid;
+      grid-template-columns: minmax(12rem, 0.9fr) minmax(12rem, 1.5fr) auto;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    #company-ai-code-review .threshold-track {
+      height: 0.6rem;
+      background: var(--muted);
+      overflow: hidden;
+    }
+
+    #company-ai-code-review .threshold-fill {
+      display: block;
+      height: 100%;
+      width: var(--value);
+      background: var(--viz-series-1);
+    }
+
+    #company-ai-code-review .threshold-row:nth-child(3) .threshold-fill {
+      background: var(--viz-series-2);
+    }
+
+    #company-ai-code-review .threshold-value {
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    #company-ai-code-review .ownership {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.5rem;
+    }
+
+    #company-ai-code-review .ownership &gt; div {
+      padding-top: 0.75rem;
+      border-top: 2px solid var(--border);
+    }
+
+    #company-ai-code-review .ownership h3 {
+      margin-top: 0;
+    }
+
+    #company-ai-code-review .freedom-line {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 1rem;
+      align-items: center;
+      margin-top: 1.5rem;
+    }
+
+    #company-ai-code-review .freedom-line &gt; div {
+      padding: 1rem 0;
+      border-top: 2px solid var(--border);
+      border-bottom: 2px solid var(--border);
+    }
+
+    #company-ai-code-review .freedom-line strong,
+    #company-ai-code-review .freedom-line span {
+      display: block;
+    }
+
+    #company-ai-code-review .freedom-line span {
+      color: var(--muted-foreground);
+      margin-top: 0.35rem;
+    }
+
+    #company-ai-code-review .arrow {
+      color: var(--muted-foreground);
+      text-align: center;
+    }
+
+    #company-ai-code-review .final-note {
+      padding: 2rem 0 0.5rem;
+      color: var(--muted-foreground);
+      text-align: center;
+    }
+
+    @media (max-width: 680px) {
+      #company-ai-code-review .hero-grid,
+      #company-ai-code-review .section-head,
+      #company-ai-code-review .two-col,
+      #company-ai-code-review .three-col,
+      #company-ai-code-review .ownership {
+        grid-template-columns: 1fr;
+      }
+
+      #company-ai-code-review .review-flow,
+      #company-ai-code-review .review-grid,
+      #company-ai-code-review .must-have,
+      #company-ai-code-review .pilot-timeline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 520px) {
+      #company-ai-code-review .review-flow,
+      #company-ai-code-review .review-grid,
+      #company-ai-code-review .must-have,
+      #company-ai-code-review .pilot-timeline,
+      #company-ai-code-review .freedom-line,
+      #company-ai-code-review .threshold-row {
+        grid-template-columns: 1fr;
+      }
+
+      #company-ai-code-review .arrow {
+        transform: rotate(90deg);
+      }
+    }
+  &lt;/style&gt;
+&lt;header class=&quot;hero&quot; aria-labelledby=&quot;review-title&quot;&gt;
+  &lt;div class=&quot;hero-grid&quot;&gt;
+    &lt;div&gt;
+      &lt;p class=&quot;eyebrow&quot;&gt;公司级设计评审 · V1.1 试点稿 · 2026-07-15&lt;/p&gt;
+      &lt;h1 id=&quot;review-title&quot;&gt;统一检查结果，不统一开发方式&lt;/h1&gt;
+      &lt;p class=&quot;hero-summary&quot;&gt;用一台专用机器运行 Codex，沿真实调用路径检查生产底线。只有 S3 后果、T3 确定触发、E2/E3 证据、本次变更归因和完整因果链同时成立时，才允许阻止合并。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;hero-rule&quot;&gt;
+      &lt;strong&gt;提高 AI 开发质量的最低水平&lt;/strong&gt;
+      &lt;span&gt;V1.1 仍在团队评审和试点，不是固定终版标准&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/header&gt;
+
+&lt;nav aria-label=&quot;页面目录&quot;&gt;
+  &lt;a href=&quot;#why&quot;&gt;为什么&lt;/a&gt;&lt;a href=&quot;#how&quot;&gt;怎样运行&lt;/a&gt;&lt;a href=&quot;#review&quot;&gt;检查什么&lt;/a&gt;&lt;a href=&quot;#decision&quot;&gt;怎样决定&lt;/a&gt;&lt;a href=&quot;#security&quot;&gt;安全边界&lt;/a&gt;&lt;a href=&quot;#pilot&quot;&gt;试点计划&lt;/a&gt;&lt;a href=&quot;#ownership&quot;&gt;交付与维护&lt;/a&gt;
+&lt;/nav&gt;
+
+&lt;section id=&quot;why&quot; aria-labelledby=&quot;why-title&quot;&gt;
+  &lt;div class=&quot;section-head&quot;&gt;&lt;h2 id=&quot;why-title&quot;&gt;为什么需要 V1.1&lt;/h2&gt;&lt;p&gt;首次实战证明生产底线方向有效，也暴露出严重后果与当前是否触发被混为一谈、兼容性规则过宽、报告字段未强制、代理扇出缺少硬限制。&lt;/p&gt;&lt;/div&gt;
+  &lt;div class=&quot;two-col&quot;&gt;
+    &lt;div&gt;&lt;p class=&quot;eyebrow&quot;&gt;继续保持&lt;/p&gt;&lt;ul class=&quot;problem-list&quot;&gt;&lt;li&gt;只检查严重生产底线，不评价代码审美。&lt;/li&gt;&lt;li&gt;必须给出真实入口、代码位置、触发条件和因果链。&lt;/li&gt;&lt;li&gt;存量问题只有被本次改动引入或加重才进入判断。&lt;/li&gt;&lt;li&gt;相同根因必须合并，普通 CI 继续负责稳定工具检查。&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;
+    &lt;div&gt;&lt;p class=&quot;eyebrow&quot;&gt;V1.1 改进&lt;/p&gt;&lt;ul class=&quot;plain-list&quot;&gt;&lt;li&gt;S 后果严重度与 T 触发确定性分开。&lt;/li&gt;&lt;li&gt;兼容性覆盖协议/API、配置语义、持久化身份与所有权。&lt;/li&gt;&lt;li&gt;结构化字段由普通程序校验并计算 verdict。&lt;/li&gt;&lt;li&gt;默认总 Agent 数不超过 3，超限必须批准。&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;viz-grid&quot; style=&quot;margin-top:1.5rem&quot;&gt;
+    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;span class=&quot;text-muted&quot;&gt;底线维度&lt;/span&gt;&lt;span class=&quot;viz-stat-value&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;text-small text-muted&quot;&gt;方案、正确性、稳定性、安全与变更&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;span class=&quot;text-muted&quot;&gt;规则总量&lt;/span&gt;&lt;span class=&quot;viz-stat-value&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;text-small text-muted&quot;&gt;不因单次实战扩大范围&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;span class=&quot;text-muted&quot;&gt;默认 Agent 上限&lt;/span&gt;&lt;span class=&quot;viz-stat-value&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;text-small text-muted&quot;&gt;包括主 Agent&lt;/span&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/section&gt;
+
+&lt;section id=&quot;how&quot; aria-labelledby=&quot;how-title&quot;&gt;
+  &lt;div class=&quot;section-head&quot;&gt;&lt;h2 id=&quot;how-title&quot;&gt;代码提交后怎样运行&lt;/h2&gt;&lt;p&gt;CI 固定审查基线，主 Agent 沿真实路径形成候选，少量验证 Agent 复核，普通程序验证机器合同并计算结果。&lt;/p&gt;&lt;/div&gt;
+  &lt;ol class=&quot;review-flow&quot; aria-label=&quot;AI 代码检查执行流程&quot;&gt;
+    &lt;li&gt;&lt;span class=&quot;viz-badge&quot;&gt;01&lt;/span&gt;&lt;strong&gt;固定基线&lt;/strong&gt;&lt;span&gt;base_commit、target_commit、target_branch、diff_selection_reason&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class=&quot;viz-badge&quot;&gt;02&lt;/span&gt;&lt;strong&gt;普通 CI&lt;/strong&gt;&lt;span&gt;构建、测试、覆盖率、安全检查&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class=&quot;viz-badge&quot;&gt;03&lt;/span&gt;&lt;strong&gt;创建隔离环境&lt;/strong&gt;&lt;span&gt;只读代码，不带生产凭据&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class=&quot;viz-badge&quot;&gt;04&lt;/span&gt;&lt;strong&gt;主 Agent 检查&lt;/strong&gt;&lt;span&gt;真实入口、调用链、数据流、副作用&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class=&quot;viz-badge&quot;&gt;05&lt;/span&gt;&lt;strong&gt;激活相关规则&lt;/strong&gt;&lt;span&gt;不按 20 条规则盲目扇出&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class=&quot;viz-badge&quot;&gt;06&lt;/span&gt;&lt;strong&gt;候选去重与验证&lt;/strong&gt;&lt;span&gt;每个候选最多一个验证 Agent&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class=&quot;viz-badge&quot;&gt;07&lt;/span&gt;&lt;strong&gt;生成机器报告&lt;/strong&gt;&lt;span&gt;JSON 给 CI，Markdown 给人&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;span class=&quot;viz-badge&quot;&gt;08&lt;/span&gt;&lt;strong&gt;程序计算结果&lt;/strong&gt;&lt;span&gt;PASS、MANUAL_REVIEW、BLOCK、INCOMPLETE&lt;/span&gt;&lt;/li&gt;
+  &lt;/ol&gt;
+  &lt;div class=&quot;three-col&quot; style=&quot;margin-top:2rem&quot;&gt;
+    &lt;div class=&quot;input-part&quot;&gt;&lt;span class=&quot;viz-badge&quot;&gt;审查基线&lt;/span&gt;&lt;h3&gt;明确变更范围&lt;/h3&gt;&lt;p&gt;&lt;code&gt;base_commit&lt;/code&gt;、&lt;code&gt;target_commit&lt;/code&gt;、&lt;code&gt;diff_selection_reason&lt;/code&gt; 缺失时不得 BLOCK。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;input-part&quot;&gt;&lt;span class=&quot;viz-badge&quot;&gt;机器合同&lt;/span&gt;&lt;h3&gt;字段可校验&lt;/h3&gt;&lt;p&gt;报告包含 severity、trigger_confidence、evidence_level、调用路径、触发条件、因果链和验证证据。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;input-part&quot;&gt;&lt;span class=&quot;viz-badge&quot;&gt;项目说明&lt;/span&gt;&lt;h3&gt;补充业务事实&lt;/h3&gt;&lt;p&gt;关键数据、配置、真实规模、调用方、恢复要求和权威契约。&lt;/p&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/section&gt;
+
+&lt;section id=&quot;review&quot; aria-labelledby=&quot;review-title-2&quot;&gt;
+  &lt;div class=&quot;section-head&quot;&gt;&lt;h2 id=&quot;review-title-2&quot;&gt;Codex 每次检查什么&lt;/h2&gt;&lt;p&gt;继续使用四个维度和 20 条规则，只激活与本次改动相关的规则族。&lt;/p&gt;&lt;/div&gt;
+  &lt;div class=&quot;review-grid&quot; role=&quot;list&quot;&gt;
+    &lt;div class=&quot;review-item&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;D1 方案方向与数据流&lt;/strong&gt;&lt;span&gt;增长维度、全量扫描、远程调用、权威数据源、同步批处理&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;review-item&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;D2 业务结果与数据安全&lt;/strong&gt;&lt;span&gt;契约、不变量、边界计算、事务、幂等&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;review-item&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;D3 生产稳定性&lt;/strong&gt;&lt;span&gt;资源上限、超时取消、并发、泄漏、错误恢复&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;review-item&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;D4 安全与变更安全&lt;/strong&gt;&lt;span&gt;权限、输入、敏感数据、兼容性、迁移&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;review-item&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;CHG-001 协议/API&lt;/strong&gt;&lt;span&gt;请求语法、认证方案、响应字段、状态码、事件&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;review-item&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;CHG-001 配置语义&lt;/strong&gt;&lt;span&gt;已有配置继续被读取并保持原意&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;review-item&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;CHG-001 持久化身份&lt;/strong&gt;&lt;span&gt;用户、租户、所有权、幂等、缓存和外部账户标识&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;review-item&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;协议证据边界&lt;/strong&gt;&lt;span&gt;只凭模型记忆最高 E1；契约、标准、框架或测试支持 E2/E3&lt;/span&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/section&gt;
+
+&lt;section id=&quot;decision&quot; aria-labelledby=&quot;decision-title&quot;&gt;
+  &lt;div class=&quot;section-head&quot;&gt;&lt;h2 id=&quot;decision-title&quot;&gt;怎样决定能否合并&lt;/h2&gt;&lt;p&gt;V1.1 将后果、触发确定性和证据分开。理论上很严重，不等于当前目标一定会触发。&lt;/p&gt;&lt;/div&gt;
+  &lt;div class=&quot;three-col decision&quot;&gt;
+    &lt;div class=&quot;card decision-pass&quot;&gt;&lt;div class=&quot;decision-mark&quot;&gt;&lt;/div&gt;&lt;h3&gt;PASS&lt;/h3&gt;&lt;p&gt;没有发现满足完整阻断条件的底线缺陷，不代表代码优秀。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;card decision-review&quot;&gt;&lt;div class=&quot;decision-mark&quot;&gt;&lt;/div&gt;&lt;h3&gt;MANUAL_REVIEW&lt;/h3&gt;&lt;p&gt;例如 S3 + T2 + E2/E3：后果严重、条件现实，但当前环境是否触发尚未证明。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;card decision-stop&quot;&gt;&lt;div class=&quot;decision-mark&quot;&gt;&lt;/div&gt;&lt;h3&gt;BLOCK&lt;/h3&gt;&lt;p&gt;S3 + T3 + E2/E3，并且由本次变更引入或加重，触发条件和因果链完整。&lt;/p&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;must-have&quot; aria-label=&quot;阻止合并完整条件&quot;&gt;
+    &lt;div&gt;&lt;strong&gt;S3 后果&lt;/strong&gt;&lt;br&gt;&lt;span class=&quot;text-muted&quot;&gt;触发后造成严重生产影响&lt;/span&gt;&lt;/div&gt;
+    &lt;div&gt;&lt;strong&gt;T3 触发&lt;/strong&gt;&lt;br&gt;&lt;span class=&quot;text-muted&quot;&gt;当前部署、配置、调用方或输入已证明&lt;/span&gt;&lt;/div&gt;
+    &lt;div&gt;&lt;strong&gt;E2/E3 证据&lt;/strong&gt;&lt;br&gt;&lt;span class=&quot;text-muted&quot;&gt;代码证实或已经验证&lt;/span&gt;&lt;/div&gt;
+    &lt;div&gt;&lt;strong&gt;本次变更归因&lt;/strong&gt;&lt;br&gt;&lt;span class=&quot;text-muted&quot;&gt;引入、扩大或变得可触发&lt;/span&gt;&lt;/div&gt;
+    &lt;div&gt;&lt;strong&gt;具体触发条件&lt;/strong&gt;&lt;br&gt;&lt;span class=&quot;text-muted&quot;&gt;输入、配置、规模或运行状态&lt;/span&gt;&lt;/div&gt;
+    &lt;div&gt;&lt;strong&gt;完整因果链&lt;/strong&gt;&lt;br&gt;&lt;span class=&quot;text-muted&quot;&gt;真实入口到生产后果，且不是风格偏好&lt;/span&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;input-part&quot; style=&quot;margin-top:1.5rem&quot;&gt;&lt;strong&gt;统一场景矩阵&lt;/strong&gt;&lt;p&gt;&lt;code&gt;S3 + T3 + E2/E3 + 本次引入 + 完整因果链 → BLOCK&lt;/code&gt;&lt;br&gt;&lt;code&gt;S3 + T2 + E2/E3 → MANUAL_REVIEW&lt;/code&gt;&lt;br&gt;&lt;code&gt;S2 + T3 + E3 → MANUAL_REVIEW&lt;/code&gt;&lt;br&gt;&lt;code&gt;报告字段缺失或基线不明确 → INCOMPLETE&lt;/code&gt;&lt;/p&gt;&lt;/div&gt;
+  &lt;div class=&quot;input-part&quot; style=&quot;margin-top:1.5rem&quot;&gt;&lt;strong&gt;INCOMPLETE 不能当作 PASS&lt;/strong&gt;&lt;p&gt;基线不明确、强制字段缺失、枚举非法、检查超时或机器故障时结果为 INCOMPLETE。总体优先级：INCOMPLETE &amp;gt; BLOCK &amp;gt; MANUAL_REVIEW &amp;gt; PASS。&lt;/p&gt;&lt;/div&gt;
+&lt;/section&gt;
+
+&lt;section id=&quot;security&quot; aria-labelledby=&quot;security-title&quot;&gt;
+  &lt;div class=&quot;section-head&quot;&gt;&lt;h2 id=&quot;security-title&quot;&gt;专用机器的安全与资源边界&lt;/h2&gt;&lt;p&gt;每次检查使用全新任务，只有完成只读代码检查所需的最小权限和受控 Agent 预算。&lt;/p&gt;&lt;/div&gt;
+  &lt;div class=&quot;two-col&quot;&gt;
+    &lt;div class=&quot;security-side&quot;&gt;&lt;h3&gt;允许&lt;/h3&gt;&lt;ul class=&quot;plain-list&quot;&gt;&lt;li&gt;读取明确 base/target 的代码和普通 CI 证据。&lt;/li&gt;&lt;li&gt;主 Agent 沿真实路径检查并形成候选。&lt;/li&gt;&lt;li&gt;每个候选最多一个独立验证 Agent。&lt;/li&gt;&lt;li&gt;生成结构化 JSON 和可读 Markdown 报告。&lt;/li&gt;&lt;li&gt;记录 Agent 数、token、耗时和重试。&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;
+    &lt;div class=&quot;security-side&quot;&gt;&lt;h3&gt;不允许&lt;/h3&gt;&lt;ul class=&quot;plain-list&quot;&gt;&lt;li&gt;访问生产数据库、云平台、部署或签名凭据。&lt;/li&gt;&lt;li&gt;修改、提交、合并或部署代码。&lt;/li&gt;&lt;li&gt;为每条规则、每个文件或每个角度分别启动 Agent。&lt;/li&gt;&lt;li&gt;没有候选时启动验证 Agent。&lt;/li&gt;&lt;li&gt;超过默认 3 Agent 而没有 CI 配置或人工显式批准。&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;input-part&quot; style=&quot;margin-top:1.5rem&quot;&gt;&lt;strong&gt;默认总 Agent 数不超过 3&lt;/strong&gt;&lt;p&gt;包括主 Agent。执行器必须设置硬上限；自然语言“节制使用”不能替代限制。超限必须记录计划数量、实际数量和原因。&lt;/p&gt;&lt;/div&gt;
+&lt;/section&gt;
+
+&lt;section id=&quot;pilot&quot; aria-labelledby=&quot;pilot-title&quot;&gt;
+  &lt;div class=&quot;section-head&quot;&gt;&lt;h2 id=&quot;pilot-title&quot;&gt;怎样从试点走向正式使用&lt;/h2&gt;&lt;p&gt;规则先经过正例、反例和证据不足案例，再在真实 PR 中 report-only；一次成功命中不能证明整个 Rubric 已成熟。&lt;/p&gt;&lt;/div&gt;
+  &lt;ol class=&quot;pilot-timeline&quot;&gt;
+    &lt;li&gt;&lt;strong&gt;建立规则验证矩阵&lt;/strong&gt;&lt;span&gt;每条拟阻断规则至少一个正例、一个不得阻断的反例、一个应 MANUAL_REVIEW 的证据不足案例。&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;历史代码盲测&lt;/strong&gt;&lt;span&gt;至少 15 个已知严重问题和 15 个正常改动；严重案例重复运行三次。&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;真实 PR 只出报告&lt;/strong&gt;&lt;span&gt;三个运行中项目持续两到四周，人工标记正确、错误或证据不足。&lt;/span&gt;&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;满足条件后按项目启用&lt;/strong&gt;&lt;span&gt;记录规则稳定性、重复根因、Agent 数、token、耗时和人工推翻原因。&lt;/span&gt;&lt;/li&gt;
+  &lt;/ol&gt;
+  &lt;div class=&quot;three-col&quot; style=&quot;margin-top:1.75rem&quot;&gt;
+    &lt;div class=&quot;input-part&quot;&gt;&lt;strong&gt;正例&lt;/strong&gt;&lt;p&gt;验证能否命中真实严重缺陷和正确规则。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;input-part&quot;&gt;&lt;strong&gt;反例&lt;/strong&gt;&lt;p&gt;验证硬上限、兼容路径或充分保护不会被错误阻断。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;input-part&quot;&gt;&lt;strong&gt;证据不足&lt;/strong&gt;&lt;p&gt;验证缺少配置、调用方、规模或契约时会降为人工复核。&lt;/p&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/section&gt;
+
+&lt;section id=&quot;ownership&quot; aria-labelledby=&quot;ownership-title&quot;&gt;
+  &lt;div class=&quot;section-head&quot;&gt;&lt;h2 id=&quot;ownership-title&quot;&gt;需要交付什么，谁来维护&lt;/h2&gt;&lt;p&gt;共享仓库维护 Skill、20 条规则、机器合同、校验脚本和案例矩阵；项目维护业务上下文和接入配置。&lt;/p&gt;&lt;/div&gt;
+  &lt;div class=&quot;ownership&quot;&gt;
+    &lt;div&gt;&lt;h3&gt;公司共享仓库&lt;/h3&gt;&lt;ul class=&quot;deliver-list&quot;&gt;&lt;li&gt;公司代码检查 Skill 和短 Prompt。&lt;/li&gt;&lt;li&gt;V1.1 规则集与结构化 schema。&lt;/li&gt;&lt;li&gt;verdict 校验程序和报告模板。&lt;/li&gt;&lt;li&gt;正例、反例、证据不足案例矩阵。&lt;/li&gt;&lt;li&gt;Agent 硬上限与资源统计。&lt;/li&gt;&lt;li&gt;CI 示例和专用机器安全说明。&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;
+    &lt;div&gt;&lt;h3&gt;每个接入项目&lt;/h3&gt;&lt;ul class=&quot;deliver-list&quot;&gt;&lt;li&gt;固定 Skill 和规则版本的短配置。&lt;/li&gt;&lt;li&gt;项目入口、不变量、真实规模、配置和权威契约说明。&lt;/li&gt;&lt;li&gt;调用共享命令的 CI 任务。&lt;/li&gt;&lt;li&gt;人工标注和放行负责人。&lt;/li&gt;&lt;li&gt;项目特有规则和案例。&lt;/li&gt;&lt;li&gt;何时从 report-only 进入阻断的项目决定。&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;freedom-line&quot;&gt;&lt;div&gt;&lt;strong&gt;公司统一最低要求&lt;/strong&gt;&lt;span&gt;审查基线、底线范围、S/T/E 证据、机器合同和资源上限&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;arrow&quot;&gt;→&lt;/div&gt;&lt;div&gt;&lt;strong&gt;个人和团队自由发挥&lt;/strong&gt;&lt;span&gt;AI 工具、提示词、开发步骤、额外规则和完整 Harness&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;/section&gt;
+
+&lt;p class=&quot;final-note&quot;&gt;V1.1 目标：让严重、确定、证据充分的底线缺陷更难进入主分支，同时让不确定风险回到人工判断，并把代理成本控制在可审计范围内。&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>
