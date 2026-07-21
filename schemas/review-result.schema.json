@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "policy_version", "request", "activated_rule_families", "inactive_rule_families", "findings", "execution", "uninspected_scope", "missing_context", "adjudication"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "target_branch", "base_commit", "target_commit", "diff_selection_reason", "changed_files", "affected_entries"],
+      "properties": {
+        "repository": {"type": "string"},
+        "target_branch": {"type": "string"},
+        "base_commit": {"type": "string"},
+        "target_commit": {"type": "string"},
+        "diff_selection_reason": {"type": "string"},
+        "changed_files": {"type": "array", "items": {"type": "string"}},
+        "affected_entries": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "activated_rule_families": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "inactive_rule_families": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "reason"],
+        "properties": {
+          "id": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/adjudicated_finding"}},
+    "execution": {"$ref": "model-review.schema.json#/$defs/execution"},
+    "uninspected_scope": {"type": "array", "items": {"type": "string"}},
+    "missing_context": {"type": "array", "items": {"type": "string"}},
+    "adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_result", "rollout_mode", "ci_action", "reasons"],
+      "properties": {
+        "semantic_result": {"enum": ["PASS", "MANUAL_REVIEW", "BLOCK", "INCOMPLETE"]},
+        "rollout_mode": {"const": "report_only"},
+        "ci_action": {"const": "publish_report"},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "$defs": {
+    "adjudicated_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate", "final_verdict"],
+      "properties": {
+        "candidate": {"$ref": "model-review.schema.json#/$defs/finding"},
+        "final_verdict": {"enum": ["MANUAL_REVIEW", "BLOCK"]}
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repository", "target_branch", "base_commit", "target_commit", "diff_selection_reason", "changed_files", "affected_entries"],
+  "properties": {
+    "repository": {"type": "string", "minLength": 1},
+    "target_branch": {"type": "string", "minLength": 1},
+    "base_commit": {"type": "string", "minLength": 1},
+    "target_commit": {"type": "string", "minLength": 1},
+    "diff_selection_reason": {"type": "string", "minLength": 1},
+    "changed_files": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "affected_entries": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+  }
+}

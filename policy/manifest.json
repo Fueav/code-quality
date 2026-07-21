@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.1.0",
+  "rubric": "policy/v1.1/rubric.md",
+  "agent_limit": 2,
+  "rules": [
+    {"id": "DES-001", "dimension": "D1", "status": "report_only"},
+    {"id": "DES-002", "dimension": "D1", "status": "report_only"},
+    {"id": "DES-003", "dimension": "D1", "status": "report_only"},
+    {"id": "DES-004", "dimension": "D1", "status": "report_only"},
+    {"id": "DES-005", "dimension": "D1", "status": "report_only"},
+    {"id": "COR-001", "dimension": "D2", "status": "report_only"},
+    {"id": "COR-002", "dimension": "D2", "status": "report_only"},
+    {"id": "COR-003", "dimension": "D2", "status": "report_only"},
+    {"id": "COR-004", "dimension": "D2", "status": "report_only"},
+    {"id": "COR-005", "dimension": "D2", "status": "report_only"},
+    {"id": "REL-001", "dimension": "D3", "status": "report_only"},
+    {"id": "REL-002", "dimension": "D3", "status": "report_only"},
+    {"id": "REL-003", "dimension": "D3", "status": "report_only"},
+    {"id": "REL-004", "dimension": "D3", "status": "report_only"},
+    {"id": "REL-005", "dimension": "D3", "status": "report_only"},
+    {"id": "SEC-001", "dimension": "D4", "status": "report_only"},
+    {"id": "SEC-002", "dimension": "D4", "status": "report_only"},
+    {"id": "SEC-003", "dimension": "D4", "status": "report_only"},
+    {"id": "CHG-001", "dimension": "D4", "status": "report_only"},
+    {"id": "CHG-002", "dimension": "D4", "status": "report_only"}
+  ]
+}
