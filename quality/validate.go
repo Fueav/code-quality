@@ -131,8 +131,8 @@ func ValidateModelReview(review ModelReview, policy PolicyManifest) []string {
 	if review.Execution.VerifierCount > review.Execution.AgentCount-1 {
 		errors = append(errors, "execution.verifier_count exceeds available agents")
 	}
-	if review.Execution.InputTokens < 0 || review.Execution.OutputTokens < 0 || review.Execution.DurationMS < 0 || review.Execution.RetryCount < 0 {
-		errors = append(errors, "execution metrics must be non-negative")
+	if negativeMetric(review.Execution.InputTokens) || negativeMetric(review.Execution.OutputTokens) || negativeMetric(review.Execution.DurationMS) || negativeMetric(review.Execution.RetryCount) {
+		errors = append(errors, "execution metrics must be non-negative when available")
 	}
 	if hasBlankOrDuplicate(review.ActivatedRuleFamilies) {
 		errors = append(errors, "activated_rule_families must be unique and non-empty")
@@ -230,6 +230,10 @@ func ValidateModelReview(review ModelReview, policy PolicyManifest) []string {
 		errors = append(errors, "missing_context contains an empty value")
 	}
 	return uniqueSorted(errors)
+}
+
+func negativeMetric(value *int) bool {
+	return value != nil && *value < 0
 }
 
 func isCleanRelativePath(path string) bool {

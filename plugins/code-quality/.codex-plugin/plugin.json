@@ -1,0 +1,31 @@
+{
+  "name": "code-quality",
+  "version": "0.1.0",
+  "description": "Runs the V1.1 production-floor code-quality review in the current host session.",
+  "author": {
+    "name": "Fueav",
+    "url": "https://github.com/Fueav"
+  },
+  "keywords": [
+    "code-quality",
+    "code-review",
+    "production-safety",
+    "report-only"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Code Quality",
+    "shortDescription": "Review production-floor defects",
+    "longDescription": "Review a trusted committed Git increment in the current Codex session and deterministically produce the V1.1 report-only result.",
+    "developerName": "Fueav",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Run the V1.1 code-quality review for this committed change."
+    ]
+  }
+}

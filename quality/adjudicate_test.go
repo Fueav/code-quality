@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func TestIncompleteResultNormalizesRequestArrays(t *testing.T) {
+	result := IncompleteResult(ReviewRequest{}, validPolicy(), "intake failed")
+	if result.Request.ChangedFiles == nil || result.Request.AffectedEntries == nil {
+		t.Fatalf("request arrays are null: %#v", result.Request)
+	}
+}
+
 func TestAdjudicateAppliesCompleteBlockingFormula(t *testing.T) {
 	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
 	if result.Adjudication.SemanticResult != ResultBlock {
@@ -161,10 +168,6 @@ func reviewWith(findings ...Finding) ModelReview {
 		Execution: Execution{
 			AgentCount:    1 + verifiers,
 			VerifierCount: verifiers,
-			InputTokens:   100,
-			OutputTokens:  50,
-			DurationMS:    1000,
-			RetryCount:    0,
 		},
 	}
 }

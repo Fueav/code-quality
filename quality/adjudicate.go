@@ -77,6 +77,8 @@ func Adjudicate(request ReviewRequest, review ModelReview, policy PolicyManifest
 }
 
 func IncompleteResult(request ReviewRequest, policy PolicyManifest, reasons ...string) ReviewResult {
+	request.ChangedFiles = nonNil(request.ChangedFiles)
+	request.AffectedEntries = nonNil(request.AffectedEntries)
 	return ReviewResult{
 		SchemaVersion:         1,
 		PolicyVersion:         policy.PolicyVersion,

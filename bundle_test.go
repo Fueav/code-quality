@@ -34,9 +34,14 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-request.schema.json",
 		"model-review.schema.json",
 		"review-result.schema.json",
+		"verifier-review.schema.json",
 	} {
-		if schema, err := Schema(name); err != nil || len(schema) == 0 {
+		schema, err := Schema(name)
+		if err != nil || len(schema) == 0 {
 			t.Fatalf("embedded schema %s unavailable: %v", name, err)
+		}
+		if name == "model-review.schema.json" && strings.Contains(string(schema), `"$schema"`) {
+			t.Fatal("Codex output schema uses an unsupported draft declaration")
 		}
 	}
 }

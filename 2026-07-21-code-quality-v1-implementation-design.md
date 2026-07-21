@@ -21,22 +21,11 @@ V1 只提升代码质量下限，不评价命名、格式、一般代码风格�
 
 ## 3. 产品形态
 
-V1 使用一个独立仓库，暂称 `code-quality`，发布一个静态 Go CLI：`quality-review`。一个发行版本同时固定 Policy、Schema、Runner、Validator、Adjudicator、Renderer 和 Eval cases。
+V1 使用一个独立仓库，暂称 `code-quality`，发布一个静态 Go CLI：`quality-review`，并为 Claude Code 与 Codex 提供同一份薄 Skill。一个发行版本同时固定 Policy、Schema、确定性 Intake、Validator、Adjudicator、Renderer 和 Eval cases；模型与 Agent 运行时由用户当前已认证的 Claude Code 或 Codex 会话提供。
 
 不拆分多个版本线，不并入 `harnessctl`、Harness Driven Development 或 Harness Template Sync。
 
-普通使用者在 Git 仓库中直接运行：
-
-```bash
-quality-review
-```
-
-高级调用可显式指定：
-
-```bash
-quality-review run --base <commit> --target <commit> \
-  --diff-reason <reason> --output <directory>
-```
+普通使用者在 Claude Code 或 Codex 会话中调用 `code-quality` Skill。Skill 调用 CLI 的确定性命令，不要求用户配置模型、provider、API Key 或独立 Agent 后端。
 
 首次运行不要求项目配置、项目质量上下文、Evidence Pack、`AGENTS.md`、Template、Harness Skill 或 `harnessctl`。
 
@@ -55,7 +44,7 @@ JSON 是唯一权威结果，Markdown 由程序确定性生成。
 Git repository / CI environment
   → Intake：可信 base、target、diff reason、changed files
   → Context Discovery：相关入口、调用链、测试、配置、契约、证据
-  → Review Runner：主 Agent；必要时一个批量验证 Agent
+  → Host Session Review：当前会话的主 Agent；必要时一个批量验证子代理
   → Model Review JSON
   → Validator + Adjudicator：确定性校验与裁决
   → Report Renderer
@@ -66,12 +55,12 @@ Git repository / CI environment
 ```text
 code-quality/
 ├── cmd/quality-review/
-├── internal/{intake,discovery,review,validation,adjudication,report}/
+├── internal/{intake,session}/
+├── quality/
 ├── policy/v1.1/
-├── prompts/
 ├── schemas/
 ├── evals/
-├── plugins/code-quality/       # 可选薄 Skill
+├── plugins/code-quality/       # Claude Code / Codex 共用薄 Skill
 └── docs/
 ```
 
@@ -89,7 +78,7 @@ Intake 生成符合 `review-request.schema.json` 的请求，包含 V1.1 已规�
 
 ## 6. Context Discovery：零配置上下文发现
 
-上下文发现是模块内部阶段，不是接入方交付物。Runner 从 Diff 出发，读取与改动直接相关的：
+上下文发现是宿主会话内部阶段，不是接入方交付物。CLI 从 Diff 出发物化 target 快照和可信工件，主 Agent 使用宿主只读搜索和代码导航读取与改动直接相关的：
 
 - 修改的函数、类型、接口和数据结构；
 - 真实入口、调用方、被调用方和副作用；
@@ -106,15 +95,15 @@ V1 不开发跨语言静态调用图。Go 程序提供 Diff 和仓库种子，�
 
 Harness 是可选证据来源，不是运行依赖。普通仓库使用 Git、代码、现有测试和文档；Harness 仓库若存在与 target commit 匹配且 digest 有效的 evidence，Runner 自动读取。过期、损坏或不匹配的 evidence 不参与裁决，并在报告中说明。
 
-两类仓库使用完全相同的 Policy、Runner、Schema、Adjudicator 和 Verdict。`harnessctl` 不调用模型，两个 Harness Skill 不拥有质量规则，Template Sync 不成为运行时依赖。
+两类仓库使用完全相同的 Policy、Schema、Adjudicator 和 Verdict。`harnessctl` 不调用模型，两个 Harness Skill 不拥有质量规则，Template Sync 不成为运行时依赖。
 
 ## 8. 模型执行与 Agent 控制
 
-V1 只支持一个固定版本的 Codex CLI 后端，不提前建设多供应商抽象。
+V1 不实现模型后端，也不调用 Claude API 或 `codex exec`。Claude Code 与 Codex 的薄 Skill 都复用用户当前已认证会话的模型和 Agent 能力；Go CLI 只负责 Git Intake、会话工件、Schema 校验、verifier 合并、裁决和报告。
 
 主 Agent 负责确认行为变化、找到真实入口、追踪调用链与数据流、激活相关规则、形成候选并按根因去重。
 
-只有存在潜在 `BLOCK` 候选时，Runner 才启动一个独立验证 Agent，批量反证全部候选：检查不可达路径、硬上限、既有幂等/鉴权/超时保护、历史归因和证据缺口。
+只有存在潜在 `BLOCK` 候选时，Skill 才启动一个当前宿主提供的只读子代理，批量反证全部候选：检查不可达路径、硬上限、既有幂等/鉴权/超时保护、历史归因和证据缺口。CLI 生成 verifier 请求并校验其结果；宿主不能启动 verifier 时必须记录原因，候选最多为 `MANUAL_REVIEW`。
 
 V1 最多使用 2 个 Agent，严于 V1.1 的 3 Agent 总上限：
 
@@ -137,15 +126,16 @@ Agent 不得修改代码、执行项目脚本、安装依赖、访问网络、�
 
 `policy/v1.1/rubric.md` 保存完整规则语义；manifest 只保存 `policy_version`、`rule_id`、`dimension`、`status`、`agent_limit` 和 `schema_version`。
 
-Prompt 只包含本次任务数据、权威指针、只读限制、停止条件和输出 Schema，不复制 20 条规则。可选 Skill 只负责触发和指向 CLI/报告，不拥有 Policy、Agent 工作流或裁决逻辑。CI 直接调用 CLI。
+可用 Skill 只负责触发宿主会话流程、指向 CLI 生成的工件并执行一次可选的批量 verifier，不拥有 Policy 或裁决逻辑。Prompt 只包含本次任务数据、权威指针、只读限制、停止条件和输出 Schema，不复制 20 条规则。
 
 ## 10. Schema 与确定性裁决
 
-V1 只需要三份核心 Schema：
+V1 使用四份核心 Schema：
 
-1. `review-request.schema.json`：Runner 生成的基线和范围；
-2. `model-review.schema.json`：模型候选、激活规则、缺失上下文和执行信息；
-3. `review-result.schema.json`：最终权威报告。
+1. `review-request.schema.json`：CLI 生成的基线和范围；
+2. `model-review.schema.json`：主 Agent 候选、激活规则和缺失上下文；
+3. `verifier-review.schema.json`：一个批量 verifier 对潜在阻断候选的决策；
+4. `review-result.schema.json`：最终权威报告。
 
 模型输出是候选，不是最终 verdict。普通程序必须：
 
@@ -159,7 +149,7 @@ V1 只需要三份核心 Schema：
 
 ## 11. 安全与隔离
 
-每次检查使用新的 target commit 临时工作区，默认只读并在完成后清理。模型凭证只提供给模型步骤，不提供给项目代码、测试、依赖安装或构建脚本。
+每次检查由 CLI 从 target commit 物化新的只读快照和可信 diff，主 Agent 与 verifier 只读取该会话目录。模块不接收、保存或转发模型凭证；模型调用完全属于用户当前 Claude Code 或 Codex 会话。
 
 Policy、Prompt 基础约束、Schema、Agent 上限、Adjudicator 和 CI 映射固定在发行版本中，不从当前 PR 读取。PR 描述、代码注释、日志和仓库文档均按不可信数据处理，不能覆盖权限、规则、预算或输出合同。
 
@@ -181,8 +171,8 @@ ci_action: publish_report
 
 1. **确定性核心**：Policy 导入、三份 Schema、Validator、Adjudicator、Renderer；
 2. **零配置 Intake**：显式参数、GitHub、GitLab、本地 Git 和 `INCOMPLETE` 路径；
-3. **单 Agent Review**：只读工作区、固定 Codex 调用、结构化候选、预算和超时；
-4. **批量验证 Agent**：仅验证潜在阻断候选并执行合并规则；
+3. **宿主会话主审查**：target 快照、可信工件、结构化主候选和 Claude Code/Codex 薄 Skill；
+4. **批量验证 Agent**：仅验证潜在阻断候选并执行确定性合并；
 5. **Eval 与试点**：历史回放、普通仓库/Harness fixture、report-only CI 示例。
 
 每一阶段必须先有确定性测试和 fixture，再进入下一阶段。

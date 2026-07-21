@@ -42,12 +42,23 @@ type Finding struct {
 }
 
 type Execution struct {
-	AgentCount    int `json:"agent_count"`
-	VerifierCount int `json:"verifier_count"`
-	InputTokens   int `json:"input_tokens"`
-	OutputTokens  int `json:"output_tokens"`
-	DurationMS    int `json:"duration_ms"`
-	RetryCount    int `json:"retry_count"`
+	AgentCount    int  `json:"agent_count"`
+	VerifierCount int  `json:"verifier_count"`
+	InputTokens   *int `json:"input_tokens"`
+	OutputTokens  *int `json:"output_tokens"`
+	DurationMS    *int `json:"duration_ms"`
+	RetryCount    *int `json:"retry_count"`
+}
+
+type VerifierDecision struct {
+	FindingID           string   `json:"finding_id"`
+	Result              string   `json:"result"`
+	VerificationSummary string   `json:"verification_summary"`
+	Uncertainties       []string `json:"uncertainties"`
+}
+
+type VerifierReview struct {
+	Decisions []VerifierDecision `json:"decisions"`
 }
 
 type ModelReview struct {
@@ -56,7 +67,7 @@ type ModelReview struct {
 	Findings              []Finding            `json:"findings"`
 	UninspectedScope      []string             `json:"uninspected_scope"`
 	MissingContext        []string             `json:"missing_context"`
-	Execution             Execution            `json:"execution"`
+	Execution             Execution            `json:"-"`
 }
 
 type AdjudicatedFinding struct {

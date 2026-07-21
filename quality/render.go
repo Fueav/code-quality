@@ -52,9 +52,9 @@ func RenderMarkdown(result ReviewResult) string {
 	fmt.Fprintln(&output, "## Execution")
 	fmt.Fprintln(&output)
 	fmt.Fprintf(&output, "- Agents: %d (%d verifier)\n", result.Execution.AgentCount, result.Execution.VerifierCount)
-	fmt.Fprintf(&output, "- Tokens: %d input / %d output\n", result.Execution.InputTokens, result.Execution.OutputTokens)
-	fmt.Fprintf(&output, "- Duration: %d ms\n", result.Execution.DurationMS)
-	fmt.Fprintf(&output, "- Retries: %d\n", result.Execution.RetryCount)
+	fmt.Fprintf(&output, "- Tokens: %s input / %s output\n", renderMetric(result.Execution.InputTokens), renderMetric(result.Execution.OutputTokens))
+	fmt.Fprintf(&output, "- Duration: %s\n", renderDuration(result.Execution.DurationMS))
+	fmt.Fprintf(&output, "- Retries: %s\n", renderMetric(result.Execution.RetryCount))
 	fmt.Fprintln(&output)
 	fmt.Fprintln(&output, "## Adjudication Reasons")
 	fmt.Fprintln(&output)
@@ -62,6 +62,20 @@ func RenderMarkdown(result ReviewResult) string {
 		fmt.Fprintf(&output, "- %s\n", reason)
 	}
 	return output.String()
+}
+
+func renderMetric(value *int) string {
+	if value == nil {
+		return "unavailable"
+	}
+	return fmt.Sprintf("%d", *value)
+}
+
+func renderDuration(value *int) string {
+	if value == nil {
+		return "unavailable"
+	}
+	return fmt.Sprintf("%d ms", *value)
 }
 
 func renderLocations(locations []CodeLocation) string {
