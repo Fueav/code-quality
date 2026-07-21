@@ -1,11 +1,13 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
 
 	bundle "github.com/Fueav/code-quality"
+	"github.com/Fueav/code-quality/internal/intake"
 	"github.com/Fueav/code-quality/quality"
 )
 
@@ -17,8 +19,7 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: quality-review <version|adjudicate|validate|render>")
-		return 2
+		return runPrepare(nil, stdout, stderr)
 	}
 	policy, err := loadPolicy()
 	if err != nil {
@@ -29,6 +30,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		fmt.Fprintf(stdout, "quality-review %s\n", version)
 		return 0
+	case "prepare":
+		return runPrepare(args[1:], stdout, stderr)
 	case "adjudicate":
 		if len(args) != 3 {
 			fmt.Fprintln(stderr, "usage: quality-review adjudicate <request.json> <model-review.json>")
@@ -95,6 +98,40 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "quality-review: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+func runPrepare(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("prepare", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	repository := flags.String("repo", ".", "Git repository path")
+	base := flags.String("base", "", "base commit")
+	target := flags.String("target", "", "target commit")
+	reason := flags.String("diff-reason", "", "diff selection reason")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "quality-review: prepare accepts flags only")
+		return 2
+	}
+	result, err := intake.Discover(intake.Options{
+		RepositoryPath: *repository,
+		Base:           *base,
+		Target:         *target,
+		DiffReason:     *reason,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: prepare: %v\n", err)
+		return 1
+	}
+	if result.DirtyWorktree {
+		fmt.Fprintln(stderr, "quality-review: working tree changes are not included; review covers committed base and target only")
+	}
+	if err := quality.EncodeJSON(stdout, result.Request); err != nil {
+		fmt.Fprintf(stderr, "quality-review: encode request: %v\n", err)
+		return 2
+	}
+	return 0
 }
 
 func loadPolicy() (quality.PolicyManifest, error) {

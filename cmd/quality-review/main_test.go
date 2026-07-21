@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +19,52 @@ func TestVersion(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout.String()) != "quality-review dev" {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestPrepareExplicitBaseline(t *testing.T) {
+	repo := t.TempDir()
+	git := func(arguments ...string) string {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", repo}, arguments...)...)
+		command.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Quality Test", "GIT_AUTHOR_EMAIL=quality@example.test",
+			"GIT_COMMITTER_NAME=Quality Test", "GIT_COMMITTER_EMAIL=quality@example.test",
+		)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", arguments, err, output)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	git("init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "base")
+	base := git("rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "change")
+	target := git("rev-parse", "HEAD")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"prepare", "--repo", repo, "--base", base,
+		"--target", target, "--diff-reason", "test_increment",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	var request quality.ReviewRequest
+	if err := json.Unmarshal(stdout.Bytes(), &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.BaseCommit != base || request.TargetCommit != target || strings.Join(request.ChangedFiles, ",") != "README.md" {
+		t.Fatalf("request = %#v", request)
 	}
 }
 
