@@ -1,0 +1,6 @@
+{
+  "approved": true,
+  "boundary_examples": {"2.5": 2, "3.5": 4},
+  "mode": "bankers",
+  "version": 2
+}

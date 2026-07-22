@@ -1,0 +1,7 @@
+{
+  "backfill_verified": true,
+  "expand_deployed_before_application": true,
+  "old_and_new_binaries_supported": true,
+  "phase": "migrate",
+  "rollback_tested": true
+}

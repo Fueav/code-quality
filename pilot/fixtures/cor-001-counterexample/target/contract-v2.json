@@ -1,0 +1,10 @@
+{
+  "approved": true,
+  "branches": {
+    "cancelled": "deny",
+    "pending": "deny",
+    "settled_positive": "allow",
+    "settled_zero_or_negative": "deny"
+  },
+  "version": 2
+}

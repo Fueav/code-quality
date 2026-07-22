@@ -1,0 +1,6 @@
+{
+  "acknowledgement": "after_handler_success",
+  "approved": true,
+  "delivery": "at_least_once",
+  "redeliver_after_worker_loss": true
+}

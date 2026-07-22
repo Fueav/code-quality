@@ -1,0 +1,4 @@
+{
+  "approved": true,
+  "fetch_ownership": "framework consumes and closes every response before return"
+}

@@ -1,0 +1,5 @@
+{
+  "approved": true,
+  "placeholder": "?",
+  "semantics": "bound arguments remain values and cannot alter SQL structure"
+}

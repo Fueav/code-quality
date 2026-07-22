@@ -1,0 +1,5 @@
+{
+  "approved": true,
+  "idempotency": "repeated keys return the original payout",
+  "request_field": "idempotency_key"
+}

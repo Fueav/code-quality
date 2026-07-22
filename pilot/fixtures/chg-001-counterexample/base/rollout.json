@@ -1,0 +1,5 @@
+{
+  "backfill": "not_started",
+  "remove_v1_reads": false,
+  "write_versions": [1]
+}

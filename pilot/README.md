@@ -39,6 +39,7 @@ quality-review replay record \
 ```
 
 4. After a person reviews the evidence, regenerate the record with `--human-status confirmed`, or use `--human-status overturned --overturn-reason <reason>`.
+   When the host exposes usage metrics, pass `--input-tokens`, `--output-tokens`, and `--duration-ms` together; partial metric sets are rejected.
 5. Aggregate progress:
 
 ```bash
@@ -74,7 +75,25 @@ The positive fixture evolved through three evidence shapes before the retained v
 
 Only the final confirmed verifier decision is retained in the canonical evidence package. The earlier decisions cannot be independently replayed from the saved artifacts, so they are historical context rather than evidence of verifier refutation behavior. The retained session proves only that the final closed chain passed the batch-verifier contract; it does not prove that all 20 rules are model-qualified.
 
-Canonical local pilot evidence is generated under `.code-quality/pilot-run-v4/` and remains untracked. Its `pilot-summary.json` uses paths relative to that directory and can be checked with `python3 pilot/verify_evidence.py --quality-review <binary>`. Replay records use `human_review.status: pending`, so `qualification_complete` must remain false until a person reviews them and the full matrix/repetition requirements are met.
+Canonical local pilot evidence is generated under `.code-quality/pilot-run-v4/` and remains untracked. Its `pilot-summary.json` uses paths relative to that directory and can be checked with `python3 pilot/verify_evidence.py --quality-review <binary>`. Replay records use `human_review.status: pending`. Because its repository and case paths expose the expected case type, this package is a canary only and does not count toward the final blind qualification matrix.
+
+## Blind full qualification
+
+Follow the project-specific [qualification execution plan](../2026-07-22-code-quality-v1-qualification-execution-plan.md). Before freezing a qualification workspace, run:
+
+```bash
+python3 pilot/qualification_inventory.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest pilot/test_qualification_tools.py
+```
+
+From a clean frozen commit, initialize the untracked blind workspace:
+
+```bash
+python3 pilot/qualification_initialize.py \
+  --output .code-quality/qualification-v1
+```
+
+The initializer builds the pinned CLI, copies the frozen Skill, materializes 60 opaque Git repositories, and emits 100 balanced Claude Code/Codex task files. `operator-manifest.json` contains expected identities and must never be given to a review Agent. A workspace initialized with `--allow-dirty-development` is smoke-test-only and cannot become qualification evidence.
 
 ## CI publication
 

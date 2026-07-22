@@ -1,0 +1,4 @@
+{
+  "order": ["application", "schema_migration"],
+  "rolling": true
+}

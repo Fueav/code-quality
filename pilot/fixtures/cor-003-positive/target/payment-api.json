@@ -1,0 +1,6 @@
+{
+  "approved": true,
+  "client_method": "ChargeCents",
+  "request_field": "amount_cents",
+  "unit": "cents"
+}

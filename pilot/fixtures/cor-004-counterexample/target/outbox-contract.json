@@ -1,0 +1,6 @@
+{
+  "approved": true,
+  "delivery": "at_least_once",
+  "event_key": "event_id",
+  "storage": "order_and_outbox_in_one_transaction"
+}

@@ -1,0 +1,6 @@
+{
+  "backfill": "validated_before_v1_read_removal",
+  "remove_v1_reads": false,
+  "rollback_tested": true,
+  "write_versions": [1, 2]
+}

@@ -215,6 +215,9 @@ func runReplay(args []string, policy quality.PolicyManifest, stdout, stderr io.W
 		resultPath := flags.String("result", "", "validated review-result.json")
 		humanStatus := flags.String("human-status", "pending", "pending, confirmed, or overturned")
 		overturnReason := flags.String("overturn-reason", "", "required only when overturned")
+		inputTokens := flags.Int("input-tokens", -1, "host-reported input tokens; provide with output tokens and duration")
+		outputTokens := flags.Int("output-tokens", -1, "host-reported output tokens; provide with input tokens and duration")
+		durationMS := flags.Int("duration-ms", -1, "host-observed wall duration; provide with token metrics")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -241,6 +244,10 @@ func runReplay(args []string, policy quality.PolicyManifest, stdout, stderr io.W
 			reason = &value
 		}
 		record := evalrunner.RecordFromResult(*caseID, *host, *runNumber, result, evalrunner.HumanReview{Status: *humanStatus, OverturnReason: reason})
+		if err := applyReplayMetrics(&record, *inputTokens, *outputTokens, *durationMS); err != nil {
+			fmt.Fprintf(stderr, "quality-review: replay record: %v\n", err)
+			return 2
+		}
 		manifest, err := loadReplayManifest(*casesPath, policy)
 		if err != nil {
 			fmt.Fprintf(stderr, "quality-review: replay record: %v\n", err)
@@ -282,6 +289,28 @@ func runReplay(args []string, policy quality.PolicyManifest, stdout, stderr io.W
 		fmt.Fprintf(stderr, "quality-review: unknown replay command %q\n", args[0])
 		return 2
 	}
+}
+
+func applyReplayMetrics(record *evalrunner.ReplayRecord, inputTokens, outputTokens, durationMS int) error {
+	values := []int{inputTokens, outputTokens, durationMS}
+	provided := 0
+	for _, value := range values {
+		if value >= 0 {
+			provided++
+		} else if value != -1 {
+			return errors.New("replay metrics must be non-negative")
+		}
+	}
+	if provided == 0 {
+		return nil
+	}
+	if provided != len(values) {
+		return errors.New("input tokens, output tokens, and duration must be provided together")
+	}
+	record.Observed.InputTokens = &inputTokens
+	record.Observed.OutputTokens = &outputTokens
+	record.Observed.DurationMS = &durationMS
+	return nil
 }
 
 func loadReplayManifest(path string, policy quality.PolicyManifest) (evalrunner.Manifest, error) {

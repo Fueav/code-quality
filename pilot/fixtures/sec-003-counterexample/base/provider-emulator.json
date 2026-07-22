@@ -1,0 +1,5 @@
+{
+  "accepted_prefix": "prod_live_",
+  "production_routable": false,
+  "scope": "test emulator only"
+}

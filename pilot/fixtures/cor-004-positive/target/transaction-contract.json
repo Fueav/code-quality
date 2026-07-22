@@ -1,0 +1,5 @@
+{
+  "approved": true,
+  "failure_result": "no debit and no ledger entry",
+  "operation": "account debit plus ledger write"
+}

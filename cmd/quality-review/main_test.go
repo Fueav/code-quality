@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	evalrunner "github.com/Fueav/code-quality/internal/eval"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
@@ -364,6 +365,33 @@ func TestReplayRecordRejectsHostMismatch(t *testing.T) {
 	}, &stdout, &stderr)
 	if code == 0 || !strings.Contains(stderr.String(), "does not match result execution host claude-code") {
 		t.Fatalf("replay exit code = %d, stderr = %s", code, stderr.String())
+	}
+}
+
+func TestApplyReplayMetrics(t *testing.T) {
+	record := evalrunner.ReplayRecord{}
+	if err := applyReplayMetrics(&record, 120, 30, 4_500); err != nil {
+		t.Fatal(err)
+	}
+	if record.Observed.InputTokens == nil || *record.Observed.InputTokens != 120 ||
+		record.Observed.OutputTokens == nil || *record.Observed.OutputTokens != 30 ||
+		record.Observed.DurationMS == nil || *record.Observed.DurationMS != 4_500 {
+		t.Fatalf("metrics = %#v", record.Observed)
+	}
+
+	for name, values := range map[string][3]int{
+		"partial":  {120, -1, 4_500},
+		"negative": {-2, -1, -1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := applyReplayMetrics(&evalrunner.ReplayRecord{}, values[0], values[1], values[2]); err == nil {
+				t.Fatal("expected replay metrics to be rejected")
+			}
+		})
+	}
+
+	if err := applyReplayMetrics(&evalrunner.ReplayRecord{}, -1, -1, -1); err != nil {
+		t.Fatal(err)
 	}
 }
 
