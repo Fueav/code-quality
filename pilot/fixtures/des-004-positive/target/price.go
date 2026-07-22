@@ -1,29 +1,29 @@
-package main
+package checkout
 
-import "os"
+type PriceStore struct{}
 
-type PriceStore struct {
-	authoritative map[string]int
-	analytics     map[string]int
+func (PriceStore) AuthoritativePrice(product string) int64 {
+	if product == "annual-plan" {
+		return 10000
+	}
+	return 0
 }
 
-func (store PriceStore) AuthoritativePrice(product string) int { return store.authoritative[product] }
-func (store PriceStore) AnalyticsPrice(product string) int     { return store.analytics[product] }
+func (PriceStore) AnalyticsPrice(product string) int64 {
+	if product == "annual-plan" {
+		return 100
+	}
+	return 0
+}
 
-func FinalCheckoutPrice(store PriceStore, product string) int {
+type Charger interface {
+	ChargeCents(product string, amountCents int64) error
+}
+
+func FinalCheckoutPrice(store PriceStore, product string) int64 {
 	return store.AnalyticsPrice(product)
 }
 
-func ChargeOrder(store PriceStore, product string) int {
-	return FinalCheckoutPrice(store, product)
-}
-
-func main() {
-	store := PriceStore{
-		authoritative: map[string]int{"annual-plan": 10000},
-		analytics:     map[string]int{"annual-plan": 100},
-	}
-	if ChargeOrder(store, "annual-plan") != 10000 {
-		os.Exit(2)
-	}
+func ChargeOrder(store PriceStore, charger Charger, product string) error {
+	return charger.ChargeCents(product, FinalCheckoutPrice(store, product))
 }

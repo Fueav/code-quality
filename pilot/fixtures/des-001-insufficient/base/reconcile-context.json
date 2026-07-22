@@ -1,0 +1,13 @@
+{
+  "approved": true,
+  "environment": "production",
+  "deployment_status": "active",
+  "entry": "RunScheduledReconciliation",
+  "work_per_pair": "CPU-local account-event matching",
+  "remote_calls": false,
+  "result_effect": "settlement reconciliation decisions",
+  "account_limit": "undocumented",
+  "event_limit": "undocumented",
+  "schedule_window": "undocumented",
+  "latency_budget": "undocumented"
+}

@@ -9,7 +9,7 @@ type recordingPager struct{ calls int }
 
 func (pager *recordingPager) Page(error) { pager.calls++ }
 
-func TestSupervisorBoundsRetriesAndPagesOnExhaustion(t *testing.T) {
+func TestSupervisorBoundsReadOnlyProbeRetriesAndPagesOnExhaustion(t *testing.T) {
 	pager := &recordingPager{}
 	supervisor := NewSupervisor(3, pager)
 	attempts := 0

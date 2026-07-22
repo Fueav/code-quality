@@ -13,10 +13,10 @@ func NewSupervisor(maxRestarts int, pager Pager) *Supervisor {
 	return &Supervisor{maxRestarts: maxRestarts, pager: pager}
 }
 
-func (supervisor *Supervisor) Run(operation func() error) error {
-	return operation()
+func (supervisor *Supervisor) Run(probe func() error) error {
+	return probe()
 }
 
-func Run(supervisor *Supervisor, operation func() error) error {
-	return supervisor.Run(operation)
+func Run(supervisor *Supervisor, probe func() error) error {
+	return supervisor.Run(probe)
 }

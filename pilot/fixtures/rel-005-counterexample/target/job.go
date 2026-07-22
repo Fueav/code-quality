@@ -15,10 +15,10 @@ func NewSupervisor(maxRestarts int, pager Pager) *Supervisor {
 	return &Supervisor{maxRestarts: maxRestarts, pager: pager}
 }
 
-func (supervisor *Supervisor) Run(operation func() error) error {
+func (supervisor *Supervisor) Run(probe func() error) error {
 	var err error
 	for attempt := 0; attempt <= supervisor.maxRestarts; attempt++ {
-		if err = operation(); err == nil {
+		if err = probe(); err == nil {
 			return nil
 		}
 		if attempt < supervisor.maxRestarts {
@@ -31,6 +31,6 @@ func (supervisor *Supervisor) Run(operation func() error) error {
 	return err
 }
 
-func Run(supervisor *Supervisor, operation func() error) error {
-	return supervisor.Run(operation)
+func Run(supervisor *Supervisor, probe func() error) error {
+	return supervisor.Run(probe)
 }

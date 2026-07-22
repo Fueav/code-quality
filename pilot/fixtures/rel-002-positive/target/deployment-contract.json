@@ -1,0 +1,12 @@
+{
+  "approved": true,
+  "environment": "production",
+  "deployment_status": "active",
+  "route": "/v1/downstream",
+  "entry": "HandleProductionRequest",
+  "current_concurrent_requests": 20000,
+  "caller_deadline_seconds": 5,
+  "downstream_response": "never arrives",
+  "retained_request_capacity": 1000,
+  "capacity_effect": "service unavailable"
+}

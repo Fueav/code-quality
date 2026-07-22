@@ -1,0 +1,11 @@
+{
+  "approved": true,
+  "environment": "production",
+  "deployment_status": "active",
+  "entry": "HandlePublicRequest",
+  "current_request_items": 100000,
+  "downstream_release": "never arrives",
+  "database_pool_size": 50,
+  "process_goroutine_budget": 10000,
+  "capacity_effect": "service unavailable"
+}

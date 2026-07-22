@@ -1,0 +1,13 @@
+{
+  "approved": true,
+  "environment": "production",
+  "deployment_status": "active",
+  "entry": "RunScheduledReconciliation",
+  "store": "Store",
+  "current_account_count": 200000,
+  "current_event_count": 800000,
+  "minimum_comparison_time_microseconds": 1,
+  "schedule_window_minutes": 30,
+  "deadline_effect": "misses settlement close",
+  "alternate_path": "none"
+}

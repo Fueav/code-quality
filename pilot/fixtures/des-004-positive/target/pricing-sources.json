@@ -1,7 +1,13 @@
 {
-  "analytics_max_lag_hours": 24,
-  "analytics_role": "non_authoritative_reporting_only",
   "approved": true,
+  "environment": "production",
+  "deployment_status": "active",
+  "entry": "ChargeOrder",
   "system_of_record": "authoritative",
-  "production_entry": "ChargeOrder"
+  "analytics_role": "non_authoritative_reporting_only",
+  "analytics_max_lag_hours": 24,
+  "current_product": "annual-plan",
+  "authoritative_price_cents": 10000,
+  "analytics_price_cents": 100,
+  "charger": "external immediate irreversible debit"
 }

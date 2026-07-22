@@ -1,6 +1,8 @@
 {
   "approved": true,
   "backoff": "exponential",
+  "business_side_effects": "none",
   "max_restarts": 3,
-  "on_exhaustion": "page_on_call"
+  "on_exhaustion": "page_on_call",
+  "operation": "read_only_health_probe"
 }
