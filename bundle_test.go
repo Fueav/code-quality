@@ -45,3 +45,21 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		}
 	}
 }
+
+func TestEmbeddedRubricMatchesV1RuntimeAgentContract(t *testing.T) {
+	raw, err := Rubric()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rubric := string(raw)
+	for _, expected := range []string{"总 Agent 数硬上限为 2", "至多一个批量验证 Agent"} {
+		if !strings.Contains(rubric, expected) {
+			t.Fatalf("embedded rubric is missing %q", expected)
+		}
+	}
+	for _, retired := range []string{"最多 3 个 Agent", "超过 3 个", "每个候选最多交给一个独立验证 Agent"} {
+		if strings.Contains(rubric, retired) {
+			t.Fatalf("embedded rubric retains retired runtime guidance %q", retired)
+		}
+	}
+}
