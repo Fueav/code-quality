@@ -1,5 +1,9 @@
 {
   "approved": true,
+  "entry": "main",
+  "binary_status": "deployed",
+  "traffic_status": "active",
   "logs": "centralized-production",
+  "centralized_log_access": "shared-production-operations",
   "provider_environment": "production"
 }

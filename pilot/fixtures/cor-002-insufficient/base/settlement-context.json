@@ -1,0 +1,9 @@
+{
+  "entry": "HandleMerchantSettlement",
+  "account_scope": "merchant settlement funds",
+  "value_unit": "cents",
+  "negative_balance_policy": "undocumented",
+  "overdraft_support": "undocumented",
+  "production_deployment": "undocumented",
+  "downstream_money_effects": "undocumented"
+}

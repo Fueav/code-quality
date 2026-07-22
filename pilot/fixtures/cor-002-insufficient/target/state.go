@@ -1,16 +1,17 @@
-package workflow
+package settlement
 
-type State string
-
-type Validator interface {
-	Validate(current, next State) bool
+type Account struct {
+	AvailableCents int64
 }
 
-func Move(_ Validator, current *State, next State) bool {
-	*current = next
+func Reserve(account *Account, amountCents int64) bool {
+	if amountCents <= 0 {
+		return false
+	}
+	account.AvailableCents -= amountCents
 	return true
 }
 
-func HandleTransition(validator Validator, current *State, next State) bool {
-	return Move(validator, current, next)
+func HandleMerchantSettlement(account *Account, amountCents int64) bool {
+	return Reserve(account, amountCents)
 }

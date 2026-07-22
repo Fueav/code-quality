@@ -1,4 +1,9 @@
 {
+  "approved": true,
+  "environment": "production",
   "order": ["application", "schema_migration"],
-  "rolling": true
+  "application_artifact": "application.sql",
+  "schema_migration_artifact": "migration.sql",
+  "rolling": true,
+  "traffic_during_rollout": true
 }

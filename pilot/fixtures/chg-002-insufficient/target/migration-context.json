@@ -1,0 +1,9 @@
+{
+  "migration_file": "migration.sql",
+  "application_query": "application.sql",
+  "migration_runner": "undocumented",
+  "deployment_order": "undocumented",
+  "existing_database_state": "undocumented",
+  "legacy_name_backfill": "undocumented",
+  "backup_and_rollback": "undocumented"
+}

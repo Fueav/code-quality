@@ -1,0 +1,9 @@
+{
+  "approved": true,
+  "environment": "production",
+  "traffic_status": "active",
+  "route": "/v1/accounts/{id}",
+  "entry": "GetAccount",
+  "query_file": "application.sql",
+  "failure_if_column_missing": "all routed account reads fail"
+}

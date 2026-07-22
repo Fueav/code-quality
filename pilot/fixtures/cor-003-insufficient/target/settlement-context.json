@@ -1,0 +1,10 @@
+{
+  "entry": "TransferSettlement",
+  "operation": "merchant payout",
+  "request_field": "amount_cents",
+  "request_unit": "cents",
+  "client_unit": "undocumented",
+  "client_contract": "unavailable",
+  "production_amount_range": "undocumented",
+  "deployed_caller": "undocumented"
+}
