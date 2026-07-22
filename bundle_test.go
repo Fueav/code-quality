@@ -1,6 +1,8 @@
 package bundle
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -21,6 +23,42 @@ func TestEmbeddedPolicyMatchesV11Contract(t *testing.T) {
 	}
 	if policy.PolicyVersion != "1.1.0" || len(policy.Rules) != 20 || policy.AgentLimit != 2 {
 		t.Fatalf("embedded policy contract drifted: %#v", policy)
+	}
+}
+
+func TestModelReviewSchemaExposesFrozenDimensionAndRuleEnums(t *testing.T) {
+	raw, err := Schema("model-review.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	definitions, ok := schema["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("model review schema is missing $defs")
+	}
+	dimension, ok := definitions["dimension"].(map[string]any)
+	if !ok || !reflect.DeepEqual(dimension["enum"], []any{"D1", "D2", "D3", "D4"}) {
+		t.Fatalf("model review dimension enum drifted: %#v", dimension)
+	}
+	ruleID, ok := definitions["rule_id"].(map[string]any)
+	ruleIDs, idsOK := ruleID["enum"].([]any)
+	policyRaw, policyErr := PolicyManifest()
+	if policyErr != nil {
+		t.Fatal(policyErr)
+	}
+	var policy quality.PolicyManifest
+	if err := json.Unmarshal(policyRaw, &policy); err != nil {
+		t.Fatal(err)
+	}
+	expectedRuleIDs := make([]any, 0, len(policy.Rules))
+	for _, rule := range policy.Rules {
+		expectedRuleIDs = append(expectedRuleIDs, rule.ID)
+	}
+	if !ok || !idsOK || !reflect.DeepEqual(ruleIDs, expectedRuleIDs) {
+		t.Fatalf("model review rule ID enum drifted: %#v", ruleID)
 	}
 }
 
