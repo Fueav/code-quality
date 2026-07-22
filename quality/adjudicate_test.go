@@ -278,6 +278,14 @@ func TestPolicyMustMatchExactV11RuleContract(t *testing.T) {
 	}
 }
 
+func TestPolicyRequiresTwoAgentRuntimeLimit(t *testing.T) {
+	policy := validPolicy()
+	policy.AgentLimit = 3
+	if errors := ValidatePolicy(policy); !contains(errors, "agent_limit must be 2") {
+		t.Fatalf("errors = %#v", errors)
+	}
+}
+
 func TestRenderMarkdownIsDeterministic(t *testing.T) {
 	first := validBlockingFinding()
 	first.ID = "F-002"

@@ -64,8 +64,8 @@ func ValidatePolicy(policy PolicyManifest) []string {
 	if strings.TrimSpace(policy.Rubric) == "" || filepath.IsAbs(policy.Rubric) || !isCleanRelativePath(policy.Rubric) {
 		errors = append(errors, "rubric must be a clean relative path")
 	}
-	if policy.AgentLimit < 1 || policy.AgentLimit > 3 {
-		errors = append(errors, "agent_limit must be between 1 and 3")
+	if policy.AgentLimit != 2 {
+		errors = append(errors, "agent_limit must be 2 for the V1 runtime contract")
 	}
 	if len(policy.Rules) != 20 {
 		errors = append(errors, "policy must define exactly 20 rules")

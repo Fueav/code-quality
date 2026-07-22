@@ -105,7 +105,7 @@ V1 不实现模型后端，也不调用 Claude API 或 `codex exec`。Claude Cod
 
 只有存在潜在 `BLOCK` 候选时，Skill 才启动一个当前宿主提供的只读子代理，批量反证全部候选：检查不可达路径、硬上限、既有幂等/鉴权/超时保护、历史归因和证据缺口。CLI 生成 verifier 请求并校验其结果；宿主不能启动 verifier 时必须记录原因，候选最多为 `MANUAL_REVIEW`。
 
-V1 最多使用 2 个 Agent，严于 V1.1 的 3 Agent 总上限：
+V1 的统一运行合同最多使用 2 个 Agent：
 
 ```text
 无阻断候选：1 个主 Agent
