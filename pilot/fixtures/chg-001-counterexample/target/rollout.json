@@ -1,5 +1,7 @@
 {
   "backfill": "validated_before_v1_read_removal",
+  "case_fold_collisions": 0,
+  "existing_identities_validated": true,
   "remove_v1_reads": false,
   "rollback_tested": true,
   "write_versions": [1, 2]

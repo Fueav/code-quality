@@ -1,0 +1,7 @@
+{
+  "approved": true,
+  "credential_reusable": true,
+  "credential_status": "active",
+  "format_prefix": "prod_live_",
+  "provider_environment": "production"
+}

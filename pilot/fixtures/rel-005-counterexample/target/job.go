@@ -2,9 +2,17 @@ package job
 
 import "time"
 
+type Pager interface {
+	Page(error)
+}
+
 type Supervisor struct {
 	maxRestarts int
-	paged       bool
+	pager       Pager
+}
+
+func NewSupervisor(maxRestarts int, pager Pager) *Supervisor {
+	return &Supervisor{maxRestarts: maxRestarts, pager: pager}
 }
 
 func (supervisor *Supervisor) Run(operation func() error) error {
@@ -17,7 +25,9 @@ func (supervisor *Supervisor) Run(operation func() error) error {
 			time.Sleep(time.Duration(1<<attempt) * time.Millisecond)
 		}
 	}
-	supervisor.paged = true
+	if supervisor.pager != nil {
+		supervisor.pager.Page(err)
+	}
 	return err
 }
 

@@ -14,9 +14,9 @@
 
 - Go 测试和 `go vet ./...` 通过。
 - 确定性矩阵覆盖 20 条规则、60 个案例，结果为 60/60 通过。
-- 60 个真实 Git fixture 已通过结构、语言文件、JSON、Go 编译和全量 Git 物化检查；语义边界仍待独立人工批准。
-- 现有 replay 记录为 3 条，均来自 Claude Code，人工状态均为 `pending`；其路径泄露案例类型，只作为 canary，不计入最终盲测资格证据。
-- 当前 replay 汇总为 `qualification_complete=false`。
+- 60 个真实 Git fixture 已通过结构、语言文件、JSON、Go 编译和全量 Git 物化检查；Attempt 1 暴露的反例缺陷、规则重叠和证据路径不足正在修正，语义边界仍待独立人工批准。
+- Attempt 1 在冻结提交 `5523158d59b793d351541b3d15caac0e79f17068` 上完成 100 次本机 Codex Terra/high 运行，100/100 记录有效，但仅 32/60 案例匹配预期，详见资格验证 Attempt 1 记录。
+- 当前正式结论为 `qualification_complete=false`；Attempt 1 不得通过人工确认补成完成态。
 - 远端没有 release tag；当前产物仍是发布候选。
 
 ## 3. 资格验证合同

@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const acceptedProductionToken = "prod_live_fixture_7d3"
+const acceptedProductionToken = "prod_live_7d3a9c42"
 
 type Provider struct{}
 
@@ -14,7 +14,7 @@ func (Provider) Authenticate(token string) bool {
 }
 
 func main() {
-	token := "prod_live_fixture_7d3"
+	token := "prod_live_7d3a9c42"
 	if !(Provider{}).Authenticate(token) {
 		os.Exit(1)
 	}

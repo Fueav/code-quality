@@ -1,18 +1,27 @@
 package payout
 
+import "sync"
+
 type Message struct{ ID string }
 
-type LocalStore interface {
-	Claim(messageID string) bool
+type Request struct {
+	IdempotencyKey string
 }
 
-type Provider interface {
-	Payout(message Message) error
+type Provider struct {
+	mu        sync.Mutex
+	transfers map[string]int
 }
 
-func Handle(store LocalStore, provider Provider, message Message) error {
-	if !store.Claim(message.ID) {
-		return nil
+func (provider *Provider) Payout(request Request) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if provider.transfers[request.IdempotencyKey] != 0 {
+		return
 	}
-	return provider.Payout(message)
+	provider.transfers[request.IdempotencyKey] = 1
+}
+
+func Handle(provider *Provider, message Message) {
+	provider.Payout(Request{})
 }

@@ -13,3 +13,7 @@ func Move(validator Validator, current *State, next State) bool {
 	*current = next
 	return true
 }
+
+func HandleTransition(validator Validator, current *State, next State) bool {
+	return Move(validator, current, next)
+}

@@ -1,0 +1,7 @@
+{
+  "approved": true,
+  "daily_eligible_refunds": 50000,
+  "financial_obligation": "refund approved requests through day 30",
+  "manual_override": false,
+  "production_entry": "HandleRefund"
+}

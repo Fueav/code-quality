@@ -1,28 +1,45 @@
 package owner
 
+import "sync"
+
 type event struct {
 	delta int
 	done  chan struct{}
 }
 
-type Owner struct {
-	events chan event
+type State struct {
+	once      sync.Once
+	closeOnce sync.Once
+	events    chan event
 }
 
-func New() *Owner {
-	owner := &Owner{events: make(chan event)}
-	go func() {
-		state := 0
-		for next := range owner.events {
-			state += next.delta
+func (state *State) start() {
+	state.events = make(chan event)
+	go func(events <-chan event) {
+		value := 0
+		for next := range events {
+			value += next.delta
 			close(next.done)
 		}
-	}()
-	return owner
+	}(state.events)
 }
 
-func (owner *Owner) Apply(delta int) {
+func (state *State) Apply(delta int) {
+	state.once.Do(state.start)
 	done := make(chan struct{})
-	owner.events <- event{delta: delta, done: done}
+	state.events <- event{delta: delta, done: done}
 	<-done
+}
+
+func (state *State) Close() {
+	state.once.Do(state.start)
+	state.closeOnce.Do(func() { close(state.events) })
+}
+
+func Process(deltas []int) {
+	state := &State{}
+	defer state.Close()
+	for _, delta := range deltas {
+		state.Apply(delta)
+	}
 }

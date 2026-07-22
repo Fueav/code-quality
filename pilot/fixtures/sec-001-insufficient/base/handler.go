@@ -12,3 +12,7 @@ type Authorizer interface {
 func Handle(authorizer Authorizer, request Request) bool {
 	return authorizer.Allow(request.User)
 }
+
+func Serve(authorizer Authorizer, request Request) bool {
+	return Handle(authorizer, request)
+}

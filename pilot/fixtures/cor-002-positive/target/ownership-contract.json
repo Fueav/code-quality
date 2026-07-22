@@ -1,6 +1,0 @@
-{
-  "approved": true,
-  "identity": ["tenant_id", "resource_id"],
-  "invariant": "updates preserve the authenticated tenant owner",
-  "resource_id_scope": "tenant"
-}

@@ -1,0 +1,6 @@
+{
+  "approved": true,
+  "invariant": "account balance must never become negative",
+  "overdraft_behavior": "reject without changing the balance",
+  "production_entry": "ProcessDebit"
+}

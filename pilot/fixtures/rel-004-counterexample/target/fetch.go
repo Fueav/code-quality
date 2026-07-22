@@ -1,7 +1,6 @@
 package fetch
 
 type Body interface {
-	Consume() error
 	Close() error
 }
 
@@ -19,9 +18,9 @@ func (framework Framework) Fetch() error {
 		return err
 	}
 	defer response.Body.Close()
-	return response.Body.Consume()
+	return nil
 }
 
-func Fetch(framework Framework) error {
-	return framework.Fetch()
+func Fetch(transport Transport) error {
+	return (Framework{transport: transport}).Fetch()
 }

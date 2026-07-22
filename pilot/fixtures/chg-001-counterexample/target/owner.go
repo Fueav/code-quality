@@ -8,7 +8,7 @@ import (
 type Store struct{ values map[[32]byte]string }
 
 func v1Key(input string) [32]byte { return sha256.Sum256([]byte(input)) }
-func v2Key(input string) [32]byte { return sha256.Sum256([]byte(strings.ToLower(input))) }
+func v2Key(input string) [32]byte { return sha256.Sum256([]byte("v2:" + strings.ToLower(input))) }
 
 func (store *Store) Write(input, value string) {
 	store.values[v1Key(input)] = value

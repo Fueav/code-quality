@@ -1,5 +1,9 @@
 package contract
 
+func EvaluateLegacy(status string, amount int) bool {
+	return status == "settled" && amount > 0
+}
+
 func EvaluateContractV2(status string, amount int) bool {
 	switch status {
 	case "settled":

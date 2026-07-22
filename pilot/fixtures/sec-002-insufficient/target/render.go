@@ -4,6 +4,12 @@ type Engine interface {
 	Render(input string) (string, error)
 }
 
-func Render(engine Engine, input string) (string, error) {
-	return engine.Render(input)
+type Request struct{ Input string }
+
+func Render(engine Engine, request Request) (string, error) {
+	return engine.Render(request.Input)
+}
+
+func PublicRoute(engine Engine, request Request) (string, error) {
+	return Render(engine, request)
 }

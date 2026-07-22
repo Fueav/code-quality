@@ -1,9 +1,18 @@
-package authorization
+package pricing
 
 type Source interface {
-	CanTransfer(user string) bool
+	Price(product string) int
 }
 
-func HandlePublicTransfer(_ Source, secondary Source, user string) bool {
-	return secondary.CanTransfer(user)
+type Sources struct {
+	Primary   Source
+	Secondary Source
+}
+
+func FinalPrice(sources Sources, product string) int {
+	return sources.Secondary.Price(product)
+}
+
+func Checkout(sources Sources, product string) int {
+	return FinalPrice(sources, product)
 }

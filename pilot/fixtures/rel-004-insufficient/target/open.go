@@ -1,12 +1,14 @@
 package resource
 
-type Resource interface{}
+type resource interface{}
 
-type Wrapper interface {
-	Open() (Resource, error)
+type wrapper interface {
+	Open() (resource, error)
 }
 
-func Use(wrapper Wrapper) error {
-	_, err := wrapper.Open()
+func use(source wrapper) error {
+	_, err := source.Open()
 	return err
 }
+
+func handle(source wrapper) error { return use(source) }

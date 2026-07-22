@@ -1,18 +1,20 @@
 package resource
 
-type Resource interface {
+type resource interface {
 	Close() error
 }
 
-type Opener interface {
-	Open() (Resource, error)
+type opener interface {
+	Open() (resource, error)
 }
 
-func Use(opener Opener) error {
-	resource, err := opener.Open()
+func use(source opener) error {
+	value, err := source.Open()
 	if err != nil {
 		return err
 	}
-	defer resource.Close()
+	defer value.Close()
 	return nil
 }
+
+func handle(source opener) error { return use(source) }

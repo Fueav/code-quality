@@ -1,5 +1,7 @@
 {
   "approved": true,
+  "caller": "HandleV2",
+  "legacy_api": "retained_without_behavior_change",
   "branches": {
     "cancelled": "deny",
     "pending": "deny",

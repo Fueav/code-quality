@@ -1,0 +1,7 @@
+{
+  "analytics_max_lag_hours": 24,
+  "analytics_role": "non_authoritative_reporting_only",
+  "approved": true,
+  "checkout_price_source": "authoritative",
+  "production_entry": "ChargeOrder"
+}

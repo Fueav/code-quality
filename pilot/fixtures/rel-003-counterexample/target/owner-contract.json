@@ -1,0 +1,6 @@
+{
+  "approved": true,
+  "lifecycle": "Process always closes its one owner loop",
+  "state_owner_count": 1,
+  "writers": "all writes pass through State.Apply"
+}

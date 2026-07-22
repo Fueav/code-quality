@@ -1,21 +1,19 @@
 package batch
 
-const maxRequestItems = 8
+const maxRequestItems = 5
 
 type Request struct {
 	IDs [maxRequestItems]string
 }
 
-type Store interface {
-	Update(id string) error
-}
+func validate(string) error { return nil }
 
-func Handle(store Store, request Request) error {
+func Handle(request Request) error {
 	for _, id := range request.IDs {
 		if id == "" {
 			continue
 		}
-		if err := store.Update(id); err != nil {
+		if err := validate(id); err != nil {
 			return err
 		}
 	}

@@ -1,16 +1,22 @@
 package regions
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 type Client interface {
 	BatchGet(context.Context, []string) error
 	Get(context.Context, string) error
 }
 
-var supportedRegions = [...]string{"us-east", "eu-west", "ap-south"}
+const maxSupportedRegions = 3
 
-func SyncRegions(ctx context.Context, client Client) error {
-	for _, region := range supportedRegions {
+func SyncRegions(ctx context.Context, client Client, regions []string) error {
+	if len(regions) > maxSupportedRegions {
+		return errors.New("too many regions")
+	}
+	for _, region := range regions {
 		if err := client.Get(ctx, region); err != nil {
 			return err
 		}

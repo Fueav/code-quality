@@ -4,7 +4,6 @@ import "testing"
 
 type body struct{ closed bool }
 
-func (*body) Consume() error { return nil }
 func (value *body) Close() error {
 	value.closed = true
 	return nil
@@ -18,7 +17,7 @@ func (value transport) Fetch() (Response, error) {
 
 func TestFrameworkClosesResponse(t *testing.T) {
 	resource := &body{}
-	if err := Fetch(Framework{transport: transport{body: resource}}); err != nil {
+	if err := Fetch(transport{body: resource}); err != nil {
 		t.Fatal(err)
 	}
 	if !resource.closed {

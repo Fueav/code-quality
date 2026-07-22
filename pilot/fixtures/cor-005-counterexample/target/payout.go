@@ -1,5 +1,7 @@
 package payout
 
+import "sync"
+
 type Message struct{ ID string }
 
 type Request struct {
@@ -7,10 +9,13 @@ type Request struct {
 }
 
 type Provider struct {
+	mu        sync.Mutex
 	transfers map[string]int
 }
 
 func (provider *Provider) Payout(request Request) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
 	if provider.transfers[request.IdempotencyKey] != 0 {
 		return
 	}

@@ -1,9 +1,13 @@
 package batch
 
-type Queue interface {
-	Enqueue(ids []string) error
+const maxRequestItems = 5
+
+type Request struct {
+	IDs [maxRequestItems]string
 }
 
-func Handle(queue Queue, ids []string) error {
-	return queue.Enqueue(ids)
+func validate(string) error { return nil }
+
+func Handle(request Request) error {
+	return validate(request.IDs[0])
 }
