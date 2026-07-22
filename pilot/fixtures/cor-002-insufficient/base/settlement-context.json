@@ -1,9 +1,12 @@
 {
+  "approved": true,
   "entry": "HandleMerchantSettlement",
   "account_scope": "merchant settlement funds",
   "value_unit": "cents",
-  "negative_balance_policy": "undocumented",
-  "overdraft_support": "undocumented",
+  "negative_balance_policy": "prohibited",
+  "overdraft_support": false,
+  "trigger_example": "AvailableCents 100 and amountCents 150 must be rejected",
+  "financial_effect_if_violated": "settlement reserves more merchant funds than are available",
   "production_deployment": "undocumented",
-  "downstream_money_effects": "undocumented"
+  "deployed_caller": "undocumented"
 }

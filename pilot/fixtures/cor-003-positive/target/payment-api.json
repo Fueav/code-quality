@@ -1,6 +1,13 @@
 {
   "approved": true,
+  "environment": "production",
+  "traffic_status": "active",
+  "route": "/v1/charges",
+  "production_entry": "HandlePublicCharge",
   "client_method": "ChargeCents",
+  "client_input_unit": "cents",
+  "client_effect": "immediate irreversible provider debit",
   "request_field": "amount_cents",
-  "unit": "cents"
+  "request_unit": "cents",
+  "trigger_example": "amount_cents 5000"
 }
