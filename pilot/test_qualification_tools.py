@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import pathlib
 import sys
 import tempfile
@@ -12,6 +13,7 @@ sys.path.insert(0, str(PILOT_DIR))
 from qualification_initialize import task_markdown  # noqa: E402
 from qualification_inventory import validate_fixture  # noqa: E402
 from qualification_matrix import build_plan, load_cases  # noqa: E402
+from qualification_run import claude_metrics, codex_metrics  # noqa: E402
 
 
 class QualificationToolsTest(unittest.TestCase):
@@ -44,6 +46,29 @@ class QualificationToolsTest(unittest.TestCase):
             prompt = task_markdown(task, root / "skill" / "SKILL.md", root / "quality-review")
             for forbidden in ("positive", "counterexample", "insufficient", "DES-", "COR-", "REL-", "SEC-", "CHG-"):
                 self.assertNotIn(forbidden, prompt)
+
+    def test_claude_metrics_include_cached_input(self) -> None:
+        raw = json.dumps(
+            {
+                "is_error": False,
+                "usage": {
+                    "input_tokens": 10,
+                    "cache_creation_input_tokens": 20,
+                    "cache_read_input_tokens": 30,
+                    "output_tokens": 40,
+                },
+            }
+        )
+        self.assertEqual(claude_metrics(raw), (60, 40))
+
+    def test_codex_metrics_use_completed_turn(self) -> None:
+        raw = "\n".join(
+            [
+                json.dumps({"type": "thread.started"}),
+                json.dumps({"type": "turn.completed", "usage": {"input_tokens": 50, "output_tokens": 25}}),
+            ]
+        )
+        self.assertEqual(codex_metrics(raw), (50, 25))
 
 
 if __name__ == "__main__":

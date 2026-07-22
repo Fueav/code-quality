@@ -107,17 +107,23 @@ token 和耗时当前不是汇总布尔值的硬条件，但必须采集，供�
 .code-quality/qualification-v1/
 ├── baseline.json
 ├── quality-review
-├── fixtures/<case-id>/
-├── repositories/<case-id>/
-├── sessions/<host>/<case-id>/<run-number>/
-├── results/<host>/<case-id>/<run-number>/
+├── plugin/code-quality/
+├── private/cases.json
+├── operator-manifest.json
+├── tasks/<host>/<opaque-run-id>.{json,md}
+├── repositories/<opaque-repository-id>/
+├── sessions/<opaque-run-id>/review-*/
+├── run-evidence/<opaque-run-id>.json
 ├── replay-records/
 ├── human-reviews/
 ├── qualification-summary.json
+├── progress.json
 └── evidence-summary.json
 ```
 
 仓库只提交 fixture、验证脚本和不含运行证据的合同；真实会话和审查结果保持未跟踪，避免把被审查代码或模型输出误当作产品源码发布。
+
+`operator-manifest.json` 与 `private/` 仅允许编排器和人工复核人读取；执行 Agent 只能收到单个 opaque task。`run-evidence/` 绑定 task、session input manifest、主审查、可选 verifier、最终 JSON、确定性 Markdown、宿主 transcript 与指标，防止把其他会话的合法结果错配到当前案例。
 
 ## 6. 进入真实项目试点前的最终检查
 

@@ -235,6 +235,10 @@ def main() -> int:
         }
         write_json(temporary / "operator-manifest.json", operator_manifest)
         os.chmod(temporary / "operator-manifest.json", 0o600)
+        private_cases = temporary / "private" / "cases.json"
+        private_cases.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(cases_path, private_cases)
+        os.chmod(private_cases, 0o600)
         baseline = {
             "schema_version": 1,
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -243,6 +247,8 @@ def main() -> int:
             "development_only": bool(dirty_lines),
             "rc_version": version,
             "go_version": run("go", "version"),
+            "claude_code_version": run("claude", "--version"),
+            "codex_version": run("codex", "--version"),
             "policy_version": json.loads((source / "policy" / "manifest.json").read_text(encoding="utf-8"))["policy_version"],
             "cases_sha256": file_sha256(cases_path),
             "fixtures_sha256": tree_sha256(fixtures),

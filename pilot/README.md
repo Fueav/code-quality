@@ -95,6 +95,41 @@ python3 pilot/qualification_initialize.py \
 
 The initializer builds the pinned CLI, copies the frozen Skill, materializes 60 opaque Git repositories, and emits 100 balanced Claude Code/Codex task files. `operator-manifest.json` contains expected identities and must never be given to a review Agent. A workspace initialized with `--allow-dirty-development` is smoke-test-only and cannot become qualification evidence.
 
+Verify the frozen source, digests, opaque schedule, task prompts, materialized Git trees, and deterministic matrix before any model run:
+
+```bash
+python3 pilot/qualification_verify.py \
+  --workspace .code-quality/qualification-v1
+```
+
+Run one opaque task in a fresh non-persistent host session and collect its result as `pending` human review:
+
+```bash
+python3 pilot/qualification_run.py \
+  --workspace .code-quality/qualification-v1 \
+  --run-id <opaque-run-id>
+```
+
+The runner gives the host only its opaque task, frozen Skill, repository, and session output root. It records the host transcript, wall duration, host-reported input/output tokens, finalized result hashes, deterministic Markdown hash, and replay record. A successful model run is still not human-confirmed.
+
+After an independent person inspects the session inputs, model output, optional verifier decision, and expected mapping, promote the same immutable observation without rerunning the model:
+
+```bash
+python3 pilot/qualification_collect.py \
+  --workspace .code-quality/qualification-v1 \
+  --run-id <opaque-run-id> \
+  --result <session>/output/review-result.json \
+  --transcript <session-root>/operator/<host-output> \
+  --input-tokens <count> \
+  --output-tokens <count> \
+  --duration-ms <count> \
+  --human-status confirmed \
+  --reviewer <person> \
+  --review-note <evidence-checked>
+```
+
+Use `--human-status overturned --overturn-reason <reason>` with the same reviewer fields when the observation is wrong. A completed human decision cannot be overwritten. Fix the underlying fixture, policy, or workflow and generate a new frozen qualification workspace instead of rewriting failed evidence.
+
 ## CI publication
 
 The host session supplies validated `review-result.json` and deterministic `review-result.md`. CI then runs `quality-review validate` and uploads both files. `BLOCK` and `INCOMPLETE` remain published semantic results with `ci_action: publish_report`; they do not fail CI. A malformed or semantically inconsistent JSON report fails validation. V1 validation is not a signature or provenance system, so the host-session job must hand the report to publication through the CI platform's trusted artifact channel and render Markdown from the validated JSON.
