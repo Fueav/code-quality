@@ -13,7 +13,7 @@ sys.path.insert(0, str(PILOT_DIR))
 from qualification_initialize import task_markdown  # noqa: E402
 from qualification_inventory import validate_fixture  # noqa: E402
 from qualification_matrix import build_plan, load_cases  # noqa: E402
-from qualification_run import claude_metrics, codex_metrics  # noqa: E402
+from qualification_run import claude_metrics, codex_metrics, host_command  # noqa: E402
 
 
 class QualificationToolsTest(unittest.TestCase):
@@ -69,6 +69,17 @@ class QualificationToolsTest(unittest.TestCase):
             ]
         )
         self.assertEqual(codex_metrics(raw), (50, 25))
+
+    def test_codex_runner_keeps_thread_persistence_for_verifier(self) -> None:
+        command = host_command(
+            "codex",
+            pathlib.Path("/qualification"),
+            pathlib.Path("/qualification/sessions/run-opaque"),
+            pathlib.Path("/qualification/quality-review"),
+        )
+        self.assertNotIn("--ephemeral", command)
+        for required in ("--ignore-user-config", "--ignore-rules", "--sandbox", "workspace-write"):
+            self.assertIn(required, command)
 
 
 if __name__ == "__main__":

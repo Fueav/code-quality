@@ -80,6 +80,51 @@ def next_attempt(operator_directory: pathlib.Path) -> int:
     return max(attempts, default=0) + 1
 
 
+def host_command(
+    host: str,
+    workspace: pathlib.Path,
+    session_root: pathlib.Path,
+    binary: pathlib.Path,
+    model: str | None = None,
+) -> list[str]:
+    if host == "claude-code":
+        command = [
+            "claude",
+            "--print",
+            "--output-format",
+            "json",
+            "--no-session-persistence",
+            "--safe-mode",
+            "--permission-mode",
+            "acceptEdits",
+            "--add-dir",
+            str(workspace / "plugin" / "code-quality"),
+            "--allowedTools",
+            f"Bash({binary} *),Read,Write,Glob,Grep,Agent",
+        ]
+        if model:
+            command[1:1] = ["--model", model]
+        return command
+    if host == "codex":
+        command = [
+            "codex",
+            "exec",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--sandbox",
+            "workspace-write",
+            "--skip-git-repo-check",
+            "--cd",
+            str(session_root),
+            "--json",
+            "-",
+        ]
+        if model:
+            command[2:2] = ["--model", model]
+        return command
+    raise ValueError(f"unsupported qualification host: {host}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", required=True, type=pathlib.Path)
@@ -129,41 +174,11 @@ def main() -> int:
     before_results = set(session_root.glob("review-*/output/review-result.json"))
     binary = workspace / "quality-review"
     if host == "claude-code":
-        command = [
-            "claude",
-            "--print",
-            "--output-format",
-            "json",
-            "--no-session-persistence",
-            "--safe-mode",
-            "--permission-mode",
-            "acceptEdits",
-            "--add-dir",
-            str(workspace / "plugin" / "code-quality"),
-            "--allowedTools",
-            f"Bash({binary} *),Read,Write,Glob,Grep,Agent",
-        ]
-        if args.claude_model:
-            command[1:1] = ["--model", args.claude_model]
+        command = host_command(host, workspace, session_root, binary, args.claude_model)
         version = command_output("claude", "--version")
         expected_version = baseline.get("claude_code_version")
     else:
-        command = [
-            "codex",
-            "exec",
-            "--ephemeral",
-            "--ignore-user-config",
-            "--ignore-rules",
-            "--sandbox",
-            "workspace-write",
-            "--skip-git-repo-check",
-            "--cd",
-            str(session_root),
-            "--json",
-            "-",
-        ]
-        if args.codex_model:
-            command[2:2] = ["--model", args.codex_model]
+        command = host_command(host, workspace, session_root, binary, args.codex_model)
         version = command_output("codex", "--version")
         expected_version = baseline.get("codex_version")
     if not isinstance(expected_version, str) or version != expected_version:

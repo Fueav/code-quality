@@ -102,7 +102,7 @@ python3 pilot/qualification_verify.py \
   --workspace .code-quality/qualification-v1
 ```
 
-Run one opaque task in a fresh non-persistent host session and collect its result as `pending` human review:
+Run one opaque task in a fresh isolated host session and collect its result as `pending` human review:
 
 ```bash
 python3 pilot/qualification_run.py \
