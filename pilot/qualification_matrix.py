@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the balanced 100-run host-session qualification schedule."""
+"""Build the Codex-only 100-run host-session qualification schedule."""
 
 from __future__ import annotations
 
@@ -46,13 +46,8 @@ def load_records(directory: pathlib.Path | None) -> dict[tuple[str, str, int], d
 
 
 def host_for(kind: str, run_number: int, rule_ordinal: int) -> str:
-    if kind == "positive":
-        if run_number == 1:
-            return "claude-code"
-        if run_number == 2:
-            return "codex"
-        return "claude-code" if rule_ordinal % 2 == 0 else "codex"
-    return "claude-code" if rule_ordinal % 2 == 0 else "codex"
+    del kind, run_number, rule_ordinal
+    return "codex"
 
 
 def build_plan(cases: list[dict[str, object]], records: dict[tuple[str, str, int], dict[str, object]]) -> dict[str, object]:
@@ -66,7 +61,7 @@ def build_plan(cases: list[dict[str, object]], records: dict[tuple[str, str, int
 
     slots: list[dict[str, object]] = []
     planned_identities: set[tuple[str, str, int]] = set()
-    host_totals = {"claude-code": 0, "codex": 0}
+    host_totals = {"codex": 0}
     status_totals = {"missing": 0, "pending": 0, "confirmed": 0, "overturned": 0}
     for case in cases:
         case_id = str(case["id"])

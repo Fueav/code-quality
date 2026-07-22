@@ -18,6 +18,7 @@ import tempfile
 
 from qualification_inventory import validate_fixture
 from qualification_matrix import build_plan, load_cases
+from qualification_run import QUALIFICATION_MODEL, QUALIFICATION_REASONING_EFFORT
 
 
 def run(*args: str, cwd: pathlib.Path | None = None) -> str:
@@ -152,8 +153,8 @@ def main() -> int:
     cases = load_cases(cases_path)
     validate_all_fixtures(cases, fixtures)
     schedule = build_plan(cases, {})
-    if schedule["planned_runs"] != 100 or schedule["host_totals"] != {"claude-code": 50, "codex": 50}:
-        raise ValueError("qualification schedule is not the frozen 100-run balanced matrix")
+    if schedule["planned_runs"] != 100 or schedule["host_totals"] != {"codex": 100}:
+        raise ValueError("qualification schedule is not the frozen 100-run Codex-only matrix")
 
     temporary = pathlib.Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
     try:
@@ -239,6 +240,22 @@ def main() -> int:
         private_cases.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(cases_path, private_cases)
         os.chmod(private_cases, 0o600)
+        for directory in ("sessions", "replay-records", "run-evidence", "human-reviews", "batch-logs"):
+            (temporary / directory).mkdir()
+        write_json(
+            temporary / "qualification-summary.json",
+            json.loads(
+                run(
+                    str(binary),
+                    "replay",
+                    "summarize",
+                    "--cases",
+                    str(private_cases),
+                    "--records",
+                    str(temporary / "replay-records"),
+                )
+            ),
+        )
         baseline = {
             "schema_version": 1,
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -247,8 +264,9 @@ def main() -> int:
             "development_only": bool(dirty_lines),
             "rc_version": version,
             "go_version": run("go", "version"),
-            "claude_code_version": run("claude", "--version"),
             "codex_version": run("codex", "--version"),
+            "qualification_model": QUALIFICATION_MODEL,
+            "qualification_reasoning_effort": QUALIFICATION_REASONING_EFFORT,
             "policy_version": json.loads((source / "policy" / "manifest.json").read_text(encoding="utf-8"))["policy_version"],
             "cases_sha256": file_sha256(cases_path),
             "fixtures_sha256": tree_sha256(fixtures),
@@ -265,6 +283,7 @@ def main() -> int:
                 "planned_runs": 100,
                 "completed_runs": 0,
                 "human_confirmed_runs": 0,
+                "metrics_available": 0,
                 "qualification_complete": False,
             },
         )

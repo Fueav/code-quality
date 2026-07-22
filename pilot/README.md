@@ -1,6 +1,6 @@
 # V1 Report-Only Pilot
 
-The pilot validates the report-only V1 release candidate and the current Claude Code/Codex host-session workflow. It does not claim that a remote tag or release artifact exists, embed a model runner, configure a provider, or turn semantic results into CI failures.
+The pilot validates the report-only V1 release candidate and the general Claude Code/Codex host-session workflow. The formal full-qualification profile below is narrower: it uses only local Codex with `gpt-5.6-terra` and `high` reasoning effort. The pilot does not claim that a remote tag or release artifact exists, embed a provider, or turn semantic results into CI failures.
 
 ## Deterministic qualification
 
@@ -49,7 +49,7 @@ quality-review replay summarize \
   > replay-summary.json
 ```
 
-`qualification_complete` becomes true only after all 60 cases are covered, every severe positive has three stable runs, S/T/E and rule IDs match expectations, no duplicate root causes are present, every record respects the two-Agent limit, both Claude Code and Codex have valid replay evidence, and human review confirms every run. Missing token or duration metrics remain `null` and do not count as available.
+`qualification_complete` becomes true only after all 60 cases are covered, every severe positive has three stable runs, verifier use matches the case contract, S/T/E and rule IDs match expectations, no duplicate root causes are present, every record respects the two-Agent limit, the formal record set is Codex-only, and human review confirms every run. Missing token or duration metrics remain `null` and do not count as available; the formal evidence verifier additionally requires metrics for all 100 runs.
 
 ## Optional Harness evidence
 
@@ -93,7 +93,7 @@ python3 pilot/qualification_initialize.py \
   --output .code-quality/qualification-v1
 ```
 
-The initializer builds the pinned CLI, copies the frozen Skill, materializes 60 opaque Git repositories, and emits 100 balanced Claude Code/Codex task files. `operator-manifest.json` contains expected identities and must never be given to a review Agent. A workspace initialized with `--allow-dirty-development` is smoke-test-only and cannot become qualification evidence.
+The initializer builds the pinned CLI, copies the frozen Skill, materializes 60 opaque Git repositories, and emits 100 Codex-only task files. Every run fixes the model to `gpt-5.6-terra` with `high` reasoning effort. `operator-manifest.json` contains expected identities and must never be given to a review Agent. A workspace initialized with `--allow-dirty-development` is smoke-test-only and cannot become qualification evidence.
 
 Verify the frozen source, digests, opaque schedule, task prompts, materialized Git trees, and deterministic matrix before any model run:
 
@@ -112,23 +112,42 @@ python3 pilot/qualification_run.py \
 
 The runner gives the host only its opaque task, frozen Skill, repository, and session output root. It records the host transcript, wall duration, host-reported input/output tokens, finalized result hashes, deterministic Markdown hash, and replay record. A successful model run is still not human-confirmed.
 
-After an independent person inspects the session inputs, model output, optional verifier decision, and expected mapping, promote the same immutable observation without rerunning the model:
+First run a local Codex canary in a throwaway frozen workspace. Archive that workspace after it succeeds, initialize a fresh formal workspace from the same clean commit, and then run all 100 tasks; canary evidence does not count toward the matrix. The default is one worker; `--workers` may be set from 1 to 4 without changing the per-run two-Agent limit. The command is resumable because existing replay records are skipped:
 
 ```bash
-python3 pilot/qualification_collect.py \
-  --workspace .code-quality/qualification-v1 \
-  --run-id <opaque-run-id> \
-  --result <session>/output/review-result.json \
-  --transcript <session-root>/operator/<host-output> \
-  --input-tokens <count> \
-  --output-tokens <count> \
-  --duration-ms <count> \
-  --human-status confirmed \
-  --reviewer <person> \
-  --review-note <evidence-checked>
+python3 pilot/qualification_batch.py \
+  --workspace .code-quality/qualification-v1
 ```
 
-Use `--human-status overturned --overturn-reason <reason>` with the same reviewer fields when the observation is wrong. A completed human decision cannot be overwritten. Fix the underlying fixture, policy, or workflow and generate a new frozen qualification workspace instead of rewriting failed evidence.
+Per-run output is retained under `batch-logs/`, and `batch-progress.json` is updated atomically. A failed run is not retried or counted automatically; inspect its opaque session evidence, fix an infrastructure or contract defect, and invoke the single-run command again.
+
+Generate the private review queue after collection. It includes the expected mapping and therefore must never be shown to a review Agent:
+
+```bash
+python3 pilot/qualification_review_packet.py \
+  --workspace .code-quality/qualification-v1
+```
+
+After an independent person inspects the session inputs, model output, verifier decision, and expected mapping, promote the same immutable observation without rerunning the model:
+
+```bash
+python3 pilot/qualification_review.py \
+  --workspace .code-quality/qualification-v1 \
+  --run-id <opaque-run-id> \
+  --status confirmed \
+  --reviewer <person> \
+  --note <evidence-checked>
+```
+
+Use `--status overturned --overturn-reason <reason>` with the same reviewer fields when the observation is wrong. A completed human decision cannot be overwritten. Fix the underlying fixture, policy, or workflow and generate a new frozen qualification workspace instead of rewriting failed evidence.
+
+Finally re-verify every digest, transcript, result, deterministic render, replay record, metric, and human-review artifact and write the evidence summary:
+
+```bash
+python3 pilot/qualification_verify.py \
+  --workspace .code-quality/qualification-v1 \
+  --write-summary
+```
 
 ## CI publication
 

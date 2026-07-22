@@ -325,6 +325,10 @@ func matchesExpected(item Case, record ReplayRecord) bool {
 	if record.Observed.SemanticResult != item.Expected.SemanticResult {
 		return false
 	}
+	if (item.Expected.VerifierResult == "confirmed" && record.Observed.VerifierCount != 1) ||
+		(item.Expected.VerifierResult == "not_run" && record.Observed.VerifierCount != 0) {
+		return false
+	}
 	if item.Expected.FindingCount == 0 {
 		return len(record.Observed.RuleIDs) == 0
 	}
@@ -332,7 +336,7 @@ func matchesExpected(item Case, record ReplayRecord) bool {
 }
 
 func hostsQualified(hosts []string) bool {
-	return len(hosts) == 2 && hosts[0] == "claude-code" && hosts[1] == "codex"
+	return len(hosts) == 1 && hosts[0] == "codex"
 }
 
 func allReplayCasesQualified(cases []ReplayCaseReport) bool {

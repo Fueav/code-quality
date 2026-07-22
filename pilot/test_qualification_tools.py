@@ -12,16 +12,18 @@ sys.path.insert(0, str(PILOT_DIR))
 
 from qualification_initialize import task_markdown  # noqa: E402
 from qualification_inventory import validate_fixture  # noqa: E402
+from qualification_batch import pending_runs  # noqa: E402
 from qualification_matrix import build_plan, load_cases  # noqa: E402
-from qualification_run import claude_metrics, codex_metrics, host_command  # noqa: E402
+from qualification_run import codex_command, codex_metrics  # noqa: E402
+from qualification_review_packet import expected_matches  # noqa: E402
 
 
 class QualificationToolsTest(unittest.TestCase):
-    def test_frozen_matrix_is_balanced(self) -> None:
+    def test_frozen_matrix_is_codex_only(self) -> None:
         cases = load_cases(SOURCE_ROOT / "evals" / "cases.json")
         plan = build_plan(cases, {})
         self.assertEqual(plan["planned_runs"], 100)
-        self.assertEqual(plan["host_totals"], {"claude-code": 50, "codex": 50})
+        self.assertEqual(plan["host_totals"], {"codex": 100})
         self.assertEqual(plan["status_totals"], {"missing": 100, "pending": 0, "confirmed": 0, "overturned": 0})
 
     def test_all_eval_cases_have_reviewable_fixtures(self) -> None:
@@ -47,20 +49,6 @@ class QualificationToolsTest(unittest.TestCase):
             for forbidden in ("positive", "counterexample", "insufficient", "DES-", "COR-", "REL-", "SEC-", "CHG-"):
                 self.assertNotIn(forbidden, prompt)
 
-    def test_claude_metrics_include_cached_input(self) -> None:
-        raw = json.dumps(
-            {
-                "is_error": False,
-                "usage": {
-                    "input_tokens": 10,
-                    "cache_creation_input_tokens": 20,
-                    "cache_read_input_tokens": 30,
-                    "output_tokens": 40,
-                },
-            }
-        )
-        self.assertEqual(claude_metrics(raw), (60, 40))
-
     def test_codex_metrics_use_completed_turn(self) -> None:
         raw = "\n".join(
             [
@@ -70,16 +58,60 @@ class QualificationToolsTest(unittest.TestCase):
         )
         self.assertEqual(codex_metrics(raw), (50, 25))
 
-    def test_codex_runner_keeps_thread_persistence_for_verifier(self) -> None:
-        command = host_command(
-            "codex",
-            pathlib.Path("/qualification"),
-            pathlib.Path("/qualification/sessions/run-opaque"),
-            pathlib.Path("/qualification/quality-review"),
-        )
+    def test_codex_runner_uses_terra_high_and_keeps_verifier_threads(self) -> None:
+        command = codex_command(pathlib.Path("/qualification/sessions/run-opaque"))
         self.assertNotIn("--ephemeral", command)
-        for required in ("--ignore-user-config", "--ignore-rules", "--sandbox", "workspace-write"):
+        for required in (
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--sandbox",
+            "workspace-write",
+            "gpt-5.6-terra",
+            'model_reasoning_effort="high"',
+        ):
             self.assertIn(required, command)
+
+    def test_batch_queue_hides_expected_case_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = pathlib.Path(directory)
+            (workspace / "replay-records").mkdir()
+            (workspace / "operator-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "runs": [
+                            {"run_id": "run-a", "host": "codex", "case_id": "secret-a"},
+                            {"run_id": "run-b", "host": "codex", "case_id": "secret-b"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(pending_runs(workspace, None), ["run-a", "run-b"])
+
+    def test_review_match_requires_expected_verifier_count(self) -> None:
+        mapping = {
+            "rule_id": "DES-003",
+            "expected": {
+                "semantic_result": "BLOCK",
+                "finding_count": 1,
+                "severity": "S3",
+                "trigger_confidence": "T3",
+                "evidence_level": "E2",
+                "verifier_result": "confirmed",
+            },
+        }
+        observed = {
+            "semantic_result": "BLOCK",
+            "rule_ids": ["DES-003"],
+            "severity": "S3",
+            "trigger_confidence": "T3",
+            "evidence_level": "E2",
+            "duplicate_root_causes": 0,
+            "verifier_count": 0,
+        }
+        self.assertFalse(expected_matches(mapping, {"observed": observed}))
+        observed["verifier_count"] = 1
+        self.assertTrue(expected_matches(mapping, {"observed": observed}))
 
 
 if __name__ == "__main__":

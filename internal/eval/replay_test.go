@@ -44,9 +44,39 @@ func TestReplayQualificationRequiresFullStableHumanConfirmedMatrix(t *testing.T)
 	}
 }
 
-func TestReplayQualificationRequiresBothSupportedHosts(t *testing.T) {
-	if hostsQualified([]string{"claude-code"}) || hostsQualified([]string{"codex"}) || !hostsQualified([]string{"claude-code", "codex"}) {
-		t.Fatal("host qualification must require Claude Code and Codex")
+func TestReplayQualificationUsesOnlyLocalCodex(t *testing.T) {
+	if hostsQualified([]string{"claude-code"}) || !hostsQualified([]string{"codex"}) || hostsQualified([]string{"claude-code", "codex"}) {
+		t.Fatal("host qualification must use only Codex")
+	}
+}
+
+func TestReplayExpectedMatchRequiresConfiguredVerifierOutcome(t *testing.T) {
+	manifest, err := LoadManifest("../../evals/cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	positive := findCase(t, manifest, "DES-003-positive")
+	positiveRecord := ReplayRecord{Observed: Observed{
+		SemanticResult: quality.ResultBlock,
+		RuleIDs:        []string{"DES-003"},
+		Severity:       stringPointer("S3"), TriggerConfidence: stringPointer("T3"), EvidenceLevel: stringPointer("E2"),
+	}}
+	if matchesExpected(positive, positiveRecord) {
+		t.Fatal("positive replay without its required verifier must not match")
+	}
+	positiveRecord.Observed.VerifierCount = 1
+	if !matchesExpected(positive, positiveRecord) {
+		t.Fatal("positive replay with one verifier should match")
+	}
+
+	counterexample := findCase(t, manifest, "DES-003-counterexample")
+	counterexampleRecord := ReplayRecord{Observed: Observed{
+		SemanticResult: quality.ResultPass,
+		RuleIDs:        []string{},
+		VerifierCount:  1,
+	}}
+	if matchesExpected(counterexample, counterexampleRecord) {
+		t.Fatal("counterexample replay with an unexpected verifier must not match")
 	}
 }
 
@@ -156,4 +186,15 @@ func findReplayCase(t *testing.T, report ReplayReport, id string) ReplayCaseRepo
 	}
 	t.Fatalf("case %s not found", id)
 	return ReplayCaseReport{}
+}
+
+func findCase(t *testing.T, manifest Manifest, id string) Case {
+	t.Helper()
+	for _, item := range manifest.Cases {
+		if item.ID == id {
+			return item
+		}
+	}
+	t.Fatalf("case %s not found", id)
+	return Case{}
 }

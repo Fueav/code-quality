@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Run one opaque qualification task in a fresh Claude Code or Codex session."""
+"""Run one opaque qualification task in a fresh local Codex session."""
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import pathlib
 import subprocess
 import sys
 import time
+
+
+QUALIFICATION_MODEL = "gpt-5.6-terra"
+QUALIFICATION_REASONING_EFFORT = "high"
 
 
 def load_json(path: pathlib.Path) -> dict[str, object]:
@@ -31,21 +36,6 @@ def command_output(*args: str) -> str:
     if completed.returncode != 0:
         raise ValueError(f"command failed ({' '.join(args[:2])}): {completed.stderr.strip()}")
     return completed.stdout.strip()
-
-
-def claude_metrics(raw: str) -> tuple[int, int]:
-    payload = json.loads(raw)
-    if not isinstance(payload, dict) or payload.get("is_error") is True:
-        raise ValueError("Claude Code did not return a successful JSON result")
-    usage = payload.get("usage")
-    if not isinstance(usage, dict):
-        raise ValueError("Claude Code output did not contain usage metrics")
-    input_fields = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
-    input_tokens = sum(value for field in input_fields if isinstance((value := usage.get(field)), int))
-    output_tokens = usage.get("output_tokens")
-    if input_tokens < 1 or not isinstance(output_tokens, int) or output_tokens < 1:
-        raise ValueError("Claude Code usage metrics are invalid")
-    return input_tokens, output_tokens
 
 
 def codex_metrics(raw: str) -> tuple[int, int]:
@@ -80,49 +70,26 @@ def next_attempt(operator_directory: pathlib.Path) -> int:
     return max(attempts, default=0) + 1
 
 
-def host_command(
-    host: str,
-    workspace: pathlib.Path,
+def codex_command(
     session_root: pathlib.Path,
-    binary: pathlib.Path,
-    model: str | None = None,
 ) -> list[str]:
-    if host == "claude-code":
-        command = [
-            "claude",
-            "--print",
-            "--output-format",
-            "json",
-            "--no-session-persistence",
-            "--safe-mode",
-            "--permission-mode",
-            "acceptEdits",
-            "--add-dir",
-            str(workspace / "plugin" / "code-quality"),
-            "--allowedTools",
-            f"Bash({binary} *),Read,Write,Glob,Grep,Agent",
-        ]
-        if model:
-            command[1:1] = ["--model", model]
-        return command
-    if host == "codex":
-        command = [
-            "codex",
-            "exec",
-            "--ignore-user-config",
-            "--ignore-rules",
-            "--sandbox",
-            "workspace-write",
-            "--skip-git-repo-check",
-            "--cd",
-            str(session_root),
-            "--json",
-            "-",
-        ]
-        if model:
-            command[2:2] = ["--model", model]
-        return command
-    raise ValueError(f"unsupported qualification host: {host}")
+    return [
+        "codex",
+        "exec",
+        "--model",
+        QUALIFICATION_MODEL,
+        "--config",
+        f'model_reasoning_effort="{QUALIFICATION_REASONING_EFFORT}"',
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--sandbox",
+        "workspace-write",
+        "--skip-git-repo-check",
+        "--cd",
+        str(session_root),
+        "--json",
+        "-",
+    ]
 
 
 def main() -> int:
@@ -130,8 +97,6 @@ def main() -> int:
     parser.add_argument("--workspace", required=True, type=pathlib.Path)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=1200)
-    parser.add_argument("--claude-model")
-    parser.add_argument("--codex-model")
     args = parser.parse_args()
 
     if args.timeout_seconds < 1:
@@ -148,10 +113,10 @@ def main() -> int:
     if len(matches) != 1:
         raise ValueError("run ID is unknown or duplicated")
     mapping = matches[0]
-    host = mapping.get("host")
     task_relative = mapping.get("task")
-    if host not in {"claude-code", "codex"} or task_relative != f"tasks/{host}/{args.run_id}.json":
+    if mapping.get("host") != "codex" or task_relative != f"tasks/codex/{args.run_id}.json":
         raise ValueError("operator task mapping is invalid")
+    host = "codex"
     task_path = workspace / str(task_relative)
     task = load_json(task_path)
     prompt_path = task_path.with_suffix(".md")
@@ -172,15 +137,9 @@ def main() -> int:
         raise ValueError("run already has replay evidence")
 
     before_results = set(session_root.glob("review-*/output/review-result.json"))
-    binary = workspace / "quality-review"
-    if host == "claude-code":
-        command = host_command(host, workspace, session_root, binary, args.claude_model)
-        version = command_output("claude", "--version")
-        expected_version = baseline.get("claude_code_version")
-    else:
-        command = host_command(host, workspace, session_root, binary, args.codex_model)
-        version = command_output("codex", "--version")
-        expected_version = baseline.get("codex_version")
+    command = codex_command(session_root)
+    version = command_output("codex", "--version")
+    expected_version = baseline.get("codex_version")
     if not isinstance(expected_version, str) or version != expected_version:
         raise ValueError(f"{host} version no longer matches the frozen baseline")
 
@@ -206,8 +165,7 @@ def main() -> int:
         returncode = 124
     duration_ms = round((time.monotonic() - started_at) * 1000)
 
-    suffix = "json" if host == "claude-code" else "jsonl"
-    transcript = operator_directory / f"attempt-{attempt}.stdout.{suffix}"
+    transcript = operator_directory / f"attempt-{attempt}.stdout.jsonl"
     error_log = operator_directory / f"attempt-{attempt}.stderr.log"
     transcript.write_text(stdout, encoding="utf-8")
     error_log.write_text(stderr, encoding="utf-8")
@@ -216,7 +174,10 @@ def main() -> int:
         "run_id": args.run_id,
         "host": host,
         "host_version": version,
+        "model": QUALIFICATION_MODEL,
+        "reasoning_effort": QUALIFICATION_REASONING_EFFORT,
         "attempt": attempt,
+        "command": command,
         "returncode": returncode,
         "duration_ms": duration_ms,
         "stdout": transcript.name,
@@ -227,31 +188,36 @@ def main() -> int:
     if returncode != 0:
         raise ValueError(f"{host} exited with status {returncode}; see {error_log}")
 
-    input_tokens, output_tokens = claude_metrics(stdout) if host == "claude-code" else codex_metrics(stdout)
+    input_tokens, output_tokens = codex_metrics(stdout)
     after_results = set(session_root.glob("review-*/output/review-result.json"))
     new_results = after_results - before_results
     if len(new_results) != 1:
         raise ValueError(f"host run produced {len(new_results)} new finalized results; expected exactly one")
     result = new_results.pop()
     collector = pathlib.Path(__file__).with_name("qualification_collect.py")
-    collected = command_output(
-        sys.executable,
-        str(collector),
-        "--workspace",
-        str(workspace),
-        "--run-id",
-        args.run_id,
-        "--result",
-        str(result),
-        "--transcript",
-        str(transcript),
-        "--input-tokens",
-        str(input_tokens),
-        "--output-tokens",
-        str(output_tokens),
-        "--duration-ms",
-        str(duration_ms),
-    )
+    with (workspace / ".collect.lock").open("a+", encoding="utf-8") as collection_lock:
+        fcntl.flock(collection_lock.fileno(), fcntl.LOCK_EX)
+        collected = command_output(
+            sys.executable,
+            str(collector),
+            "--workspace",
+            str(workspace),
+            "--run-id",
+            args.run_id,
+            "--result",
+            str(result),
+            "--transcript",
+            str(transcript),
+            "--runner-metadata",
+            str(metadata_path),
+            "--input-tokens",
+            str(input_tokens),
+            "--output-tokens",
+            str(output_tokens),
+            "--duration-ms",
+            str(duration_ms),
+        )
+        fcntl.flock(collection_lock.fileno(), fcntl.LOCK_UN)
     json.dump(
         {
             "run_id": args.run_id,

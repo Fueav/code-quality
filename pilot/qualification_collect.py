@@ -14,6 +14,7 @@ import sys
 import tempfile
 
 from qualification_initialize import file_sha256
+from qualification_run import QUALIFICATION_MODEL, QUALIFICATION_REASONING_EFFORT, codex_command
 
 
 def load_json(path: pathlib.Path) -> dict[str, object]:
@@ -62,6 +63,7 @@ def main() -> int:
     parser.add_argument("--reviewer")
     parser.add_argument("--review-note")
     parser.add_argument("--transcript", required=True, type=pathlib.Path)
+    parser.add_argument("--runner-metadata", required=True, type=pathlib.Path)
     parser.add_argument("--input-tokens", type=int)
     parser.add_argument("--output-tokens", type=int)
     parser.add_argument("--duration-ms", type=int)
@@ -83,6 +85,11 @@ def main() -> int:
     baseline = load_json(workspace / "baseline.json")
     if baseline.get("source_dirty") is not False or baseline.get("development_only") is not False:
         raise ValueError("development or dirty workspace cannot collect qualification evidence")
+    if (
+        baseline.get("qualification_model") != QUALIFICATION_MODEL
+        or baseline.get("qualification_reasoning_effort") != QUALIFICATION_REASONING_EFFORT
+    ):
+        raise ValueError("qualification model or reasoning effort does not match the frozen contract")
 
     operator = load_json(workspace / "operator-manifest.json")
     runs = operator.get("runs")
@@ -92,6 +99,8 @@ def main() -> int:
     if len(matches) != 1:
         raise ValueError("run ID is unknown or duplicated")
     mapping = matches[0]
+    if mapping.get("host") != "codex":
+        raise ValueError("formal qualification accepts only local Codex runs")
     task_relative = mapping.get("task")
     if task_relative != f"tasks/{mapping.get('host')}/{args.run_id}.json":
         raise ValueError("operator task mapping is invalid")
@@ -117,6 +126,22 @@ def main() -> int:
     transcript = args.transcript.resolve(strict=True)
     if transcript.is_symlink() or not transcript.is_file() or expected_session_root not in transcript.parents:
         raise ValueError("transcript must be a regular file under the selected run session root")
+    runner_metadata_path = args.runner_metadata.resolve(strict=True)
+    if runner_metadata_path.is_symlink() or not runner_metadata_path.is_file() or expected_session_root not in runner_metadata_path.parents:
+        raise ValueError("runner metadata must be a regular file under the selected run session root")
+    runner_metadata = load_json(runner_metadata_path)
+    if (
+        runner_metadata.get("run_id") != args.run_id
+        or runner_metadata.get("host") != "codex"
+        or runner_metadata.get("host_version") != baseline.get("codex_version")
+        or runner_metadata.get("model") != QUALIFICATION_MODEL
+        or runner_metadata.get("reasoning_effort") != QUALIFICATION_REASONING_EFFORT
+        or runner_metadata.get("command") != codex_command(expected_session_root)
+        or runner_metadata.get("returncode") != 0
+        or runner_metadata.get("duration_ms") != args.duration_ms
+        or runner_metadata.get("stdout") != transcript.name
+    ):
+        raise ValueError("runner metadata does not prove a successful Terra/high Codex run")
 
     binary = workspace / "quality-review"
     record_path = workspace / "replay-records" / f"{args.run_id}.json"
@@ -131,6 +156,7 @@ def main() -> int:
         or previous_evidence.get("verifier_review_sha256") != verifier_sha256
         or previous_evidence.get("markdown_sha256") != file_sha256(result.with_name("review-result.md"))
         or previous_evidence.get("transcript_sha256") != file_sha256(transcript)
+        or previous_evidence.get("runner_metadata_sha256") != file_sha256(runner_metadata_path)
     ):
         raise ValueError("re-collection cannot change immutable session evidence")
     finalized = json.loads(run(str(binary), "finalize", "--session", str(session)))
@@ -222,7 +248,9 @@ def main() -> int:
         "schema_version": 1,
         "run_id": args.run_id,
         "host": mapping["host"],
-        "host_version": baseline[f"{'claude_code' if mapping['host'] == 'claude-code' else 'codex'}_version"],
+        "host_version": baseline["codex_version"],
+        "model": QUALIFICATION_MODEL,
+        "reasoning_effort": QUALIFICATION_REASONING_EFFORT,
         "task": task_relative,
         "session": session.relative_to(workspace).as_posix(),
         "input_manifest_sha256": file_sha256(session / "input-manifest.json"),
@@ -232,6 +260,8 @@ def main() -> int:
         "markdown_sha256": file_sha256(markdown),
         "transcript": transcript.relative_to(workspace).as_posix(),
         "transcript_sha256": file_sha256(transcript),
+        "runner_metadata": runner_metadata_path.relative_to(workspace).as_posix(),
+        "runner_metadata_sha256": file_sha256(runner_metadata_path),
         "input_tokens": args.input_tokens,
         "output_tokens": args.output_tokens,
         "duration_ms": args.duration_ms,

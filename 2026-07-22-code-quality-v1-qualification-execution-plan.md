@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-完成 V1 report-only 发布候选的宿主会话资格验证，生成可复现、经人工确认且 `qualification_complete=true` 的证据包，使其具备进入真实项目 report-only 试点的资格。
+完成 V1 report-only 发布候选的本机 Codex 宿主会话资格验证，生成可复现、经人工确认且 `qualification_complete=true` 的证据包，使其具备进入真实项目 report-only 试点的资格。正式矩阵固定使用 `gpt-5.6-terra` 和 `high` reasoning effort，不调用 Claude。
 
 本计划不启用自动阻断，不扩大 20 条底线规则，不建设模型 Runner 或人工放行平台。
 
@@ -41,10 +41,10 @@
 - 结果、规则 ID、S/T/E 与案例预期一致；
 - 没有重复根因或无效记录；
 - 每次最多 2 个 Agent、最多 1 个 verifier；
-- Claude Code 与 Codex 都有有效记录；
+- 100 次运行均来自冻结版本的本机 Codex，模型为 `gpt-5.6-terra`、reasoning effort 为 `high`；
 - 每次运行均由独立人工确认。
 
-token 和耗时当前不是汇总布尔值的硬条件，但必须采集，供真实项目试点判断成本和时延。
+token 和耗时不改变语义判定，但正式证据包必须 100/100 采集，供真实项目试点判断成本和时延；最终证据校验会拒绝缺失指标的完成态。
 
 ## 4. 执行阶段
 
@@ -70,9 +70,9 @@ token 和耗时当前不是汇总布尔值的硬条件，但必须采集，供�
 
 ### Q2：宿主会话回放
 
-先用 `DES-003` 完成端到端 canary，再以全新随机 run ID 和隔离会话按 D1 → D2 → D3 → D4 批量运行。canary 不计入正式 100 次运行。
+先在一次性冻结 workspace 中用 opaque task 完成端到端 canary；成功后归档该 workspace，并从同一干净提交重新初始化正式 workspace。再以全新随机 run ID 和隔离会话按 D1 → D2 → D3 → D4 批量运行，canary 不计入正式 100 次运行。
 
-正例三次运行至少包含一次 Claude Code 和一次 Codex；第三次在两种宿主间交错分配。反例和证据不足案例在两种宿主间交错分配，保持总工作量接近平衡。
+正例三次运行、反例和证据不足案例均使用本机 Codex 的全新隔离会话；每次显式固定 `gpt-5.6-terra` 与 `high` reasoning effort，并在 runner metadata 中留痕。不同重复运行不得复用会话上下文。
 
 每完成一条规则就立即运行 replay summarize；不把无效输出留到批次末尾集中处理。
 
