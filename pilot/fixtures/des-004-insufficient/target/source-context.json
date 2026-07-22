@@ -1,0 +1,9 @@
+{
+  "production_entry": "Checkout",
+  "decision": "final checkout price in cents",
+  "consumer": "order charging",
+  "source_values_can_diverge": true,
+  "primary_authority": "undocumented",
+  "secondary_authority": "undocumented",
+  "fallback": "none documented"
+}

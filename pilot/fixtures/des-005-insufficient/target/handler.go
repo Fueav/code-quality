@@ -1,22 +1,22 @@
 package batch
 
-type Queue interface {
-	Enqueue(ids []string) error
+type BatchQueue interface {
+	EnqueueReindex(ids []string) error
 }
 
-type Store interface {
-	Update(id string) error
+type LocalIndexer interface {
+	Rebuild(id string) error
 }
 
-func Handle(_ Queue, store Store, ids []string) error {
+func Handle(_ BatchQueue, indexer LocalIndexer, ids []string) error {
 	for _, id := range ids {
-		if err := store.Update(id); err != nil {
+		if err := indexer.Rebuild(id); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func ServeRequest(queue Queue, store Store, ids []string) error {
-	return Handle(queue, store, ids)
+func ServeRequest(queue BatchQueue, indexer LocalIndexer, ids []string) error {
+	return Handle(queue, indexer, ids)
 }

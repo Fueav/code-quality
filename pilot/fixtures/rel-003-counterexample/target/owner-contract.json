@@ -1,6 +1,8 @@
 {
   "approved": true,
   "lifecycle": "Process always closes its one owner loop",
+  "send_close_coordination": "Apply holds State.mu for send and acknowledgement; Close holds the exclusive lock before closing",
+  "post_close_apply": "returns without sending",
   "state_owner_count": 1,
   "writers": "all writes pass through State.Apply"
 }

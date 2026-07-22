@@ -1,0 +1,7 @@
+{
+  "production_entry": "AuthenticateProduction",
+  "log_destination": "production service log",
+  "provider": "undocumented",
+  "credential_validity": "undocumented",
+  "credential_reusability": "undocumented"
+}

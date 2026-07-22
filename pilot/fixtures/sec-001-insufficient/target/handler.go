@@ -1,8 +1,8 @@
 package access
 
 type Request struct {
-	User   string
-	Header string
+	User         string
+	GatewayClaim string
 }
 
 type Authorizer interface {
@@ -10,9 +10,9 @@ type Authorizer interface {
 }
 
 func Handle(_ Authorizer, request Request) bool {
-	return request.Header != ""
+	return request.GatewayClaim != ""
 }
 
-func Serve(authorizer Authorizer, request Request) bool {
+func ServePrivilegedAccount(authorizer Authorizer, request Request) bool {
 	return Handle(authorizer, request)
 }

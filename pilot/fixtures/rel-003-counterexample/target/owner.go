@@ -8,9 +8,10 @@ type event struct {
 }
 
 type State struct {
-	once      sync.Once
-	closeOnce sync.Once
-	events    chan event
+	once   sync.Once
+	mu     sync.RWMutex
+	closed bool
+	events chan event
 }
 
 func (state *State) start() {
@@ -26,6 +27,11 @@ func (state *State) start() {
 
 func (state *State) Apply(delta int) {
 	state.once.Do(state.start)
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.closed {
+		return
+	}
 	done := make(chan struct{})
 	state.events <- event{delta: delta, done: done}
 	<-done
@@ -33,7 +39,13 @@ func (state *State) Apply(delta int) {
 
 func (state *State) Close() {
 	state.once.Do(state.start)
-	state.closeOnce.Do(func() { close(state.events) })
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.closed {
+		return
+	}
+	state.closed = true
+	close(state.events)
 }
 
 func Process(deltas []int) {

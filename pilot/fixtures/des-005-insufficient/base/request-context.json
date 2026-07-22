@@ -1,0 +1,8 @@
+{
+  "production_entry": "ServeRequest",
+  "execution": "synchronous request",
+  "work": "local CPU and disk index rebuild",
+  "remote_calls": false,
+  "request_item_limit": "undocumented",
+  "latency_objective": "undocumented"
+}

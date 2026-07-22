@@ -1,0 +1,9 @@
+{
+  "deployed_route": "/v1/account",
+  "response_entry": "PublicResponse",
+  "release_status": "production",
+  "route_criticality": "account access",
+  "existing_consumer": "mobile-account-screen",
+  "consumer_field_usage": "undocumented",
+  "missing_field_behavior": "undocumented"
+}

@@ -1,0 +1,8 @@
+{
+  "entry": "ServePrivilegedAccount",
+  "resource": "privileged account operation",
+  "external_route_exposure": "undocumented",
+  "gateway_unavoidable": "undocumented",
+  "gateway_claim_signature": "undocumented",
+  "gateway_claim_mutability": "undocumented"
+}
