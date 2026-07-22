@@ -69,8 +69,8 @@
       "properties": {
         "host": {"enum": ["claude-code", "codex", ""]},
         "skill_version": {"type": "string"},
-        "agent_count": {"type": "integer", "minimum": 0},
-        "verifier_count": {"type": "integer", "minimum": 0},
+        "agent_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "verifier_count": {"type": "integer", "minimum": 0, "maximum": 1},
         "input_tokens": {"type": ["integer", "null"], "minimum": 0},
         "output_tokens": {"type": ["integer", "null"], "minimum": 0},
         "duration_ms": {"type": ["integer", "null"], "minimum": 0},

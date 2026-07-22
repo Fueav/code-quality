@@ -1,6 +1,6 @@
 # V1 Report-Only Pilot
 
-The pilot validates the released deterministic core and the current Claude Code/Codex host-session workflow. It does not embed a model runner, configure a provider, or turn semantic results into CI failures.
+The pilot validates the report-only V1 release candidate and the current Claude Code/Codex host-session workflow. It does not claim that a remote tag or release artifact exists, embed a model runner, configure a provider, or turn semantic results into CI failures.
 
 ## Deterministic qualification
 

@@ -8,7 +8,7 @@
     "policy_version": {"type": "string", "minLength": 1},
     "case_id": {"type": "string", "minLength": 1},
     "host": {"enum": ["claude-code", "codex"]},
-    "run_number": {"type": "integer", "minimum": 1},
+    "run_number": {"type": "integer", "minimum": 1, "maximum": 3},
     "observed": {
       "type": "object",
       "additionalProperties": false,
