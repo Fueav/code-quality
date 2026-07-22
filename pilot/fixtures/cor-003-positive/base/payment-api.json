@@ -9,5 +9,6 @@
   "client_effect": "immediate irreversible provider debit",
   "request_field": "amount_cents",
   "request_unit": "cents",
-  "trigger_example": "amount_cents 5000"
+  "active_request_observed": true,
+  "active_request_amount_cents": 5000
 }
