@@ -1,5 +1,7 @@
 package quality
 
+const SkillVersion = "0.1.0"
+
 // ReviewRequest is the trusted review baseline produced by the runner.
 type ReviewRequest struct {
 	Repository          string   `json:"repository"`
@@ -41,13 +43,20 @@ type Finding struct {
 	VerifierResult               string         `json:"verifier_result"`
 }
 
+type InspectedContext struct {
+	Path    string `json:"path"`
+	Purpose string `json:"purpose"`
+}
+
 type Execution struct {
-	AgentCount    int  `json:"agent_count"`
-	VerifierCount int  `json:"verifier_count"`
-	InputTokens   *int `json:"input_tokens"`
-	OutputTokens  *int `json:"output_tokens"`
-	DurationMS    *int `json:"duration_ms"`
-	RetryCount    *int `json:"retry_count"`
+	Host          string `json:"host"`
+	SkillVersion  string `json:"skill_version"`
+	AgentCount    int    `json:"agent_count"`
+	VerifierCount int    `json:"verifier_count"`
+	InputTokens   *int   `json:"input_tokens"`
+	OutputTokens  *int   `json:"output_tokens"`
+	DurationMS    *int   `json:"duration_ms"`
+	RetryCount    *int   `json:"retry_count"`
 }
 
 type VerifierDecision struct {
@@ -67,6 +76,7 @@ type ModelReview struct {
 	Findings              []Finding            `json:"findings"`
 	UninspectedScope      []string             `json:"uninspected_scope"`
 	MissingContext        []string             `json:"missing_context"`
+	InspectedContext      []InspectedContext   `json:"inspected_context"`
 	Execution             Execution            `json:"-"`
 }
 
@@ -92,6 +102,7 @@ type ReviewResult struct {
 	Execution             Execution            `json:"execution"`
 	UninspectedScope      []string             `json:"uninspected_scope"`
 	MissingContext        []string             `json:"missing_context"`
+	InspectedContext      []InspectedContext   `json:"inspected_context"`
 	Adjudication          Adjudication         `json:"adjudication"`
 }
 

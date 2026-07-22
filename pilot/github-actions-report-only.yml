@@ -1,0 +1,36 @@
+# GitHub Actions report-only publication example.
+# A prior host-session step, or a trusted artifact-download step, must place the
+# authoritative JSON at QUALITY_RESULT_JSON. Markdown is rendered only after JSON
+# validation. Semantic BLOCK/INCOMPLETE never fails this job; malformed or
+# semantically inconsistent JSON does fail validation.
+name: code-quality-report-only
+on:
+  workflow_dispatch:
+  pull_request:
+
+env:
+  QUALITY_RESULT_JSON: .code-quality/report-only/review-result.json
+  QUALITY_RESULT_MARKDOWN: .code-quality/report-only/review-result.md
+
+jobs:
+  publish-code-quality-report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned quality-review release
+        run: go install github.com/Fueav/code-quality/cmd/quality-review@${QUALITY_REVIEW_VERSION}
+        env:
+          QUALITY_REVIEW_VERSION: v0.1.0
+      - name: Validate deterministic report
+        run: quality-review validate "${QUALITY_RESULT_JSON}"
+      - name: Render validated report
+        run: quality-review render "${QUALITY_RESULT_JSON}" > "${QUALITY_RESULT_MARKDOWN}"
+      - name: Publish report-only artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-quality-report
+          path: |
+            ${{ env.QUALITY_RESULT_JSON }}
+            ${{ env.QUALITY_RESULT_MARKDOWN }}

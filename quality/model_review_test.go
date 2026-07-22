@@ -61,13 +61,35 @@ func TestDecodeModelReviewRequiresFindingAndLocationFields(t *testing.T) {
 	}
 }
 
+func TestDecodeModelReviewRequiresInspectedContextFields(t *testing.T) {
+	review := validDecodeModelReview()
+	raw, err := json.Marshal(review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	var inspected []map[string]json.RawMessage
+	if err := json.Unmarshal(document["inspected_context"], &inspected); err != nil {
+		t.Fatal(err)
+	}
+	delete(inspected[0], "purpose")
+	document["inspected_context"], _ = json.Marshal(inspected)
+	raw, _ = json.Marshal(document)
+	if _, err := DecodeModelReview(strings.NewReader(string(raw))); err == nil || !strings.Contains(err.Error(), "purpose is required") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestDecodeModelReviewAcceptsRequiredEmptyArrays(t *testing.T) {
-	raw := `{"activated_rule_families":["D1","D2","D3","D4"],"inactive_rule_families":[],"findings":[],"uninspected_scope":[],"missing_context":[]}`
+	raw := `{"activated_rule_families":["D1","D2","D3","D4"],"inactive_rule_families":[],"findings":[],"uninspected_scope":[],"missing_context":[],"inspected_context":[]}`
 	review, err := DecodeModelReview(strings.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if review.Findings == nil || review.UninspectedScope == nil || review.MissingContext == nil {
+	if review.Findings == nil || review.UninspectedScope == nil || review.MissingContext == nil || review.InspectedContext == nil {
 		t.Fatalf("required arrays were not preserved: %#v", review)
 	}
 }
@@ -87,5 +109,6 @@ func validDecodeModelReview() ModelReview {
 			VerificationPerformed: []string{"trace"}, MinimalFix: "fix", Uncertainties: []string{}, VerifierResult: "not_run",
 		}},
 		UninspectedScope: []string{}, MissingContext: []string{},
+		InspectedContext: []InspectedContext{{Path: "app.go", Purpose: "Trace the changed entry."}},
 	}
 }

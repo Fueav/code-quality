@@ -27,7 +27,9 @@ type Layout struct {
 	SessionDir          string
 	InputDir            string
 	RepositoryDir       string
+	EvidenceDir         string
 	OutputDir           string
+	EvidenceContextPath string
 	RequestPath         string
 	DiffPath            string
 	RubricPath          string
@@ -35,6 +37,7 @@ type Layout struct {
 	ModelSchemaPath     string
 	VerifierSchemaPath  string
 	ManifestPath        string
+	MetadataPath        string
 	MainReviewPath      string
 	VerifierRequestPath string
 	VerifierReviewPath  string
@@ -43,31 +46,43 @@ type Layout struct {
 }
 
 type Prepared struct {
-	SchemaVersion      int    `json:"schema_version"`
-	Status             string `json:"status"`
-	SessionDir         string `json:"session_dir"`
-	RepositoryDir      string `json:"repository_dir"`
-	RequestPath        string `json:"request_path"`
-	DiffPath           string `json:"diff_path"`
-	RubricPath         string `json:"rubric_path"`
-	WorkflowPath       string `json:"workflow_path"`
-	ModelSchemaPath    string `json:"model_schema_path"`
-	VerifierSchemaPath string `json:"verifier_schema_path"`
-	ManifestPath       string `json:"manifest_path"`
-	MainReviewPath     string `json:"main_review_path"`
-	DirtyWorktree      bool   `json:"dirty_worktree"`
+	SchemaVersion       int    `json:"schema_version"`
+	Status              string `json:"status"`
+	SessionDir          string `json:"session_dir"`
+	RepositoryDir       string `json:"repository_dir"`
+	EvidenceContextPath string `json:"evidence_context_path"`
+	RequestPath         string `json:"request_path"`
+	DiffPath            string `json:"diff_path"`
+	RubricPath          string `json:"rubric_path"`
+	WorkflowPath        string `json:"workflow_path"`
+	ModelSchemaPath     string `json:"model_schema_path"`
+	VerifierSchemaPath  string `json:"verifier_schema_path"`
+	ManifestPath        string `json:"manifest_path"`
+	MetadataPath        string `json:"metadata_path"`
+	MainReviewPath      string `json:"main_review_path"`
+	DirtyWorktree       bool   `json:"dirty_worktree"`
 }
 
 type Options struct {
 	RepositoryRoot string
 	OutputRoot     string
+	Host           string
 	Request        quality.ReviewRequest
 	DirtyWorktree  bool
+}
+
+type Metadata struct {
+	SchemaVersion int    `json:"schema_version"`
+	Host          string `json:"host"`
+	SkillVersion  string `json:"skill_version"`
 }
 
 func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if strings.TrimSpace(options.RepositoryRoot) == "" {
 		return Prepared{}, errors.New("repository root is required")
+	}
+	if options.Host != "claude-code" && options.Host != "codex" {
+		return Prepared{}, errors.New("host must be claude-code or codex")
 	}
 	if errors := quality.ValidateRequest(options.Request); len(errors) > 0 {
 		return Prepared{}, fmt.Errorf("review request is invalid: %s", strings.Join(errors, "; "))
@@ -96,7 +111,17 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if err := extractCommit(ctx, options.RepositoryRoot, options.Request.TargetCommit, layout.RepositoryDir); err != nil {
 		return Prepared{}, err
 	}
+	evidence, err := DiscoverEvidence(options.RepositoryRoot, options.Request.TargetCommit, layout.EvidenceDir)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("discover optional Harness evidence: %w", err)
+	}
+	if err := encodeEvidenceContext(layout.EvidenceContextPath, evidence); err != nil {
+		return Prepared{}, err
+	}
 	if err := writeJSON(layout.RequestPath, options.Request); err != nil {
+		return Prepared{}, err
+	}
+	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion}); err != nil {
 		return Prepared{}, err
 	}
 	if err := writeTrustedDiff(ctx, options.RepositoryRoot, options.Request, layout.DiffPath); err != nil {
@@ -122,19 +147,21 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	}
 	prepared = true
 	return Prepared{
-		SchemaVersion:      1,
-		Status:             "READY_FOR_MAIN_REVIEW",
-		SessionDir:         layout.SessionDir,
-		RepositoryDir:      layout.RepositoryDir,
-		RequestPath:        layout.RequestPath,
-		DiffPath:           layout.DiffPath,
-		RubricPath:         layout.RubricPath,
-		WorkflowPath:       layout.WorkflowPath,
-		ModelSchemaPath:    layout.ModelSchemaPath,
-		VerifierSchemaPath: layout.VerifierSchemaPath,
-		ManifestPath:       layout.ManifestPath,
-		MainReviewPath:     layout.MainReviewPath,
-		DirtyWorktree:      options.DirtyWorktree,
+		SchemaVersion:       1,
+		Status:              "READY_FOR_MAIN_REVIEW",
+		SessionDir:          layout.SessionDir,
+		RepositoryDir:       layout.RepositoryDir,
+		EvidenceContextPath: layout.EvidenceContextPath,
+		RequestPath:         layout.RequestPath,
+		DiffPath:            layout.DiffPath,
+		RubricPath:          layout.RubricPath,
+		WorkflowPath:        layout.WorkflowPath,
+		ModelSchemaPath:     layout.ModelSchemaPath,
+		VerifierSchemaPath:  layout.VerifierSchemaPath,
+		ManifestPath:        layout.ManifestPath,
+		MetadataPath:        layout.MetadataPath,
+		MainReviewPath:      layout.MainReviewPath,
+		DirtyWorktree:       options.DirtyWorktree,
 	}, nil
 }
 
@@ -149,7 +176,9 @@ func NewLayout(directory string) Layout {
 		SessionDir:          directory,
 		InputDir:            input,
 		RepositoryDir:       filepath.Join(input, "repository"),
+		EvidenceDir:         filepath.Join(input, "evidence"),
 		OutputDir:           output,
+		EvidenceContextPath: filepath.Join(input, "evidence-context.json"),
 		RequestPath:         filepath.Join(input, "review-request.json"),
 		DiffPath:            filepath.Join(input, "trusted.diff"),
 		RubricPath:          filepath.Join(input, "rubric.md"),
@@ -157,6 +186,7 @@ func NewLayout(directory string) Layout {
 		ModelSchemaPath:     filepath.Join(input, "model-review.schema.json"),
 		VerifierSchemaPath:  filepath.Join(input, "verifier-review.schema.json"),
 		ManifestPath:        filepath.Join(directory, "input-manifest.json"),
+		MetadataPath:        filepath.Join(input, "session-metadata.json"),
 		MainReviewPath:      filepath.Join(output, "main-review.json"),
 		VerifierRequestPath: filepath.Join(output, "verifier-request.json"),
 		VerifierReviewPath:  filepath.Join(output, "verifier-review.json"),
@@ -184,17 +214,36 @@ func ValidateLayout(layout Layout) error {
 }
 
 func ReadRegularFile(path string, limit int64) ([]byte, error) {
-	info, err := os.Lstat(path)
+	before, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
 		return nil, errors.New("input must be a regular non-symlink file")
 	}
-	if info.Size() > limit {
+	if before.Size() > limit {
 		return nil, fmt.Errorf("input exceeds %d bytes", limit)
 	}
-	return os.ReadFile(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	after, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(before, after) || after.Size() > limit {
+		return nil, errors.New("input changed while it was being read")
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) != after.Size() || int64(len(raw)) > limit {
+		return nil, errors.New("input changed while it was being read")
+	}
+	return raw, nil
 }
 
 type inputManifest struct {
@@ -230,7 +279,8 @@ func VerifyInputManifest(layout Layout) error {
 		return errors.New("trusted review input was modified")
 	}
 	for path, digest := range manifest.Files {
-		if actual[path] != digest {
+		actualDigest, exists := actual[path]
+		if !exists || !validSHA256(digest) || actualDigest != digest {
 			return errors.New("trusted review input was modified")
 		}
 	}

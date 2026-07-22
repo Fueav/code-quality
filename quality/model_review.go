@@ -46,7 +46,7 @@ func DecodeVerifierReview(reader io.Reader) (VerifierReview, error) {
 }
 
 var requiredModelReviewFields = []string{
-	"activated_rule_families", "inactive_rule_families", "findings", "uninspected_scope", "missing_context",
+	"activated_rule_families", "inactive_rule_families", "findings", "uninspected_scope", "missing_context", "inspected_context",
 }
 
 var requiredFindingFields = []string{
@@ -78,7 +78,7 @@ func validateModelReviewShape(raw []byte) error {
 	if err := requireFields(document, "model review", requiredModelReviewFields...); err != nil {
 		return err
 	}
-	for _, field := range []string{"activated_rule_families", "inactive_rule_families", "findings", "uninspected_scope", "missing_context"} {
+	for _, field := range []string{"activated_rule_families", "inactive_rule_families", "findings", "uninspected_scope", "missing_context", "inspected_context"} {
 		if !isJSONArray(document[field]) {
 			return fmt.Errorf("model review.%s must be an array", field)
 		}
@@ -90,6 +90,16 @@ func validateModelReviewShape(raw []byte) error {
 	}
 	for index, family := range inactive {
 		if err := requireFields(family, fmt.Sprintf("inactive_rule_families[%d]", index), "id", "reason"); err != nil {
+			return err
+		}
+	}
+
+	var inspected []map[string]json.RawMessage
+	if err := json.Unmarshal(document["inspected_context"], &inspected); err != nil {
+		return fmt.Errorf("decode inspected_context: %w", err)
+	}
+	for index, item := range inspected {
+		if err := requireFields(item, fmt.Sprintf("inspected_context[%d]", index), "path", "purpose"); err != nil {
 			return err
 		}
 	}

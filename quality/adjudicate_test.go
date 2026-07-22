@@ -1,6 +1,8 @@
 package quality
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -80,12 +82,191 @@ func TestAdjudicateInvalidInputIsIncomplete(t *testing.T) {
 	}
 }
 
+func TestAdjudicateRejectsDuplicateInspectedContext(t *testing.T) {
+	review := reviewWith(validBlockingFinding())
+	review.InspectedContext = append(review.InspectedContext, review.InspectedContext[0])
+	result := Adjudicate(validRequest(), review, validPolicy())
+	if result.Adjudication.SemanticResult != ResultIncomplete || !contains(result.Adjudication.Reasons, "duplicate paths") {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestDecodeReviewResultRejectsMissingRequiredFields(t *testing.T) {
+	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := map[string]func(map[string]any){
+		"top level": func(document map[string]any) {
+			delete(document, "inspected_context")
+		},
+		"request": func(document map[string]any) {
+			delete(document["request"].(map[string]any), "changed_files")
+		},
+		"execution nullable field": func(document map[string]any) {
+			delete(document["execution"].(map[string]any), "duration_ms")
+		},
+		"adjudication": func(document map[string]any) {
+			delete(document["adjudication"].(map[string]any), "ci_action")
+		},
+		"finding candidate": func(document map[string]any) {
+			findings := document["findings"].([]any)
+			delete(findings[0].(map[string]any)["candidate"].(map[string]any), "causal_chain")
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal(raw, &document); err != nil {
+				t.Fatal(err)
+			}
+			mutate(document)
+			mutated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeReviewResult(bytes.NewReader(mutated)); err == nil || !strings.Contains(err.Error(), "is required") {
+				t.Fatalf("error = %v, want required-field error", err)
+			}
+		})
+	}
+}
+
+func TestDecodeReviewResultRejectsNullRequiredArrays(t *testing.T) {
+	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["missing_context"] = nil
+	mutated, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeReviewResult(bytes.NewReader(mutated)); err == nil || (!strings.Contains(err.Error(), "must be an array") && !strings.Contains(err.Error(), "cannot be null")) {
+		t.Fatalf("error = %v, want null-array error", err)
+	}
+}
+
+func TestDecodeReviewResultRejectsNullFindingArrays(t *testing.T) {
+	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	findings := document["findings"].([]any)
+	findings[0].(map[string]any)["candidate"].(map[string]any)["uncertainties"] = nil
+	mutated, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeReviewResult(bytes.NewReader(mutated)); err == nil || !strings.Contains(err.Error(), "cannot be null") {
+		t.Fatalf("error = %v, want null-array error", err)
+	}
+}
+
+func TestDecodeReviewResultRejectsNullOrWrongTypeExecutionIdentity(t *testing.T) {
+	result := IncompleteResult(validRequest(), validPolicy(), "trusted input was invalid")
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name  string
+		field string
+		value any
+	}{
+		{name: "null host", field: "host", value: nil},
+		{name: "null skill version", field: "skill_version", value: nil},
+		{name: "null agent count", field: "agent_count", value: nil},
+		{name: "null verifier count", field: "verifier_count", value: nil},
+		{name: "wrong host type", field: "host", value: 1},
+		{name: "wrong skill version type", field: "skill_version", value: false},
+		{name: "wrong agent count type", field: "agent_count", value: "0"},
+		{name: "wrong verifier count type", field: "verifier_count", value: 0.5},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal(raw, &document); err != nil {
+				t.Fatal(err)
+			}
+			document["execution"].(map[string]any)[test.field] = test.value
+			mutated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeReviewResult(bytes.NewReader(mutated)); err == nil {
+				t.Fatal("DecodeReviewResult accepted an invalid execution identity field")
+			}
+		})
+	}
+}
+
+func TestDecodeReviewResultAllowsNullableMetricsAndEmptyIncompleteExecution(t *testing.T) {
+	result := IncompleteResult(validRequest(), validPolicy(), "trusted input was invalid")
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeReviewResult(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errors := ValidateResult(decoded, validPolicy()); len(errors) != 0 {
+		t.Fatalf("errors = %#v", errors)
+	}
+}
+
 func TestValidateResultRejectsTamperedVerdict(t *testing.T) {
 	policy := validPolicy()
 	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), policy)
 	result.Adjudication.SemanticResult = ResultPass
 	if errors := ValidateResult(result, policy); !contains(errors, "result does not match deterministic adjudication") {
 		t.Fatalf("errors = %#v, want tamper error", errors)
+	}
+}
+
+func TestValidateResultRejectsMalformedIncompleteExecution(t *testing.T) {
+	negative := -1
+	result := IncompleteResultWithExecution(validRequest(), validPolicy(), Execution{
+		Host:          "claude-code",
+		SkillVersion:  "untrusted",
+		AgentCount:    3,
+		VerifierCount: 2,
+		DurationMS:    &negative,
+	}, "model output was malformed")
+	errors := ValidateResult(result, validPolicy())
+	for _, expected := range []string{"skill_version", "agent_count", "verifier_count", "metrics"} {
+		if !contains(errors, expected) {
+			t.Fatalf("errors = %#v, want %q", errors, expected)
+		}
+	}
+}
+
+func TestValidateResultRejectsIncompleteWithPartialReviewOutput(t *testing.T) {
+	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+	result.Adjudication.SemanticResult = ResultIncomplete
+	result.Adjudication.Reasons = []string{"forged incomplete status"}
+	if errors := ValidateResult(result, validPolicy()); !contains(errors, "must not contain partial review output") {
+		t.Fatalf("errors = %#v", errors)
+	}
+}
+
+func TestValidateResultAllowsIncompleteBeforeExecutionStarts(t *testing.T) {
+	result := IncompleteResult(validRequest(), validPolicy(), "trusted input was invalid")
+	if errors := ValidateResult(result, validPolicy()); len(errors) != 0 {
+		t.Fatalf("errors = %#v", errors)
 	}
 }
 
@@ -165,7 +346,10 @@ func reviewWith(findings ...Finding) ModelReview {
 		Findings:         findings,
 		UninspectedScope: []string{},
 		MissingContext:   []string{},
+		InspectedContext: []InspectedContext{{Path: "internal/worker.go", Purpose: "Trace the production call path."}},
 		Execution: Execution{
+			Host:          "claude-code",
+			SkillVersion:  "0.1.0",
 			AgentCount:    1 + verifiers,
 			VerifierCount: verifiers,
 		},

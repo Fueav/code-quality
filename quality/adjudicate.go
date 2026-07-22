@@ -22,6 +22,7 @@ func Adjudicate(request ReviewRequest, review ModelReview, policy PolicyManifest
 		Execution:             review.Execution,
 		UninspectedScope:      nonNil(review.UninspectedScope),
 		MissingContext:        nonNil(review.MissingContext),
+		InspectedContext:      nonNilInspected(review.InspectedContext),
 		Findings:              []AdjudicatedFinding{},
 		Adjudication: Adjudication{
 			SemanticResult: ResultPass,
@@ -77,6 +78,10 @@ func Adjudicate(request ReviewRequest, review ModelReview, policy PolicyManifest
 }
 
 func IncompleteResult(request ReviewRequest, policy PolicyManifest, reasons ...string) ReviewResult {
+	return IncompleteResultWithExecution(request, policy, Execution{}, reasons...)
+}
+
+func IncompleteResultWithExecution(request ReviewRequest, policy PolicyManifest, execution Execution, reasons ...string) ReviewResult {
 	request.ChangedFiles = nonNil(request.ChangedFiles)
 	request.AffectedEntries = nonNil(request.AffectedEntries)
 	return ReviewResult{
@@ -86,9 +91,10 @@ func IncompleteResult(request ReviewRequest, policy PolicyManifest, reasons ...s
 		ActivatedRuleFamilies: []string{},
 		InactiveRuleFamilies:  []InactiveRuleFamily{},
 		Findings:              []AdjudicatedFinding{},
-		Execution:             Execution{},
+		Execution:             execution,
 		UninspectedScope:      []string{},
 		MissingContext:        []string{},
+		InspectedContext:      []InspectedContext{},
 		Adjudication: Adjudication{
 			SemanticResult: ResultIncomplete,
 			RolloutMode:    "report_only",
@@ -128,6 +134,13 @@ func satisfiesBlockFormula(finding Finding) bool {
 		finding.FindingIsNotStylePreference &&
 		strings.TrimSpace(finding.TriggerCondition) != "" &&
 		len(finding.CausalChain) > 0
+}
+
+func nonNilInspected(values []InspectedContext) []InspectedContext {
+	if values == nil {
+		return []InspectedContext{}
+	}
+	return values
 }
 
 func nonNilInactive(values []InactiveRuleFamily) []InactiveRuleFamily {

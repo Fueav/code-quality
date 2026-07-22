@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "policy_version", "severe_repetitions", "cases"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "severe_repetitions": {"const": 3},
+    "cases": {
+      "type": "array",
+      "minItems": 60,
+      "maxItems": 60,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "rule_id", "dimension", "kind", "title", "fixture", "expected"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "rule_id": {"type": "string", "pattern": "^(DES|COR|REL|SEC|CHG)-[0-9]{3}$"},
+          "dimension": {"enum": ["D1", "D2", "D3", "D4"]},
+          "kind": {"enum": ["positive", "counterexample", "insufficient"]},
+          "title": {"type": "string", "minLength": 1},
+          "fixture": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["language", "before", "after", "facts"],
+            "properties": {
+              "language": {"type": "string", "minLength": 1},
+              "before": {"type": "string", "minLength": 1},
+              "after": {"type": "string", "minLength": 1},
+              "facts": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+            }
+          },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["semantic_result", "finding_count", "severity", "trigger_confidence", "evidence_level", "verifier_result"],
+            "properties": {
+              "semantic_result": {"enum": ["PASS", "MANUAL_REVIEW", "BLOCK"]},
+              "finding_count": {"type": "integer", "minimum": 0, "maximum": 1},
+              "severity": {"enum": ["", "S3"]},
+              "trigger_confidence": {"enum": ["", "T2", "T3"]},
+              "evidence_level": {"enum": ["", "E1", "E2", "E3"]},
+              "verifier_result": {"enum": ["not_run", "confirmed"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

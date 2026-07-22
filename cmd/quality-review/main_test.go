@@ -77,6 +77,12 @@ func TestFinalizeWithoutPotentialBlockUsesOneAgent(t *testing.T) {
 	if result.Execution.AgentCount != 1 || result.Execution.VerifierCount != 0 {
 		t.Fatalf("execution = %#v", result.Execution)
 	}
+	if result.Execution.Host != "claude-code" || result.Execution.SkillVersion != "0.1.0" {
+		t.Fatalf("trusted host metadata was not preserved: %#v", result.Execution)
+	}
+	if len(result.InspectedContext) != 1 || result.InspectedContext[0].Path != "app.go" {
+		t.Fatalf("inspected context = %#v", result.InspectedContext)
+	}
 	if result.Execution.InputTokens != nil || result.Execution.DurationMS != nil {
 		t.Fatalf("unavailable host metrics were fabricated: %#v", result.Execution)
 	}
@@ -180,6 +186,38 @@ func TestFinalizeDetectsModifiedTrustedInput(t *testing.T) {
 	}
 }
 
+func TestFinalizeRejectsForgedManifestKeysWithEmptyDigests(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	restoreFixturePermissions(prepared.SessionDir)
+	var manifest struct {
+		SchemaVersion int               `json:"schema_version"`
+		Files         map[string]string `json:"files"`
+	}
+	manifest = readJSON[struct {
+		SchemaVersion int               `json:"schema_version"`
+		Files         map[string]string `json:"files"`
+	}](t, prepared.ManifestPath)
+	paths := make([]string, 0, len(manifest.Files))
+	for path := range manifest.Files {
+		paths = append(paths, path)
+	}
+	for _, path := range paths {
+		delete(manifest.Files, path)
+		manifest.Files["forged/"+path] = ""
+	}
+	writeJSON(t, prepared.ManifestPath, manifest)
+	writeJSON(t, prepared.MainReviewPath, integrationMainReview())
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "INCOMPLETE" {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
+	if len(result.Adjudication.Reasons) != 1 || !strings.Contains(result.Adjudication.Reasons[0], "trusted review input was modified") {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestFinalizeRejectsTamperedVerifierRequest(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	prepared, _ := prepareSession(t, repo, base, target)
@@ -212,7 +250,7 @@ func TestMalformedMainReviewProducesIncompleteReport(t *testing.T) {
 		t.Fatalf("finalized = %#v", finalized)
 	}
 	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
-	if len(result.Adjudication.Reasons) == 0 || result.Execution.AgentCount != 0 {
+	if len(result.Adjudication.Reasons) == 0 || result.Execution.AgentCount != 1 || result.Execution.Host != "claude-code" || result.Execution.SkillVersion != quality.SkillVersion {
 		t.Fatalf("result = %#v", result)
 	}
 }
@@ -226,7 +264,7 @@ func TestAdjudicateAndRender(t *testing.T) {
 	writeJSON(t, reviewPath, integrationMainReview())
 
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"adjudicate", requestPath, reviewPath}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"adjudicate", "--host", "claude-code", requestPath, reviewPath}, &stdout, &stderr); code != 0 {
 		t.Fatalf("adjudicate exit code = %d, stderr = %s", code, stderr.String())
 	}
 	if err := os.WriteFile(resultPath, stdout.Bytes(), 0o600); err != nil {
@@ -252,6 +290,125 @@ func TestAdjudicateAndRender(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsMissingRequiredResultField(t *testing.T) {
+	dir := t.TempDir()
+	requestPath := filepath.Join(dir, "request.json")
+	reviewPath := filepath.Join(dir, "review.json")
+	resultPath := filepath.Join(dir, "result.json")
+	writeJSON(t, requestPath, integrationRequest())
+	writeJSON(t, reviewPath, integrationMainReview())
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"adjudicate", "--host", "claude-code", requestPath, reviewPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("adjudicate exit code = %d, stderr = %s", code, stderr.String())
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	delete(document, "inspected_context")
+	writeJSON(t, resultPath, document)
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"validate", resultPath}, &stdout, &stderr); code == 0 || !strings.Contains(stderr.String(), "inspected_context is required") {
+		t.Fatalf("validate exit code = %d, stderr = %s", code, stderr.String())
+	}
+}
+
+func TestValidateRejectsNullExecutionIdentityFields(t *testing.T) {
+	policy, err := loadPolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(quality.IncompleteResult(integrationRequest(), policy, "trusted input was invalid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"host", "skill_version", "agent_count", "verifier_count"} {
+		t.Run(field, func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal(raw, &document); err != nil {
+				t.Fatal(err)
+			}
+			document["execution"].(map[string]any)[field] = nil
+			path := filepath.Join(t.TempDir(), "review-result.json")
+			writeJSON(t, path, document)
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"validate", path}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "cannot be null") {
+				t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+			}
+		})
+	}
+}
+
+func TestReplayRecordRejectsHostMismatch(t *testing.T) {
+	dir := t.TempDir()
+	requestPath := filepath.Join(dir, "request.json")
+	reviewPath := filepath.Join(dir, "review.json")
+	resultPath := filepath.Join(dir, "result.json")
+	writeJSON(t, requestPath, integrationRequest())
+	writeJSON(t, reviewPath, integrationMainReview())
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"adjudicate", "--host", "claude-code", requestPath, reviewPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("adjudicate exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if err := os.WriteFile(resultPath, stdout.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code := run([]string{
+		"replay", "record", "--case-id", "DES-003-insufficient", "--host", "codex", "--result", resultPath,
+	}, &stdout, &stderr)
+	if code == 0 || !strings.Contains(stderr.String(), "does not match result execution host claude-code") {
+		t.Fatalf("replay exit code = %d, stderr = %s", code, stderr.String())
+	}
+}
+
+func TestReplayCommandsRejectIncompleteManifest(t *testing.T) {
+	manifestPath := filepath.Join(t.TempDir(), "cases.json")
+	manifestRaw, err := os.ReadFile(filepath.Join("..", "..", "evals", "cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest["cases"] = manifest["cases"].([]any)[:3]
+	writeJSON(t, manifestPath, manifest)
+
+	recordsDir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"replay", "summarize", "--cases", manifestPath, "--records", recordsDir,
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "must contain exactly 60 cases") {
+		t.Fatalf("summarize exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	policy, err := loadPolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := integrationMainReview()
+	review.Execution = quality.Execution{Host: "claude-code", SkillVersion: quality.SkillVersion, AgentCount: 1}
+	result := quality.Adjudicate(integrationRequest(), review, policy)
+	resultPath := filepath.Join(t.TempDir(), "result.json")
+	writeJSON(t, resultPath, result)
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{
+		"replay", "record", "--cases", manifestPath, "--case-id", "DES-003-insufficient",
+		"--host", "claude-code", "--result", resultPath,
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "must contain exactly 60 cases") {
+		t.Fatalf("record exit code = %d, stderr = %s", code, stderr.String())
+	}
+}
+
 func TestPrepareRejectsSymlinkOutputRoot(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	targetDir := t.TempDir()
@@ -261,7 +418,7 @@ func TestPrepareRejectsSymlinkOutputRoot(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
-		"prepare", "--repo", repo, "--base", base, "--target", target,
+		"prepare", "--host", "claude-code", "--repo", repo, "--base", base, "--target", target,
 		"--diff-reason", "test_increment", "--output-root", outputRoot,
 	}, &stdout, &stderr)
 	if code == 0 || !strings.Contains(stderr.String(), "non-symlink directory") {
@@ -273,7 +430,7 @@ func prepareSession(t *testing.T, repo, base, target string) (reviewsession.Prep
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
-		"prepare", "--repo", repo, "--base", base, "--target", target,
+		"prepare", "--host", "claude-code", "--repo", repo, "--base", base, "--target", target,
 		"--diff-reason", "test_increment", "--output-root", filepath.Join(t.TempDir(), "sessions"),
 	}, &stdout, &stderr)
 	if code != 0 {
@@ -363,6 +520,7 @@ func integrationMainReview() quality.ModelReview {
 			VerifierResult:        "not_run",
 		}},
 		UninspectedScope: []string{}, MissingContext: []string{},
+		InspectedContext: []quality.InspectedContext{{Path: "app.go", Purpose: "Trace the changed entry."}},
 	}
 }
 

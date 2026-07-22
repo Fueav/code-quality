@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "policy_version", "suite", "total_cases", "passed_cases", "failed_cases", "rules_covered", "matrix_complete", "severe_repetitions", "stable_severe_cases", "all_rules_report_only", "cases"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "suite": {"const": "deterministic_adjudication"},
+    "total_cases": {"type": "integer", "minimum": 0},
+    "passed_cases": {"type": "integer", "minimum": 0},
+    "failed_cases": {"type": "integer", "minimum": 0},
+    "rules_covered": {"type": "integer", "minimum": 0},
+    "matrix_complete": {"type": "boolean"},
+    "severe_repetitions": {"type": "integer", "minimum": 1},
+    "stable_severe_cases": {"type": "integer", "minimum": 0},
+    "all_rules_report_only": {"type": "boolean"},
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "rule_id", "kind", "expected_result", "actual_result", "repetitions", "stable", "passed", "errors"],
+        "properties": {
+          "id": {"type": "string"},
+          "rule_id": {"type": "string"},
+          "kind": {"type": "string"},
+          "expected_result": {"type": "string"},
+          "actual_result": {"type": "string"},
+          "repetitions": {"type": "integer", "minimum": 0},
+          "stable": {"type": "boolean"},
+          "passed": {"type": "boolean"},
+          "errors": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

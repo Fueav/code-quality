@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "policy_version", "case_id", "host", "run_number", "observed", "human_review"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "case_id": {"type": "string", "minLength": 1},
+    "host": {"enum": ["claude-code", "codex"]},
+    "run_number": {"type": "integer", "minimum": 1},
+    "observed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_result", "rule_ids", "severity", "trigger_confidence", "evidence_level", "duplicate_root_causes", "agent_count", "verifier_count", "input_tokens", "output_tokens", "duration_ms"],
+      "properties": {
+        "semantic_result": {"enum": ["PASS", "MANUAL_REVIEW", "BLOCK", "INCOMPLETE"]},
+        "rule_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "severity": {"type": ["string", "null"], "enum": ["S1", "S2", "S3", null]},
+        "trigger_confidence": {"type": ["string", "null"], "enum": ["T1", "T2", "T3", null]},
+        "evidence_level": {"type": ["string", "null"], "enum": ["E1", "E2", "E3", null]},
+        "duplicate_root_causes": {"type": "integer", "minimum": 0},
+        "agent_count": {"type": "integer", "minimum": 1, "maximum": 2},
+        "verifier_count": {"type": "integer", "minimum": 0, "maximum": 1},
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "duration_ms": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "overturn_reason"],
+      "properties": {
+        "status": {"enum": ["pending", "confirmed", "overturned"]},
+        "overturn_reason": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

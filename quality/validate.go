@@ -122,18 +122,7 @@ func ValidateRequest(request ReviewRequest) []string {
 
 func ValidateModelReview(review ModelReview, policy PolicyManifest) []string {
 	var errors []string
-	if review.Execution.AgentCount < 1 || review.Execution.AgentCount > policy.AgentLimit {
-		errors = append(errors, "execution.agent_count must be between 1 and the policy limit")
-	}
-	if review.Execution.VerifierCount < 0 || review.Execution.VerifierCount > 1 {
-		errors = append(errors, "execution.verifier_count must be 0 or 1")
-	}
-	if review.Execution.VerifierCount > review.Execution.AgentCount-1 {
-		errors = append(errors, "execution.verifier_count exceeds available agents")
-	}
-	if negativeMetric(review.Execution.InputTokens) || negativeMetric(review.Execution.OutputTokens) || negativeMetric(review.Execution.DurationMS) || negativeMetric(review.Execution.RetryCount) {
-		errors = append(errors, "execution metrics must be non-negative when available")
-	}
+	errors = append(errors, validateExecution(review.Execution, policy, false)...)
 	if hasBlankOrDuplicate(review.ActivatedRuleFamilies) {
 		errors = append(errors, "activated_rule_families must be unique and non-empty")
 	}
@@ -229,7 +218,43 @@ func ValidateModelReview(review ModelReview, policy PolicyManifest) []string {
 	if containsBlank(review.MissingContext) {
 		errors = append(errors, "missing_context contains an empty value")
 	}
+	seenContext := map[string]struct{}{}
+	for index, context := range review.InspectedContext {
+		if !isCleanRelativePath(context.Path) || strings.TrimSpace(context.Purpose) == "" {
+			errors = append(errors, fmt.Sprintf("inspected_context[%d] is invalid", index))
+		}
+		if _, exists := seenContext[context.Path]; exists {
+			errors = append(errors, "inspected_context contains duplicate paths")
+		}
+		seenContext[context.Path] = struct{}{}
+	}
 	return uniqueSorted(errors)
+}
+
+func validateExecution(execution Execution, policy PolicyManifest, allowAbsent bool) []string {
+	var errors []string
+	if allowAbsent && execution.Host == "" && execution.SkillVersion == "" && execution.AgentCount == 0 && execution.VerifierCount == 0 && execution.InputTokens == nil && execution.OutputTokens == nil && execution.DurationMS == nil && execution.RetryCount == nil {
+		return errors
+	}
+	if execution.Host != "claude-code" && execution.Host != "codex" {
+		errors = append(errors, "execution.host must be claude-code or codex")
+	}
+	if execution.SkillVersion != SkillVersion {
+		errors = append(errors, "execution.skill_version must match the CLI skill version")
+	}
+	if execution.AgentCount < 1 || execution.AgentCount > policy.AgentLimit {
+		errors = append(errors, "execution.agent_count must be between 1 and the policy limit")
+	}
+	if execution.VerifierCount < 0 || execution.VerifierCount > 1 {
+		errors = append(errors, "execution.verifier_count must be 0 or 1")
+	}
+	if execution.VerifierCount > execution.AgentCount-1 {
+		errors = append(errors, "execution.verifier_count exceeds available agents")
+	}
+	if negativeMetric(execution.InputTokens) || negativeMetric(execution.OutputTokens) || negativeMetric(execution.DurationMS) || negativeMetric(execution.RetryCount) {
+		errors = append(errors, "execution metrics must be non-negative when available")
+	}
+	return errors
 }
 
 func negativeMetric(value *int) bool {

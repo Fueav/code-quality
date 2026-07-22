@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["activated_rule_families", "inactive_rule_families", "findings", "uninspected_scope", "missing_context"],
+  "required": ["activated_rule_families", "inactive_rule_families", "findings", "uninspected_scope", "missing_context", "inspected_context"],
   "properties": {
     "activated_rule_families": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "inactive_rule_families": {
@@ -18,7 +18,19 @@
     },
     "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
     "uninspected_scope": {"type": "array", "items": {"type": "string"}},
-    "missing_context": {"type": "array", "items": {"type": "string"}}
+    "missing_context": {"type": "array", "items": {"type": "string"}},
+    "inspected_context": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "purpose"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1}
+        }
+      }
+    }
   },
   "$defs": {
     "location": {

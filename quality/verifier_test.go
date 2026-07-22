@@ -44,14 +44,14 @@ func TestMergeVerifierReviewControlsBlocking(t *testing.T) {
 	finding := validBlockingFinding()
 	finding.VerifierResult = "not_run"
 	main := reviewWith(finding)
-	main.Execution = Execution{AgentCount: 1}
+	main.Execution = Execution{Host: "claude-code", SkillVersion: "0.1.0", AgentCount: 1}
 	verifier := VerifierReview{Decisions: []VerifierDecision{{
 		FindingID: "F-001", Result: "confirmed",
 		VerificationSummary: "Confirmed the entry, trigger, and production scale.",
 		Uncertainties:       []string{},
 	}}}
 	merged := MergeVerifierReview(main, verifier)
-	merged.Execution = Execution{AgentCount: 2, VerifierCount: 1}
+	merged.Execution = Execution{Host: "claude-code", SkillVersion: "0.1.0", AgentCount: 2, VerifierCount: 1}
 	result := Adjudicate(validRequest(), merged, validPolicy())
 	if result.Adjudication.SemanticResult != ResultBlock {
 		t.Fatalf("result = %#v", result)

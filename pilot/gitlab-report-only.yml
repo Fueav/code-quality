@@ -1,0 +1,20 @@
+# GitLab report-only publication example.
+# A prior host-session job, or a trusted artifact dependency, supplies the authoritative
+# JSON at QUALITY_RESULT_JSON. This job validates it, renders Markdown, and publishes
+# both without converting BLOCK or INCOMPLETE into a failing CI action.
+code-quality-report-only:
+  stage: test
+  image: golang:1.24
+  variables:
+    QUALITY_REVIEW_VERSION: "v0.1.0"
+    QUALITY_RESULT_JSON: ".code-quality/report-only/review-result.json"
+    QUALITY_RESULT_MARKDOWN: ".code-quality/report-only/review-result.md"
+  script:
+    - go install github.com/Fueav/code-quality/cmd/quality-review@${QUALITY_REVIEW_VERSION}
+    - quality-review validate "${QUALITY_RESULT_JSON}"
+    - quality-review render "${QUALITY_RESULT_JSON}" > "${QUALITY_RESULT_MARKDOWN}"
+  artifacts:
+    when: always
+    paths:
+      - ${QUALITY_RESULT_JSON}
+      - ${QUALITY_RESULT_MARKDOWN}

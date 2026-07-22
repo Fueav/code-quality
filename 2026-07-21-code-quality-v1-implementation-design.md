@@ -29,11 +29,11 @@ V1 使用一个独立仓库，暂称 `code-quality`，发布一个静态 Go CLI�
 
 首次运行不要求项目配置、项目质量上下文、Evidence Pack、`AGENTS.md`、Template、Harness Skill 或 `harnessctl`。
 
-默认输出：
+默认在 `.code-quality/review-<random>/` 创建不覆盖历史证据的 session，最终输出为：
 
 ```text
-.code-quality/review-result.json
-.code-quality/review-result.md
+.code-quality/review-<random>/output/review-result.json
+.code-quality/review-<random>/output/review-result.md
 ```
 
 JSON 是唯一权威结果，Markdown 由程序确定性生成。
@@ -169,7 +169,7 @@ ci_action: publish_report
 
 ## 13. 实施顺序
 
-1. **确定性核心**：Policy 导入、三份 Schema、Validator、Adjudicator、Renderer；
+1. **确定性核心**：Policy 导入、四份 Schema、Validator、Adjudicator、Renderer；
 2. **零配置 Intake**：显式参数、GitHub、GitLab、本地 Git 和 `INCOMPLETE` 路径；
 3. **宿主会话主审查**：target 快照、可信工件、结构化主候选和 Claude Code/Codex 薄 Skill；
 4. **批量验证 Agent**：仅验证潜在阻断候选并执行确定性合并；

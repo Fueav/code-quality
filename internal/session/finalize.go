@@ -38,7 +38,7 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 		return Finalized{}, err
 	}
 	if err := VerifyInputManifest(layout); err != nil {
-		return writeIncomplete(layout, quality.ReviewRequest{}, policy, err.Error())
+		return writeIncomplete(layout, quality.ReviewRequest{}, policy, quality.Execution{}, err.Error())
 	}
 	requestRaw, err := ReadRegularFile(layout.RequestPath, maxReviewBytes)
 	if err != nil {
@@ -48,26 +48,35 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 	if err != nil {
 		return Finalized{}, fmt.Errorf("decode review request: %w", err)
 	}
+	metadataRaw, err := ReadRegularFile(layout.MetadataPath, maxReviewBytes)
+	if err != nil {
+		return writeIncomplete(layout, request, policy, quality.Execution{}, "read session metadata: "+err.Error())
+	}
+	metadata, err := quality.DecodeStrict[Metadata](bytes.NewReader(metadataRaw))
+	if err != nil || metadata.SchemaVersion != 1 || (metadata.Host != "claude-code" && metadata.Host != "codex") || metadata.SkillVersion != quality.SkillVersion {
+		return writeIncomplete(layout, request, policy, quality.Execution{}, "session metadata is invalid")
+	}
+	mainExecution := quality.Execution{Host: metadata.Host, SkillVersion: metadata.SkillVersion, AgentCount: 1}
 	mainRaw, err := ReadRegularFile(layout.MainReviewPath, maxReviewBytes)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return writeIncomplete(layout, request, policy, "main review is missing")
+			return writeIncomplete(layout, request, policy, mainExecution, "main review is missing")
 		}
-		return writeIncomplete(layout, request, policy, "read main review: "+err.Error())
+		return writeIncomplete(layout, request, policy, mainExecution, "read main review: "+err.Error())
 	}
 	main, err := quality.DecodeModelReview(bytes.NewReader(mainRaw))
 	if err != nil {
-		return writeIncomplete(layout, request, policy, "invalid main review: "+err.Error())
+		return writeIncomplete(layout, request, policy, mainExecution, "invalid main review: "+err.Error())
 	}
-	main.Execution = quality.Execution{AgentCount: 1}
+	main.Execution = quality.Execution{Host: metadata.Host, SkillVersion: metadata.SkillVersion, AgentCount: 1}
 	if validationErrors := quality.ValidateMainReview(main, policy); len(validationErrors) > 0 {
-		return writeIncomplete(layout, request, policy, "invalid main review: "+strings.Join(validationErrors, "; "))
+		return writeIncomplete(layout, request, policy, mainExecution, "invalid main review: "+strings.Join(validationErrors, "; "))
 	}
 
 	candidates := quality.PotentialBlockFindings(main)
 	if len(candidates) == 0 {
 		if _, err := os.Lstat(layout.VerifierReviewPath); err == nil {
-			return writeIncomplete(layout, request, policy, "verifier review is not allowed without a potential BLOCK candidate")
+			return writeIncomplete(layout, request, policy, mainExecution, "verifier review is not allowed without a potential BLOCK candidate")
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return Finalized{}, err
 		}
@@ -79,7 +88,7 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 		return writeComplete(layout, request, main, policy)
 	}
 	if err := ensureVerifierRequest(layout, request, main); err != nil {
-		return writeIncomplete(layout, request, policy, "invalid verifier request: "+err.Error())
+		return writeIncomplete(layout, request, policy, mainExecution, "invalid verifier request: "+err.Error())
 	}
 	verifierRaw, err := ReadRegularFile(layout.VerifierReviewPath, maxReviewBytes)
 	if err != nil {
@@ -98,15 +107,16 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 		}
 		return Finalized{}, fmt.Errorf("read verifier review: %w", err)
 	}
+	verifierExecution := quality.Execution{Host: metadata.Host, SkillVersion: metadata.SkillVersion, AgentCount: 2, VerifierCount: 1}
 	verifier, err := quality.DecodeVerifierReview(bytes.NewReader(verifierRaw))
 	if err != nil {
-		return writeIncomplete(layout, request, policy, "invalid verifier review: "+err.Error())
+		return writeIncomplete(layout, request, policy, verifierExecution, "invalid verifier review: "+err.Error())
 	}
 	if validationErrors := quality.ValidateVerifierReview(verifier, candidates); len(validationErrors) > 0 {
-		return writeIncomplete(layout, request, policy, "invalid verifier review: "+strings.Join(validationErrors, "; "))
+		return writeIncomplete(layout, request, policy, verifierExecution, "invalid verifier review: "+strings.Join(validationErrors, "; "))
 	}
 	main = quality.MergeVerifierReview(main, verifier)
-	main.Execution = quality.Execution{AgentCount: 2, VerifierCount: 1}
+	main.Execution = verifierExecution
 	return writeComplete(layout, request, main, policy)
 }
 
@@ -153,8 +163,8 @@ func writeComplete(layout Layout, request quality.ReviewRequest, review quality.
 	}, nil
 }
 
-func writeIncomplete(layout Layout, request quality.ReviewRequest, policy quality.PolicyManifest, reasons ...string) (Finalized, error) {
-	result := quality.IncompleteResult(request, policy, reasons...)
+func writeIncomplete(layout Layout, request quality.ReviewRequest, policy quality.PolicyManifest, execution quality.Execution, reasons ...string) (Finalized, error) {
+	result := quality.IncompleteResultWithExecution(request, policy, execution, reasons...)
 	if err := writeReports(layout, result); err != nil {
 		return Finalized{}, err
 	}

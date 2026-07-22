@@ -48,9 +48,11 @@ func RenderMarkdown(result ReviewResult) string {
 	fmt.Fprintln(&output)
 	fmt.Fprintf(&output, "- Uninspected scope: %s\n", renderList(result.UninspectedScope))
 	fmt.Fprintf(&output, "- Missing context: %s\n", renderList(result.MissingContext))
+	fmt.Fprintf(&output, "- Inspected context: %s\n", renderInspectedContext(result.InspectedContext))
 	fmt.Fprintln(&output)
 	fmt.Fprintln(&output, "## Execution")
 	fmt.Fprintln(&output)
+	fmt.Fprintf(&output, "- Host / Skill: `%s / %s`\n", result.Execution.Host, result.Execution.SkillVersion)
 	fmt.Fprintf(&output, "- Agents: %d (%d verifier)\n", result.Execution.AgentCount, result.Execution.VerifierCount)
 	fmt.Fprintf(&output, "- Tokens: %s input / %s output\n", renderMetric(result.Execution.InputTokens), renderMetric(result.Execution.OutputTokens))
 	fmt.Fprintf(&output, "- Duration: %s\n", renderDuration(result.Execution.DurationMS))
@@ -84,6 +86,17 @@ func renderLocations(locations []CodeLocation) string {
 		values = append(values, fmt.Sprintf("`%s:%d`", location.Path, location.Line))
 	}
 	return strings.Join(values, ", ")
+}
+
+func renderInspectedContext(values []InspectedContext) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	items := make([]string, 0, len(values))
+	for _, value := range values {
+		items = append(items, fmt.Sprintf("`%s` (%s)", value.Path, value.Purpose))
+	}
+	return strings.Join(items, "; ")
 }
 
 func renderList(values []string) string {

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	bundle "github.com/Fueav/code-quality"
+	evalrunner "github.com/Fueav/code-quality/internal/eval"
 	"github.com/Fueav/code-quality/internal/intake"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
@@ -26,7 +27,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "quality-review: invoke the code-quality Skill from an active Claude Code or Codex session")
-		fmt.Fprintln(stderr, "quality-review: deterministic commands: prepare, finalize, adjudicate, validate, render")
+		fmt.Fprintln(stderr, "quality-review: deterministic commands: prepare, finalize, adjudicate, eval, replay, validate, render")
 		return 2
 	}
 	policy, err := loadPolicy()
@@ -48,6 +49,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runFinalize(args[1:], policy, stdout, stderr)
 	case "adjudicate":
 		return runAdjudicate(args[1:], policy, stdout, stderr)
+	case "eval":
+		return runEval(args[1:], policy, stdout, stderr)
+	case "replay":
+		return runReplay(args[1:], policy, stdout, stderr)
 	case "validate":
 		return runValidate(args[1:], policy, stdout, stderr)
 	case "render":
@@ -65,6 +70,7 @@ func runPrepare(args []string, stdout, stderr io.Writer) int {
 	base := flags.String("base", "", "base commit")
 	target := flags.String("target", "", "target commit")
 	reason := flags.String("diff-reason", "", "diff selection reason")
+	host := flags.String("host", "", "host Agent runtime: claude-code or codex")
 	outputRoot := flags.String("output-root", ".code-quality", "session output root")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -91,6 +97,7 @@ func runPrepare(args []string, stdout, stderr io.Writer) int {
 	prepared, err := reviewsession.Prepare(context.Background(), reviewsession.Options{
 		RepositoryRoot: result.RepositoryRoot,
 		OutputRoot:     root,
+		Host:           *host,
 		Request:        result.Request,
 		DirtyWorktree:  result.DirtyWorktree,
 	})
@@ -136,12 +143,18 @@ func runFinalize(args []string, policy quality.PolicyManifest, stdout, stderr io
 }
 
 func runAdjudicate(args []string, policy quality.PolicyManifest, stdout, stderr io.Writer) int {
-	if len(args) != 2 {
-		fmt.Fprintln(stderr, "usage: quality-review adjudicate <request.json> <model-review.json>")
+	flags := flag.NewFlagSet("adjudicate", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	host := flags.String("host", "", "host Agent runtime: claude-code or codex")
+	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	request, requestErr := decodeFile[quality.ReviewRequest](args[0])
-	review, reviewErr := decodeModelReviewFile(args[1])
+	if flags.NArg() != 2 || (*host != "claude-code" && *host != "codex") {
+		fmt.Fprintln(stderr, "usage: quality-review adjudicate --host <claude-code|codex> <request.json> <model-review.json>")
+		return 2
+	}
+	request, requestErr := decodeFile[quality.ReviewRequest](flags.Arg(0))
+	review, reviewErr := decodeModelReviewFile(flags.Arg(1))
 	if requestErr != nil || reviewErr != nil {
 		reasons := []string{}
 		if requestErr != nil {
@@ -152,11 +165,142 @@ func runAdjudicate(args []string, policy quality.PolicyManifest, stdout, stderr 
 		}
 		return encodeResult(stdout, stderr, quality.IncompleteResult(request, policy, reasons...))
 	}
-	review.Execution = quality.Execution{AgentCount: 1}
+	review.Execution = quality.Execution{Host: *host, SkillVersion: quality.SkillVersion, AgentCount: 1}
 	if validationErrors := quality.ValidateMainReview(review, policy); len(validationErrors) > 0 {
 		return encodeResult(stdout, stderr, quality.IncompleteResult(request, policy, "invalid main review: "+strings.Join(validationErrors, "; ")))
 	}
 	return encodeResult(stdout, stderr, quality.Adjudicate(request, review, policy))
+}
+
+func runEval(args []string, policy quality.PolicyManifest, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("eval", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	casesPath := flags.String("cases", "evals/cases.json", "deterministic eval case manifest")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "quality-review: eval accepts flags only")
+		return 2
+	}
+	manifest, err := evalrunner.LoadManifest(*casesPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: load eval cases: %v\n", err)
+		return 2
+	}
+	report := evalrunner.RunDeterministic(manifest, policy)
+	if err := quality.EncodeJSON(stdout, report); err != nil {
+		fmt.Fprintf(stderr, "quality-review: encode eval report: %v\n", err)
+		return 2
+	}
+	if report.FailedCases > 0 || !report.MatrixComplete || !report.AllRulesReportOnly {
+		return 1
+	}
+	return 0
+}
+
+func runReplay(args []string, policy quality.PolicyManifest, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: quality-review replay <record|summarize> ...")
+		return 2
+	}
+	switch args[0] {
+	case "record":
+		flags := flag.NewFlagSet("replay record", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		caseID := flags.String("case-id", "", "eval case id")
+		casesPath := flags.String("cases", "evals/cases.json", "eval case manifest")
+		host := flags.String("host", "", "claude-code or codex")
+		runNumber := flags.Int("run-number", 1, "replay run number")
+		resultPath := flags.String("result", "", "validated review-result.json")
+		humanStatus := flags.String("human-status", "pending", "pending, confirmed, or overturned")
+		overturnReason := flags.String("overturn-reason", "", "required only when overturned")
+		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if flags.NArg() != 0 || *caseID == "" || *host == "" || *resultPath == "" {
+			fmt.Fprintln(stderr, "usage: quality-review replay record --case-id <id> --host <claude-code|codex> --result <review-result.json> [--run-number N] [--human-status <status>]")
+			return 2
+		}
+		result, err := decodeReviewResultFile(*resultPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "quality-review: replay record: %v\n", err)
+			return 1
+		}
+		if validationErrors := quality.ValidateResult(result, policy); len(validationErrors) > 0 {
+			fmt.Fprintf(stderr, "quality-review: replay record: %s\n", strings.Join(validationErrors, "; "))
+			return 1
+		}
+		if result.Execution.Host != *host {
+			fmt.Fprintf(stderr, "quality-review: replay record: --host %s does not match result execution host %s\n", *host, result.Execution.Host)
+			return 1
+		}
+		var reason *string
+		if strings.TrimSpace(*overturnReason) != "" {
+			value := strings.TrimSpace(*overturnReason)
+			reason = &value
+		}
+		record := evalrunner.RecordFromResult(*caseID, *host, *runNumber, result, evalrunner.HumanReview{Status: *humanStatus, OverturnReason: reason})
+		manifest, err := loadReplayManifest(*casesPath, policy)
+		if err != nil {
+			fmt.Fprintf(stderr, "quality-review: replay record: %v\n", err)
+			return 1
+		}
+		report := evalrunner.RunReplay(manifest, policy, []evalrunner.ReplayRecord{record}, nil)
+		if report.InvalidRecords > 0 {
+			fmt.Fprintf(stderr, "quality-review: replay record: %s\n", strings.Join(report.Errors, "; "))
+			return 1
+		}
+		return encodeJSON(stdout, stderr, record)
+	case "summarize":
+		flags := flag.NewFlagSet("replay summarize", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		casesPath := flags.String("cases", "evals/cases.json", "eval case manifest")
+		recordsDir := flags.String("records", "", "directory containing replay JSON records")
+		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if flags.NArg() != 0 || *recordsDir == "" {
+			fmt.Fprintln(stderr, "usage: quality-review replay summarize --records <directory> [--cases <cases.json>]")
+			return 2
+		}
+		manifest, err := loadReplayManifest(*casesPath, policy)
+		if err != nil {
+			fmt.Fprintf(stderr, "quality-review: replay summarize: %v\n", err)
+			return 1
+		}
+		records, loadErrors := evalrunner.LoadReplayRecords(*recordsDir)
+		report := evalrunner.RunReplay(manifest, policy, records, loadErrors)
+		if code := encodeJSON(stdout, stderr, report); code != 0 {
+			return code
+		}
+		if report.InvalidRecords > 0 || !report.AgentLimitRespected {
+			return 1
+		}
+		return 0
+	default:
+		fmt.Fprintf(stderr, "quality-review: unknown replay command %q\n", args[0])
+		return 2
+	}
+}
+
+func loadReplayManifest(path string, policy quality.PolicyManifest) (evalrunner.Manifest, error) {
+	manifest, err := evalrunner.LoadManifest(path)
+	if err != nil {
+		return evalrunner.Manifest{}, err
+	}
+	if validationErrors := evalrunner.ValidateManifest(manifest, policy); len(validationErrors) > 0 {
+		return evalrunner.Manifest{}, fmt.Errorf("invalid eval manifest: %s", strings.Join(validationErrors, "; "))
+	}
+	return manifest, nil
+}
+
+func encodeJSON(stdout, stderr io.Writer, value any) int {
+	if err := quality.EncodeJSON(stdout, value); err != nil {
+		fmt.Fprintf(stderr, "quality-review: encode JSON: %v\n", err)
+		return 2
+	}
+	return 0
 }
 
 func runValidate(args []string, policy quality.PolicyManifest, stdout, stderr io.Writer) int {
@@ -164,7 +308,7 @@ func runValidate(args []string, policy quality.PolicyManifest, stdout, stderr io
 		fmt.Fprintln(stderr, "usage: quality-review validate <review-result.json>")
 		return 2
 	}
-	result, err := decodeFile[quality.ReviewResult](args[0])
+	result, err := decodeReviewResultFile(args[0])
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: invalid result: %v\n", err)
 		return 1
@@ -184,7 +328,7 @@ func runRender(args []string, policy quality.PolicyManifest, stdout, stderr io.W
 		fmt.Fprintln(stderr, "usage: quality-review render <review-result.json>")
 		return 2
 	}
-	result, err := decodeFile[quality.ReviewResult](args[0])
+	result, err := decodeReviewResultFile(args[0])
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: invalid result: %v\n", err)
 		return 1
@@ -235,6 +379,15 @@ func decodeModelReviewFile(path string) (quality.ModelReview, error) {
 	}
 	defer file.Close()
 	return quality.DecodeModelReview(file)
+}
+
+func decodeReviewResultFile(path string) (quality.ReviewResult, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return quality.ReviewResult{}, err
+	}
+	defer file.Close()
+	return quality.DecodeReviewResult(file)
 }
 
 func decodeFile[T any](path string) (T, error) {
