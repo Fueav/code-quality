@@ -88,6 +88,7 @@ class HistoricalPilotTest(unittest.TestCase):
                 encoding="utf-8",
             )
             workspace = root / "workspace"
+            source_dirty = bool(self.git(SOURCE_ROOT, "status", "--porcelain=v1", "--untracked-files=all"))
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -107,7 +108,7 @@ class HistoricalPilotTest(unittest.TestCase):
             )
             self.assertEqual(json.loads(completed.stdout)["planned_runs"], 30)
             baseline = json.loads((workspace / "baseline.json").read_text(encoding="utf-8"))
-            self.assertTrue(baseline["development_only"])
+            self.assertEqual(baseline["development_only"], source_dirty)
             operator = json.loads((workspace / "operator-manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(len(operator["runs"]), 30)
             for mapping in operator["runs"]:
@@ -116,6 +117,24 @@ class HistoricalPilotTest(unittest.TestCase):
                 self.assertNotIn(mapping["change_id"], raw)
                 self.assertNotIn(mapping["project_id"], raw)
                 self.assertNotIn(mapping["ground_truth"], raw)
+            if not source_dirty:
+                verified = subprocess.run(
+                    [
+                        sys.executable,
+                        str(PILOT_DIR / "historical_pilot_verify.py"),
+                        "--source",
+                        str(SOURCE_ROOT),
+                        "--workspace",
+                        str(workspace),
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                verification = json.loads(verified.stdout)
+                self.assertEqual(verification["planned_runs"], 30)
+                self.assertEqual(verification["executed_runs"], 0)
 
     def test_materialized_repository_excludes_future_fix(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
