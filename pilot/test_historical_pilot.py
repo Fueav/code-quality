@@ -13,6 +13,7 @@ sys.path.insert(0, str(PILOT_DIR))
 
 from historical_pilot import summarize, validate_manifest  # noqa: E402
 from historical_pilot_initialize import materialize_blind_repository, task_markdown  # noqa: E402
+from qualification_run import codex_command  # noqa: E402
 
 
 def manifest() -> dict[str, object]:
@@ -135,6 +136,153 @@ class HistoricalPilotTest(unittest.TestCase):
                 verification = json.loads(verified.stdout)
                 self.assertEqual(verification["planned_runs"], 30)
                 self.assertEqual(verification["executed_runs"], 0)
+                first = operator["runs"][0]
+                task = json.loads((workspace / first["task"]).read_text(encoding="utf-8"))
+                prepared_raw = subprocess.run(
+                    [
+                        str(workspace / "quality-review"),
+                        "prepare",
+                        "--host",
+                        "codex",
+                        "--repo",
+                        task["repository"],
+                        "--base",
+                        task["base"],
+                        "--target",
+                        task["target"],
+                        "--diff-reason",
+                        task["diff_reason"],
+                        "--output-root",
+                        task["output_root"],
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                prepared = json.loads(prepared_raw.stdout)
+                pathlib.Path(prepared["main_review_path"]).write_text(
+                    json.dumps(
+                        {
+                            "activated_rule_families": [],
+                            "inactive_rule_families": [
+                                {"id": dimension, "reason": "No bottom-line issue in this test observation."}
+                                for dimension in ("D1", "D2", "D3", "D4")
+                            ],
+                            "findings": [],
+                            "uninspected_scope": [],
+                            "missing_context": [],
+                            "inspected_context": [
+                                {"path": "input/trusted.diff", "purpose": "Reviewed the committed test change."}
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                finalized_raw = subprocess.run(
+                    [str(workspace / "quality-review"), "finalize", "--session", prepared["session_dir"]],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                finalized = json.loads(finalized_raw.stdout)
+                run_root = workspace / "sessions" / first["run_id"]
+                operator_root = run_root / "operator"
+                operator_root.mkdir()
+                transcript = operator_root / "attempt-1.stdout.jsonl"
+                transcript.write_text(
+                    json.dumps(
+                        {"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 20}}
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                stderr_path = operator_root / "attempt-1.stderr.log"
+                stderr_path.write_text("", encoding="utf-8")
+                metadata = operator_root / "attempt-1.metadata.json"
+                metadata.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "run_id": first["run_id"],
+                            "host": "codex",
+                            "host_version": baseline["codex_version"],
+                            "model": "gpt-5.6-terra",
+                            "reasoning_effort": "high",
+                            "attempt": 1,
+                            "command": codex_command(run_root),
+                            "returncode": 0,
+                            "duration_ms": 123,
+                            "stdout": transcript.name,
+                            "stderr": stderr_path.name,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(PILOT_DIR / "historical_pilot_collect.py"),
+                        "--workspace",
+                        str(workspace),
+                        "--run-id",
+                        first["run_id"],
+                        "--result",
+                        finalized["result_path"],
+                        "--transcript",
+                        str(transcript),
+                        "--runner-metadata",
+                        str(metadata),
+                        "--input-tokens",
+                        "100",
+                        "--output-tokens",
+                        "20",
+                        "--duration-ms",
+                        "123",
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(PILOT_DIR / "historical_pilot_review.py"),
+                        "--workspace",
+                        str(workspace),
+                        "--run-id",
+                        first["run_id"],
+                        "--reviewer",
+                        "maintainer",
+                        "--note",
+                        "Known issue was not found in the synthetic PASS observation.",
+                        "--core-issue-found",
+                        "no",
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                verified = subprocess.run(
+                    [
+                        sys.executable,
+                        str(PILOT_DIR / "historical_pilot_verify.py"),
+                        "--source",
+                        str(SOURCE_ROOT),
+                        "--workspace",
+                        str(workspace),
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                verification = json.loads(verified.stdout)
+                self.assertEqual(verification["executed_runs"], 1)
+                self.assertEqual(verification["reviewed_runs"], 1)
 
     def test_materialized_repository_excludes_future_fix(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
