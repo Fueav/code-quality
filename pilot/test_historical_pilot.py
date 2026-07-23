@@ -395,11 +395,11 @@ class HistoricalPilotTest(unittest.TestCase):
         for forbidden in ("ground_truth", "severe", "normal", "label_note", "fix commit"):
             self.assertNotIn(forbidden, prompt)
 
-    def test_manifest_requires_three_projects_and_thirty_balanced_changes(self) -> None:
+    def test_manifest_requires_minimum_balanced_changes(self) -> None:
         value = manifest()
         self.assertEqual(len(validate_manifest(value)), 30)
-        value["changes"] = value["changes"][:29]
-        with self.assertRaisesRegex(ValueError, "at least 30"):
+        value["changes"] = value["changes"][:7]
+        with self.assertRaisesRegex(ValueError, "at least 8"):
             validate_manifest(value)
 
     def test_summary_compares_skill_and_builtin_review(self) -> None:

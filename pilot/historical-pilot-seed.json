@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "profile": "report_only_historical_pilot",
+  "_note": "扩展中（2 项目，目标 8 severe + 8 normal = 16）。偏业务场景：Web2 查询/SQL/统计 + 链上查询/分页。每个 severe 配它的修复 commit 作 normal 误报对照。repository 为本机 clone 路径。",
+  "projects": [
+    {"id": "cosmos-sdk", "repository": "/Users/chris/AiProject/pilot-repos/cosmos-sdk", "maintainer": "cosmos-sdk"},
+    {"id": "gitea", "repository": "/Users/chris/AiProject/pilot-repos/gitea", "maintainer": "gitea"}
+  ],
+  "changes": [
+    {
+      "id": "cosmos-pagination-overflow",
+      "project_id": "cosmos-sdk",
+      "ground_truth": "severe",
+      "base_commit": "6a52c5a569171bcba07d5d1b27a16a6b35f33e55",
+      "target_commit": "0f0723dd78df0ebbfcda6169b78a5bf34f3bd3e0",
+      "labeler": "claude-seed",
+      "label_note": "COR-003 分页整数溢出：FilteredPaginate 的 `end := offset + limit` 无溢出保护，用户可控的 limit 传巨大值致 uint64 回绕，分页返回错误/空结果。PR #6514 引入，潜伏至 2026-05 修复 commit d361309b8（saturation guard）。"
+    },
+    {
+      "id": "gitea-oauth-reactivate",
+      "project_id": "gitea",
+      "ground_truth": "severe",
+      "base_commit": "3a7454df7a518f810fbeb34b9d784e7c29d173ff",
+      "target_commit": "416c36f3034e228a27258b5a8a15eec4e5e426ba",
+      "labeler": "claude-seed",
+      "label_note": "SEC-001 授权绕过：OAuth2 回调无条件 `opts.IsActive = optional.Some(true)`，静默重新激活管理员禁用的账户。PR #31572 引入。GHSA-g9g6，修复 commit c43eb7c33。"
+    },
+    {
+      "id": "cosmos-cli-int-overflow",
+      "project_id": "cosmos-sdk",
+      "ground_truth": "severe",
+      "base_commit": "73debf46d90ab7a38cf3e17a23d3602c92b54830",
+      "target_commit": "7252f4a75893868a22e43905170b6258c2e97767",
+      "labeler": "claude-seed",
+      "label_note": "COR-003 边界/吞错误：x/gov CLI prompt.go 用 `resultInt, _ := strconv.Atoi(result)` 忽略溢出 error，超范围输入被静默接受为错误值。PR #13304 引入，修复 commit 56a49aba4（PR #13347）。"
+    },
+    {
+      "id": "cosmos-pagination-fix",
+      "project_id": "cosmos-sdk",
+      "ground_truth": "normal",
+      "base_commit": "becb9f3bb22e7e6bb2c7967cef8ae4b0e0ac7647",
+      "target_commit": "d361309b8c890d98cf4a3730156cc570451b681a",
+      "labeler": "claude-seed",
+      "label_note": "cosmos-pagination-overflow 的修复：加 saturation guard 引入正确边界保护，无本次引入的严重缺陷。外观涉及分页溢出逻辑，用于检验组件不对正确修复误报。"
+    },
+    {
+      "id": "gitea-oauth-fix",
+      "project_id": "gitea",
+      "ground_truth": "normal",
+      "base_commit": "42513398c05ca6bdf71da76cb6f9baaebe8cb924",
+      "target_commit": "c43eb7c33a100ffc7b2367adf165f7085e0ccdc5",
+      "labeler": "claude-seed",
+      "label_note": "gitea-oauth-reactivate 的修复：仅在 auto-sync 禁用时激活，正确保留管理员禁用状态。外观涉及授权/激活逻辑，用于检验误报护栏。"
+    },
+    {
+      "id": "cosmos-cli-fix",
+      "project_id": "cosmos-sdk",
+      "ground_truth": "normal",
+      "base_commit": "79f277c111ab440b0927030ef6b39bb355eb0329",
+      "target_commit": "56a49aba467676ceb612ec45f0fcec96ee8028ac",
+      "labeler": "claude-seed",
+      "label_note": "cosmos-cli-int-overflow 的修复：检查 strconv.Atoi 的 error、正确处理溢出。外观涉及整数解析，用于检验误报护栏。"
+    },
+    {
+      "id": "gitea-sql-pagination-order",
+      "project_id": "gitea",
+      "ground_truth": "severe",
+      "base_commit": "b5b3e0714e624cea3ce4d5368aa1266f7639d0eb",
+      "target_commit": "4011821c946e8db032be86266dd9364ccb204118",
+      "labeler": "claude-seed",
+      "label_note": "COR-003/DES 分页排序不确定：runner 列表排序 last_online DESC 缺唯一 tiebreaker，分页时同值行跨页重复/遗漏。PR #21937 引入，修复 commit d4c414212（加 , id ASC）。"
+    },
+    {
+      "id": "gitea-sql-pagination-fix",
+      "project_id": "gitea",
+      "ground_truth": "normal",
+      "base_commit": "f7fd51022495737cf960b8c4053a27d69148f664",
+      "target_commit": "d4c4142123a6690394b3d53066cda00edff37676",
+      "labeler": "claude-seed",
+      "label_note": "gitea-sql-pagination-order 的修复：加 id ASC tiebreaker 使分页排序确定。外观涉及分页排序，用于检验误报护栏。"
+    }
+  ]
+}

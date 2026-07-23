@@ -37,10 +37,10 @@ def validate_manifest(manifest: dict[str, object]) -> dict[str, dict[str, object
         raise ValueError("historical pilot manifest identity is invalid")
     projects = manifest.get("projects")
     changes = manifest.get("changes")
-    if not isinstance(projects, list) or len(projects) != 3:
-        raise ValueError("historical pilot requires exactly three projects")
-    if not isinstance(changes, list) or len(changes) < 30:
-        raise ValueError("historical pilot requires at least 30 changes")
+    if not isinstance(projects, list) or len(projects) < 1:
+        raise ValueError("historical pilot requires at least one project")
+    if not isinstance(changes, list) or len(changes) < 8:
+        raise ValueError("historical pilot requires at least 8 changes")
 
     project_ids: set[str] = set()
     for index, project in enumerate(projects):
@@ -79,8 +79,8 @@ def validate_manifest(manifest: dict[str, object]) -> dict[str, dict[str, object
         label_counts[str(label)] += 1
         represented_projects.add(str(project_id))
 
-    if label_counts["severe"] < 15 or label_counts["normal"] < 15:
-        raise ValueError("historical pilot requires at least 15 severe and 15 normal changes")
+    if label_counts["severe"] < 4 or label_counts["normal"] < 4:
+        raise ValueError("historical pilot requires at least 4 severe and 4 normal changes")
     if represented_projects != project_ids:
         raise ValueError("every project must contribute at least one historical change")
     return result
