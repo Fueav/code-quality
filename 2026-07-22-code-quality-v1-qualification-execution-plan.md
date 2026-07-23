@@ -112,7 +112,7 @@ V1 不追求穷尽所有问题，不把模型训练成确定性规则引擎，�
 
 退出结论：30/30 有效、0/15 核心问题发现；不得直接开始 live report-only。
 
-### S2.5：普通代码审查 Canary
+### S2.5：普通代码审查 Canary（已完成，no-go）
 
 - 简化 Policy/Workflow，保留 20 条重点规则和结构化证据；
 - 选择 retention `--dry-run`、wallet scope、chat ownership 三个明显严重缺陷及各自修复，共六条；
@@ -121,6 +121,8 @@ V1 不追求穷尽所有问题，不把模型训练成确定性规则引擎，�
 - 修复样本不得出现危险误报，所有报告必须可定位、可解释、可行动。
 
 退出条件：三个严重问题全部被发现，三个修复没有危险误报，6/6 运行和指标有效。失败则停止，不扩展为 30 条重跑。
+
+`958e640` canary 已按上述合同完成：6/6 一次执行成功，0 重试，每次 1 个主 Agent、0 verifier；三个修复均无危险误报，三个 finding-bearing 报告均可行动，但已知核心问题发现为 0/3。P50/P95 为 155.8/173.5 秒，输入/输出 token 为 4,269,302/38,288。结论为 no-go：不接入 live report-only，也不扩展为新一轮历史矩阵。完整本地证据见 `.code-quality/ordinary-review-canary-v1-958e6400bba9/canary-summary.json`。
 
 ### S3：Live Report-Only
 
