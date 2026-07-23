@@ -50,12 +50,11 @@ def main() -> int:
         "- Host/model: local Codex / `gpt-5.6-terra` / `high`",
         f"- Pending maintainer judgments: {len(entries)}",
         "",
-        "For each entry, compare the frozen label with the report. Judge whether the known core issue was found, whether any BLOCK is genuinely high risk, and whether a finding-bearing report gives an actionable fix.",
+        "For each entry, compare the frozen label with both independent reviews. Judge whether each review found the known core issue and whether each MANUAL_REVIEW report gives an actionable fix.",
         "",
     ]
     for index, (mapping, change, observation, evidence) in enumerate(entries, start=1):
         run_id = str(mapping["run_id"])
-        session = workspace / str(evidence["session"])
         command = [
             sys.executable,
             str(review_tool),
@@ -69,11 +68,14 @@ def main() -> int:
             "<evidence checked>",
         ]
         if change["ground_truth"] == "severe":
-            command.extend(["--core-issue-found", "<yes|no>"])
-        if observation["semantic_result"] == "BLOCK":
-            command.extend(["--high-risk-confirmed", "<yes|no>"])
-        if observation["semantic_result"] in {"BLOCK", "MANUAL_REVIEW"}:
-            command.extend(["--report-actionable", "<yes|no>"])
+            command.extend(["--skill-core-issue-found", "<yes|no>", "--builtin-core-issue-found", "<yes|no>"])
+        if observation["skill"]["semantic_result"] == "MANUAL_REVIEW":
+            command.extend(["--skill-report-actionable", "<yes|no>"])
+        if observation["builtin"]["semantic_result"] == "MANUAL_REVIEW":
+            command.extend(["--builtin-report-actionable", "<yes|no>"])
+        skill_evidence = evidence["skill"]
+        builtin_evidence = evidence["builtin"]
+        session = workspace / str(skill_evidence["session"])
         lines.extend(
             [
                 f"## {index}. `{change['id']}`",
@@ -83,11 +85,12 @@ def main() -> int:
                 f"- Labeler: `{change['labeler']}`",
                 f"- Label evidence: {change['label_note']}",
                 f"- Change: `{change['base_commit']}` → `{change['target_commit']}`",
-                f"- Observed result: `{observation['semantic_result']}`; findings: `{observation['finding_count']}`; rules: `{json.dumps(observation['rule_ids'])}`",
+                f"- Skill result: `{observation['skill']['semantic_result']}`; findings: `{observation['skill']['finding_count']}`; rules: `{json.dumps(observation['skill']['rule_ids'])}`",
+                f"- Built-in result: `{observation['builtin']['semantic_result']}`; findings: `{observation['builtin']['finding_count']}`",
                 f"- Trusted diff: `{session / 'input' / 'trusted.diff'}`",
-                f"- Main review: `{session / 'output' / 'main-review.json'}`",
-                f"- Verifier review: `{session / 'output' / 'verifier-review.json'}`",
-                f"- Final report: `{session / 'output' / 'review-result.md'}`",
+                f"- Skill main review: `{session / 'output' / 'main-review.json'}`",
+                f"- Skill final report: `{session / 'output' / 'review-result.md'}`",
+                f"- Built-in review: `{workspace / str(builtin_evidence['result'])}`",
                 "",
                 "```bash",
                 shlex.join(command),

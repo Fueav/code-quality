@@ -1,7 +1,7 @@
 # GitHub Actions report-only publication example.
 # A prior host-session step, or a trusted artifact-download step, must place the
 # authoritative JSON at QUALITY_RESULT_JSON. Markdown is rendered only after JSON
-# validation. Semantic BLOCK/INCOMPLETE never fails this job; malformed or
+# validation. Semantic MANUAL_REVIEW/INCOMPLETE never fails this job; malformed or
 # semantically inconsistent JSON does fail validation.
 name: code-quality-report-only
 on:

@@ -29,10 +29,9 @@ def smoke_matches(mapping: dict[str, object], record: dict[str, object]) -> bool
     rule_ids = observed.get("rule_ids")
     if kind == "positive":
         return (
-            observed.get("semantic_result") == "BLOCK"
+            observed.get("semantic_result") == "MANUAL_REVIEW"
             and isinstance(rule_ids, list)
             and len(rule_ids) > 0
-            and observed.get("verifier_count") == 1
         )
     return observed.get("semantic_result") in {"PASS", "MANUAL_REVIEW"}
 
@@ -108,12 +107,10 @@ def main() -> int:
                 f"- Fixture kind: `{mapping['kind']}`; exact rule and S/T/E equality are not smoke gates.",
                 f"- Observed: `{json.dumps(observed, sort_keys=True)}`",
                 f"- Trusted diff: `{session / 'input' / 'trusted.diff'}`",
-                f"- Target snapshot: `{session / 'input' / 'repository'}`",
                 f"- Main review: `{session / 'output' / 'main-review.json'}`",
-                f"- Verifier review: `{session / 'output' / 'verifier-review.json'}`",
                 f"- Final report: `{session / 'output' / 'review-result.md'}`",
                 "",
-                "Optional confirmation should check entry reachability, change attribution, causal chain, root deduplication, and verifier evidence; exact rule and S/T/E equality are not required:",
+                "Optional confirmation should check entry reachability, change attribution, causal chain, and root deduplication; exact rule and S/T/E equality are not required:",
                 "",
                 "```bash",
                 confirm_command,

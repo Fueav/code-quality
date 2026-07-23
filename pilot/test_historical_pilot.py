@@ -12,8 +12,8 @@ SOURCE_ROOT = PILOT_DIR.parent
 sys.path.insert(0, str(PILOT_DIR))
 
 from historical_pilot import summarize, validate_manifest  # noqa: E402
-from historical_pilot_initialize import materialize_blind_repository, task_markdown  # noqa: E402
-from qualification_run import codex_command  # noqa: E402
+from historical_pilot_initialize import builtin_task_markdown, materialize_blind_repository, task_markdown  # noqa: E402
+from qualification_run import builtin_codex_command, codex_command  # noqa: E402
 
 
 def manifest() -> dict[str, object]:
@@ -221,6 +221,54 @@ class HistoricalPilotTest(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
+                builtin_transcript = operator_root / "builtin-attempt-1.stdout.jsonl"
+                builtin_transcript.write_text(
+                    "\n".join(
+                        [
+                            json.dumps(
+                                {
+                                    "type": "item.completed",
+                                    "item": {"type": "agent_message", "text": '{"schema_version":1,"findings":[]}'},
+                                }
+                            ),
+                            json.dumps(
+                                {"type": "turn.completed", "usage": {"input_tokens": 80, "output_tokens": 10}}
+                            ),
+                        ]
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                builtin_result = operator_root / "builtin-attempt-1.result.json"
+                builtin_result.write_text('{"schema_version":1,"findings":[]}\n', encoding="utf-8")
+                builtin_stderr = operator_root / "builtin-attempt-1.stderr.log"
+                builtin_stderr.write_text("", encoding="utf-8")
+                builtin_worktree = operator_root / "builtin-attempt-1.worktree"
+                builtin_metadata = operator_root / "builtin-attempt-1.metadata.json"
+                builtin_metadata.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "run_id": first["run_id"],
+                            "lane": "builtin",
+                            "host": "codex",
+                            "host_version": baseline["codex_version"],
+                            "model": "gpt-5.6-terra",
+                            "reasoning_effort": "high",
+                            "attempt": 1,
+                            "command": builtin_codex_command(
+                                builtin_worktree,
+                                task["target"],
+                                workspace / "builtin-review.schema.json",
+                            ),
+                            "returncode": 0,
+                            "duration_ms": 111,
+                            "stdout": builtin_transcript.name,
+                            "stderr": builtin_stderr.name,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 subprocess.run(
                     [
                         sys.executable,
@@ -241,6 +289,18 @@ class HistoricalPilotTest(unittest.TestCase):
                         "20",
                         "--duration-ms",
                         "123",
+                        "--builtin-result",
+                        str(builtin_result),
+                        "--builtin-transcript",
+                        str(builtin_transcript),
+                        "--builtin-runner-metadata",
+                        str(builtin_metadata),
+                        "--builtin-input-tokens",
+                        "80",
+                        "--builtin-output-tokens",
+                        "10",
+                        "--builtin-duration-ms",
+                        "111",
                     ],
                     check=True,
                     stdout=subprocess.PIPE,
@@ -259,7 +319,9 @@ class HistoricalPilotTest(unittest.TestCase):
                         "maintainer",
                         "--note",
                         "Known issue was not found in the synthetic PASS observation.",
-                        "--core-issue-found",
+                        "--skill-core-issue-found",
+                        "no",
+                        "--builtin-core-issue-found",
                         "no",
                     ],
                     check=True,
@@ -329,6 +391,7 @@ class HistoricalPilotTest(unittest.TestCase):
             "output_root": "/pilot/sessions/run-opaque",
         }
         prompt = task_markdown(task, pathlib.Path("/pilot/SKILL.md"), pathlib.Path("/pilot/quality-review"))
+        prompt += builtin_task_markdown(task)
         for forbidden in ("ground_truth", "severe", "normal", "label_note", "fix commit"):
             self.assertNotIn(forbidden, prompt)
 
@@ -339,37 +402,48 @@ class HistoricalPilotTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "at least 30"):
             validate_manifest(value)
 
-    def test_summary_reports_discovery_false_high_risk_and_actionability(self) -> None:
+    def test_summary_compares_skill_and_builtin_review(self) -> None:
         value = manifest()
         with tempfile.TemporaryDirectory() as directory:
             records = pathlib.Path(directory)
             for index, change in enumerate(value["changes"]):
                 severe = change["ground_truth"] == "severe"
-                false_block = index == 15
-                semantic_result = "BLOCK" if severe or false_block else "PASS"
+                skill_result = "MANUAL_REVIEW" if severe else "PASS"
+                builtin_result = "MANUAL_REVIEW" if severe or index == 15 else "PASS"
                 record = {
                     "schema_version": 1,
                     "change_id": change["id"],
-                    "semantic_result": semantic_result,
-                    "core_issue_found": True if severe else None,
-                    "high_risk_confirmed": severe if semantic_result == "BLOCK" else None,
-                    "report_actionable": severe if semantic_result == "BLOCK" else None,
                     "reviewer": "maintainer",
                     "review_note": "evidence checked",
-                    "input_tokens": 100,
-                    "output_tokens": 10,
-                    "duration_ms": 1000 + index,
-                    "estimated_cost_usd": None,
+                    "skill": {
+                        "semantic_result": skill_result,
+                        "core_issue_found": True if severe else None,
+                        "report_actionable": True if skill_result == "MANUAL_REVIEW" else None,
+                        "input_tokens": 100,
+                        "output_tokens": 10,
+                        "duration_ms": 1000 + index,
+                        "estimated_cost_usd": None,
+                    },
+                    "builtin": {
+                        "semantic_result": builtin_result,
+                        "core_issue_found": index != 14 if severe else None,
+                        "report_actionable": severe if builtin_result == "MANUAL_REVIEW" else None,
+                        "input_tokens": 80,
+                        "output_tokens": 8,
+                        "duration_ms": 900 + index,
+                        "estimated_cost_usd": None,
+                    },
                 }
                 (records / f"{change['id']}.json").write_text(json.dumps(record), encoding="utf-8")
 
             summary = summarize(value, records)
             self.assertTrue(summary["historical_evidence_complete"])
-            self.assertEqual(summary["severe_issue_discovery"]["rate"], 1)
-            self.assertEqual(summary["high_risk_results"]["false"], 1)
-            self.assertEqual(summary["high_risk_results"]["false_rate_on_normal_changes"], 1 / 15)
-            self.assertEqual(summary["report_actionability"]["rate"], 15 / 16)
-            self.assertEqual(summary["execution"]["input_tokens"], 3000)
+            self.assertEqual(summary["skill"]["severe_issue_discovery"]["rate"], 1)
+            self.assertEqual(summary["builtin"]["severe_issue_discovery"]["found"], 14)
+            self.assertEqual(summary["builtin"]["manual_review_findings"]["normal_rate"], 1 / 15)
+            self.assertEqual(summary["comparison"]["severe_core_issue_pairs"]["skill_only"], 1)
+            self.assertTrue(summary["comparison"]["caught_up_to_builtin_review"])
+            self.assertEqual(summary["skill"]["execution"]["input_tokens"], 3000)
 
     @staticmethod
     def git(repository: pathlib.Path, *arguments: str) -> str:

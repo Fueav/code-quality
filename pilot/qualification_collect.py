@@ -147,23 +147,21 @@ def main() -> int:
     record_path = workspace / "replay-records" / f"{args.run_id}.json"
     previous_evidence_path = workspace / "run-evidence" / f"{args.run_id}.json"
     previous_evidence = load_json(previous_evidence_path) if record_path.exists() else None
-    verifier_review = session / "output" / "verifier-review.json"
-    verifier_sha256 = file_sha256(verifier_review) if verifier_review.is_file() else None
     if previous_evidence is not None and (
-        previous_evidence.get("input_manifest_sha256") != file_sha256(session / "input-manifest.json")
-        or previous_evidence.get("result_sha256") != file_sha256(result)
+        previous_evidence.get("result_sha256") != file_sha256(result)
         or previous_evidence.get("main_review_sha256") != file_sha256(session / "output" / "main-review.json")
-        or previous_evidence.get("verifier_review_sha256") != verifier_sha256
         or previous_evidence.get("markdown_sha256") != file_sha256(result.with_name("review-result.md"))
         or previous_evidence.get("transcript_sha256") != file_sha256(transcript)
         or previous_evidence.get("runner_metadata_sha256") != file_sha256(runner_metadata_path)
     ):
         raise ValueError("re-collection cannot change immutable session evidence")
-    finalized = json.loads(run(str(binary), "finalize", "--session", str(session)))
-    if finalized.get("status") != "COMPLETE" or pathlib.Path(str(finalized.get("result_path"))).resolve() != result:
-        raise ValueError("selected session does not finalize to the supplied COMPLETE result")
+    if (session / "input" / "repository").exists():
+        raise ValueError("finalized smoke session retained its temporary worktree")
     run(str(binary), "validate", str(result))
     result_payload = load_json(result)
+    adjudication = result_payload.get("adjudication")
+    if not isinstance(adjudication, dict) or adjudication.get("semantic_result") == "INCOMPLETE":
+        raise ValueError("selected smoke session did not produce a complete report")
     request = load_json(session / "input" / "review-request.json")
     if result_payload.get("request") != request:
         raise ValueError("result request does not match the frozen session request")
@@ -174,6 +172,9 @@ def main() -> int:
         or request.get("diff_selection_reason") != task.get("diff_reason")
     ):
         raise ValueError("session request does not match the selected blind task")
+    session_metadata = load_json(session / "input" / "session-metadata.json")
+    if session_metadata.get("repository_root") != task.get("repository"):
+        raise ValueError("session metadata does not identify the materialized repository root")
     markdown = result.with_name("review-result.md")
     if markdown.is_symlink() or not markdown.is_file():
         raise ValueError("finalized Markdown report is missing")
@@ -253,9 +254,7 @@ def main() -> int:
         "reasoning_effort": QUALIFICATION_REASONING_EFFORT,
         "task": task_relative,
         "session": session.relative_to(workspace).as_posix(),
-        "input_manifest_sha256": file_sha256(session / "input-manifest.json"),
         "main_review_sha256": file_sha256(session / "output" / "main-review.json"),
-        "verifier_review_sha256": verifier_sha256,
         "result_sha256": file_sha256(result),
         "markdown_sha256": file_sha256(markdown),
         "transcript": transcript.relative_to(workspace).as_posix(),

@@ -31,7 +31,7 @@ The smoke profile uses one local Codex session per case. Every task is opaque an
 
 The coarse smoke contract is:
 
-- positive: final result is `BLOCK`, at least one finding exists, and one verifier confirmed the high-risk path;
+- positive: final result is `MANUAL_REVIEW` and at least one finding exists;
 - counterexample: final result is `PASS` or `MANUAL_REVIEW`;
 - insufficient evidence: final result is `PASS` or `MANUAL_REVIEW`;
 - no `INCOMPLETE`, duplicate root, invalid record, or Agent-limit violation;
@@ -111,19 +111,21 @@ Prepare at least 30 immutable, human-labeled changes:
 
 - at least 15 with a confirmed severe issue;
 - at least 15 confirmed normal changes;
-- one blind review per change;
-- one maintainer decision on whether the core issue was found, whether a high-risk result was false, and whether the report was actionable.
+- one blind Skill review and one isolated ordinary built-in review per change, both using the same model, reasoning effort, base, and target;
+- one maintainer decision on whether each review found the core issue and whether each finding-bearing report was actionable.
 
 Summarize:
 
-- severe-issue discovery rate;
-- confirmed and false high-risk results;
-- report actionability;
+- Skill versus built-in severe-issue discovery rate and paired core-issue hits;
+- Skill versus built-in `MANUAL_REVIEW` finding rates, including the rate on normal changes;
+- per-lane report actionability;
 - completion and failure rates;
 - P50/P95 duration, tokens, and cost;
 - missing context and human-overturn reasons.
 
 Freeze the project/change labels in one manifest. Every change must be exactly one first-parent commit with full base and target SHAs. A severe label must name the known core issue and its historical evidence; commit titles alone are not ground truth.
+
+For a concrete Web3 project-selection, defect-taxonomy, and labeling guide, see [`web3-dataset-spec.md`](web3-dataset-spec.md).
 
 Initialize from a clean code-quality commit:
 
@@ -135,7 +137,7 @@ python3 pilot/historical_pilot_initialize.py \
 
 The initializer builds the frozen CLI, copies the Skill, and shallow-materializes one opaque repository per change containing only the base and target commits. Later fixes and the private labels are unavailable to the review Agent.
 
-Verify the blind schedule before any model call, then run each change once with local Terra/high Codex:
+Verify the blind schedule before any model call, then run each change through two isolated local Terra/high Codex lanes. The Skill lane uses the frozen code-quality workflow. The built-in lane reviews the same commit pair with ordinary Codex review judgment, without loading the Skill or reading its session:
 
 ```bash
 python3 pilot/historical_pilot_verify.py \
@@ -153,7 +155,7 @@ python3 pilot/historical_pilot_review_packet.py \
   --workspace .code-quality/historical-pilot-v1
 ```
 
-The queue supplies one `historical_pilot_review.py` command per observation. The maintainer records whether the known core issue was found, whether any `BLOCK` is truly high risk, whether a finding-bearing report is actionable, and optional estimated cost. Judgments are immutable and never shown to an Agent.
+The queue supplies one `historical_pilot_review.py` command per paired observation. The maintainer records whether each lane found the known core issue, whether each `MANUAL_REVIEW` report is actionable, and optional per-lane estimated cost. Judgments are immutable and never shown to an Agent.
 
 Finally verify every report, deterministic render, transcript, metric, digest, and maintainer record and write the summary:
 
@@ -163,7 +165,7 @@ python3 pilot/historical_pilot_verify.py \
   --write-summary
 ```
 
-The summary reports evidence completeness and metrics; it never enables blocking or makes the maintainers' pilot decision.
+The summary reports evidence completeness, both lanes' metrics, paired misses, and `caught_up_to_builtin_review`. That conclusion is true only when evidence is complete, the Skill misses no severe issue found by built-in review, its severe discovery is not lower, and its normal-change `MANUAL_REVIEW` rate is not higher. It never enables blocking or makes the maintainers' pilot decision.
 
 These results support the maintainers' decision to start a 2–4 week live report-only trial. V1 does not define an automatic-blocking threshold.
 
@@ -175,7 +177,7 @@ These results support the maintainers' decision to start a 2–4 week live repor
 
 The host session supplies validated `review-result.json` and deterministic `review-result.md`. CI runs `quality-review validate` and uploads both files through its trusted artifact channel.
 
-`BLOCK` and `INCOMPLETE` remain semantic report values with `ci_action: publish_report`; neither fails CI.
+`MANUAL_REVIEW` and `INCOMPLETE` remain report-only semantic values with `ci_action: publish_report`; neither fails CI.
 
 Reference templates:
 

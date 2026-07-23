@@ -1,7 +1,7 @@
 # GitLab report-only publication example.
 # A prior host-session job, or a trusted artifact dependency, supplies the authoritative
 # JSON at QUALITY_RESULT_JSON. This job validates it, renders Markdown, and publishes
-# both without converting BLOCK or INCOMPLETE into a failing CI action.
+# both without converting MANUAL_REVIEW or INCOMPLETE into a failing CI action.
 code-quality-report-only:
   stage: test
   image: golang:1.24

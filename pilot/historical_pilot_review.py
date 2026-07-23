@@ -23,16 +23,18 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--reviewer", required=True)
     parser.add_argument("--note", required=True)
-    parser.add_argument("--core-issue-found", choices=("yes", "no"))
-    parser.add_argument("--high-risk-confirmed", choices=("yes", "no"))
-    parser.add_argument("--report-actionable", choices=("yes", "no"))
-    parser.add_argument("--estimated-cost-usd", type=float)
+    parser.add_argument("--skill-core-issue-found", choices=("yes", "no"))
+    parser.add_argument("--builtin-core-issue-found", choices=("yes", "no"))
+    parser.add_argument("--skill-report-actionable", choices=("yes", "no"))
+    parser.add_argument("--builtin-report-actionable", choices=("yes", "no"))
+    parser.add_argument("--skill-estimated-cost-usd", type=float)
+    parser.add_argument("--builtin-estimated-cost-usd", type=float)
     args = parser.parse_args()
 
     if not args.reviewer.strip() or not args.note.strip():
         raise ValueError("reviewer and note must be non-empty")
-    if args.estimated_cost_usd is not None and args.estimated_cost_usd < 0:
-        raise ValueError("estimated cost must be non-negative")
+    if any(cost is not None and cost < 0 for cost in (args.skill_estimated_cost_usd, args.builtin_estimated_cost_usd)):
+        raise ValueError("estimated costs must be non-negative")
     workspace = args.workspace.resolve(strict=True)
     baseline = load_json(workspace / "baseline.json")
     if baseline.get("profile") != "report_only_historical_pilot":
@@ -54,33 +56,50 @@ def main() -> int:
         observation.get("run_id") != args.run_id
         or observation.get("change_id") != change.get("id")
         or evidence.get("run_id") != args.run_id
-        or evidence.get("result_sha256") != observation.get("result_sha256")
+        or not isinstance(observation.get("skill"), dict)
+        or not isinstance(observation.get("builtin"), dict)
+        or not isinstance(evidence.get("skill"), dict)
+        or not isinstance(evidence.get("builtin"), dict)
+        or evidence["skill"].get("result_sha256") != observation["skill"].get("result_sha256")
+        or evidence["builtin"].get("result_sha256") != observation["builtin"].get("result_sha256")
     ):
         raise ValueError("observation identity or evidence binding is invalid")
 
     severe = change["ground_truth"] == "severe"
-    result = observation.get("semantic_result")
-    finding_report = result in {"BLOCK", "MANUAL_REVIEW"}
-    if severe != (args.core_issue_found is not None):
-        raise ValueError("core-issue-found is required only for severe changes")
-    if (result == "BLOCK") != (args.high_risk_confirmed is not None):
-        raise ValueError("high-risk-confirmed is required only for BLOCK")
-    if finding_report != (args.report_actionable is not None):
-        raise ValueError("report-actionable is required only for finding-bearing reports")
+    core_judgments = (args.skill_core_issue_found, args.builtin_core_issue_found)
+    if severe and not all(value is not None for value in core_judgments):
+        raise ValueError("both core-issue judgments are required only for severe changes")
+    if not severe and any(value is not None for value in core_judgments):
+        raise ValueError("normal changes must not receive core-issue judgments")
+    for lane in ("skill", "builtin"):
+        result = observation[lane]["semantic_result"]
+        actionable = getattr(args, f"{lane}_report_actionable")
+        if (result == "MANUAL_REVIEW") != (actionable is not None):
+            raise ValueError(f"{lane} report-actionable is required only for MANUAL_REVIEW")
 
     record = {
         "schema_version": 1,
         "change_id": change["id"],
-        "semantic_result": result,
-        "core_issue_found": boolean(args.core_issue_found) if args.core_issue_found is not None else None,
-        "high_risk_confirmed": boolean(args.high_risk_confirmed) if args.high_risk_confirmed is not None else None,
-        "report_actionable": boolean(args.report_actionable) if args.report_actionable is not None else None,
         "reviewer": args.reviewer,
         "review_note": args.note,
-        "input_tokens": observation["input_tokens"],
-        "output_tokens": observation["output_tokens"],
-        "duration_ms": observation["duration_ms"],
-        "estimated_cost_usd": args.estimated_cost_usd,
+        "skill": {
+            "semantic_result": observation["skill"]["semantic_result"],
+            "core_issue_found": boolean(args.skill_core_issue_found) if args.skill_core_issue_found is not None else None,
+            "report_actionable": boolean(args.skill_report_actionable) if args.skill_report_actionable is not None else None,
+            "input_tokens": observation["skill"]["input_tokens"],
+            "output_tokens": observation["skill"]["output_tokens"],
+            "duration_ms": observation["skill"]["duration_ms"],
+            "estimated_cost_usd": args.skill_estimated_cost_usd,
+        },
+        "builtin": {
+            "semantic_result": observation["builtin"]["semantic_result"],
+            "core_issue_found": boolean(args.builtin_core_issue_found) if args.builtin_core_issue_found is not None else None,
+            "report_actionable": boolean(args.builtin_report_actionable) if args.builtin_report_actionable is not None else None,
+            "input_tokens": observation["builtin"]["input_tokens"],
+            "output_tokens": observation["builtin"]["output_tokens"],
+            "duration_ms": observation["builtin"]["duration_ms"],
+            "estimated_cost_usd": args.builtin_estimated_cost_usd,
+        },
     }
     errors = validate_record(record, change)
     if errors:
@@ -101,10 +120,16 @@ def main() -> int:
                 "reviewer": args.reviewer,
                 "reviewed_at": reviewed_at,
                 "note": args.note,
-                "core_issue_found": record["core_issue_found"],
-                "high_risk_confirmed": record["high_risk_confirmed"],
-                "report_actionable": record["report_actionable"],
-                "result_sha256": observation["result_sha256"],
+                "skill": {
+                    "core_issue_found": record["skill"]["core_issue_found"],
+                    "report_actionable": record["skill"]["report_actionable"],
+                    "result_sha256": observation["skill"]["result_sha256"],
+                },
+                "builtin": {
+                    "core_issue_found": record["builtin"]["core_issue_found"],
+                    "report_actionable": record["builtin"]["report_actionable"],
+                    "result_sha256": observation["builtin"]["result_sha256"],
+                },
             },
             indent=2,
             sort_keys=True,

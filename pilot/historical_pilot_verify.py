@@ -10,10 +10,17 @@ import subprocess
 import sys
 
 from historical_pilot import load_json, summarize, validate_manifest, validate_record
-from historical_pilot_initialize import task_markdown
+from historical_pilot_initialize import builtin_task_markdown, task_markdown
 from qualification_collect import write_atomically
 from qualification_initialize import file_sha256, tree_sha256
-from qualification_run import QUALIFICATION_MODEL, QUALIFICATION_REASONING_EFFORT, codex_command, codex_metrics
+from qualification_run import (
+    QUALIFICATION_MODEL,
+    QUALIFICATION_REASONING_EFFORT,
+    builtin_codex_command,
+    builtin_result,
+    codex_command,
+    codex_metrics,
+)
 from qualification_verify import resolve_relative, run, run_bytes
 
 
@@ -29,6 +36,11 @@ def expected_observation(
     output_tokens: int,
     duration_ms: int,
     result_sha256: str,
+    builtin_payload: dict[str, object],
+    builtin_input_tokens: int,
+    builtin_output_tokens: int,
+    builtin_duration_ms: int,
+    builtin_result_sha256: str,
 ) -> dict[str, object]:
     findings = payload["findings"]
     execution = payload["execution"]
@@ -47,17 +59,28 @@ def expected_observation(
         "run_id": run_id,
         "change_id": mapping["change_id"],
         "project_id": mapping["project_id"],
-        "semantic_result": adjudication["semantic_result"],
-        "finding_count": len(findings),
-        "rule_ids": rule_ids,
-        "agent_count": execution["agent_count"],
-        "verifier_count": execution["verifier_count"],
-        "missing_context": payload.get("missing_context", []),
-        "uninspected_scope": payload.get("uninspected_scope", []),
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "duration_ms": duration_ms,
-        "result_sha256": result_sha256,
+        "skill": {
+            "semantic_result": adjudication["semantic_result"],
+            "finding_count": len(findings),
+            "rule_ids": rule_ids,
+            "agent_count": execution["agent_count"],
+            "verifier_count": execution["verifier_count"],
+            "missing_context": payload.get("missing_context", []),
+            "uninspected_scope": payload.get("uninspected_scope", []),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "duration_ms": duration_ms,
+            "result_sha256": result_sha256,
+        },
+        "builtin": {
+            "semantic_result": "MANUAL_REVIEW" if builtin_payload["findings"] else "PASS",
+            "finding_count": len(builtin_payload["findings"]),
+            "findings": builtin_payload["findings"],
+            "input_tokens": builtin_input_tokens,
+            "output_tokens": builtin_output_tokens,
+            "duration_ms": builtin_duration_ms,
+            "result_sha256": builtin_result_sha256,
+        },
     }
 
 
@@ -71,9 +94,13 @@ def verify_run(
     observation = load_json(workspace / "observations" / f"{run_id}.json")
     evidence = load_json(workspace / "run-evidence" / f"{run_id}.json")
     task = load_json(workspace / str(mapping["task"]))
-    session = resolve_relative(workspace, evidence.get("session"), f"{run_id}.session", directory=True)
-    transcript = resolve_relative(workspace, evidence.get("transcript"), f"{run_id}.transcript")
-    runner_path = resolve_relative(workspace, evidence.get("runner_metadata"), f"{run_id}.runner_metadata")
+    skill_evidence = evidence.get("skill")
+    builtin_evidence = evidence.get("builtin")
+    if not isinstance(skill_evidence, dict) or not isinstance(builtin_evidence, dict):
+        raise ValueError(f"paired run evidence is missing: {run_id}")
+    session = resolve_relative(workspace, skill_evidence.get("session"), f"{run_id}.session", directory=True)
+    transcript = resolve_relative(workspace, skill_evidence.get("transcript"), f"{run_id}.transcript")
+    runner_path = resolve_relative(workspace, skill_evidence.get("runner_metadata"), f"{run_id}.runner_metadata")
     runner = load_json(runner_path)
     expected_root = workspace / "sessions" / run_id
     if session.parent != expected_root or not session.name.startswith("review-"):
@@ -105,36 +132,33 @@ def verify_run(
     if not isinstance(duration_ms, int) or duration_ms < 0:
         raise ValueError(f"runner duration is invalid: {run_id}")
     if (
-        evidence.get("input_tokens") != input_tokens
-        or evidence.get("output_tokens") != output_tokens
-        or evidence.get("duration_ms") != duration_ms
+        skill_evidence.get("input_tokens") != input_tokens
+        or skill_evidence.get("output_tokens") != output_tokens
+        or skill_evidence.get("duration_ms") != duration_ms
     ):
         raise ValueError(f"run metrics are invalid: {run_id}")
 
     result = session / "output" / "review-result.json"
     markdown = result.with_name("review-result.md")
     main_review = result.with_name("main-review.json")
-    verifier = result.with_name("verifier-review.json")
-    input_manifest = session / "input-manifest.json"
-    for path in (result, markdown, input_manifest):
+    for path in (result, markdown):
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"run evidence file is missing: {run_id}: {path.name}")
     main_review_sha = file_sha256(main_review) if main_review.is_file() and not main_review.is_symlink() else None
-    verifier_sha = file_sha256(verifier) if verifier.is_file() and not verifier.is_symlink() else None
     if (
-        evidence.get("input_manifest_sha256") != file_sha256(input_manifest)
-        or evidence.get("main_review_sha256") != main_review_sha
-        or evidence.get("verifier_review_sha256") != verifier_sha
-        or evidence.get("result_sha256") != file_sha256(result)
-        or evidence.get("markdown_sha256") != file_sha256(markdown)
-        or evidence.get("transcript_sha256") != file_sha256(transcript)
-        or evidence.get("runner_metadata_sha256") != file_sha256(runner_path)
+        skill_evidence.get("main_review_sha256") != main_review_sha
+        or skill_evidence.get("result_sha256") != file_sha256(result)
+        or skill_evidence.get("markdown_sha256") != file_sha256(markdown)
+        or skill_evidence.get("transcript_sha256") != file_sha256(transcript)
+        or skill_evidence.get("runner_metadata_sha256") != file_sha256(runner_path)
     ):
         raise ValueError(f"run evidence digest mismatch: {run_id}")
     run(str(binary), "validate", str(result))
     if run_bytes(str(binary), "render", str(result)) != markdown.read_bytes():
         raise ValueError(f"rendered report is stale: {run_id}")
     payload = load_json(result)
+    if (session / "input" / "repository").exists():
+        raise ValueError(f"finalized session retained its temporary worktree: {run_id}")
     request = load_json(session / "input" / "review-request.json")
     if payload.get("request") != request:
         raise ValueError(f"result request mismatch: {run_id}")
@@ -145,7 +169,64 @@ def verify_run(
         or request.get("diff_selection_reason") != task.get("diff_reason")
     ):
         raise ValueError(f"task request mismatch: {run_id}")
-    expected = expected_observation(run_id, mapping, payload, input_tokens, output_tokens, duration_ms, file_sha256(result))
+    metadata = load_json(session / "input" / "session-metadata.json")
+    if metadata.get("repository_root") != task.get("repository"):
+        raise ValueError(f"session repository root mismatch: {run_id}")
+
+    builtin_result_path = resolve_relative(workspace, builtin_evidence.get("result"), f"{run_id}.builtin_result")
+    builtin_transcript = resolve_relative(workspace, builtin_evidence.get("transcript"), f"{run_id}.builtin_transcript")
+    builtin_runner_path = resolve_relative(workspace, builtin_evidence.get("runner_metadata"), f"{run_id}.builtin_runner")
+    builtin_runner = load_json(builtin_runner_path)
+    builtin_worktree = workspace / "sessions" / run_id / "operator" / f"builtin-attempt-{builtin_runner.get('attempt')}.worktree"
+    if (
+        builtin_runner.get("schema_version") != 1
+        or builtin_runner.get("run_id") != run_id
+        or builtin_runner.get("lane") != "builtin"
+        or builtin_runner.get("host") != "codex"
+        or builtin_runner.get("host_version") != baseline.get("codex_version")
+        or builtin_runner.get("model") != QUALIFICATION_MODEL
+        or builtin_runner.get("reasoning_effort") != QUALIFICATION_REASONING_EFFORT
+        or builtin_runner.get("command")
+        != builtin_codex_command(
+            builtin_worktree,
+            str(task["target"]),
+            workspace / "builtin-review.schema.json",
+        )
+        or builtin_runner.get("returncode") != 0
+        or builtin_runner.get("stdout") != builtin_transcript.name
+        or builtin_worktree.exists()
+    ):
+        raise ValueError(f"built-in runner metadata is invalid: {run_id}")
+    builtin_input_tokens, builtin_output_tokens = codex_metrics(builtin_transcript.read_text(encoding="utf-8"))
+    builtin_duration_ms = builtin_runner.get("duration_ms")
+    if not isinstance(builtin_duration_ms, int) or builtin_duration_ms < 0:
+        raise ValueError(f"built-in runner duration is invalid: {run_id}")
+    builtin_payload = load_json(builtin_result_path)
+    if builtin_result(builtin_transcript.read_text(encoding="utf-8")) != builtin_payload:
+        raise ValueError(f"built-in result does not match its transcript: {run_id}")
+    if (
+        builtin_evidence.get("result_sha256") != file_sha256(builtin_result_path)
+        or builtin_evidence.get("transcript_sha256") != file_sha256(builtin_transcript)
+        or builtin_evidence.get("runner_metadata_sha256") != file_sha256(builtin_runner_path)
+        or builtin_evidence.get("input_tokens") != builtin_input_tokens
+        or builtin_evidence.get("output_tokens") != builtin_output_tokens
+        or builtin_evidence.get("duration_ms") != builtin_duration_ms
+    ):
+        raise ValueError(f"built-in evidence mismatch: {run_id}")
+    expected = expected_observation(
+        run_id,
+        mapping,
+        payload,
+        input_tokens,
+        output_tokens,
+        duration_ms,
+        file_sha256(result),
+        builtin_payload,
+        builtin_input_tokens,
+        builtin_output_tokens,
+        builtin_duration_ms,
+        file_sha256(builtin_result_path),
+    )
     if observation != expected:
         raise ValueError(f"saved observation is stale: {run_id}")
 
@@ -167,6 +248,8 @@ def main() -> int:
         or baseline.get("development_only") is not False
         or baseline.get("qualification_model") != QUALIFICATION_MODEL
         or baseline.get("qualification_reasoning_effort") != QUALIFICATION_REASONING_EFFORT
+        or baseline.get("builtin_baseline") != "ordinary_codex_review_without_skill"
+        or baseline.get("builtin_schema_sha256") != file_sha256(workspace / "builtin-review.schema.json")
     ):
         raise ValueError("baseline identity is invalid")
     if run("git", "rev-parse", "HEAD^{commit}", cwd=source) != baseline.get("source_commit"):
@@ -241,7 +324,11 @@ def main() -> int:
         )
         if prompt != expected_prompt:
             raise ValueError(f"blind task prompt is stale: {run_id}")
-        serialized = json.dumps(task, sort_keys=True) + prompt
+        builtin_prompt_path = task_path.with_name(f"{run_id}.builtin.md")
+        builtin_prompt = builtin_prompt_path.read_text(encoding="utf-8")
+        if builtin_prompt != builtin_task_markdown(task):
+            raise ValueError(f"blind built-in task prompt is stale: {run_id}")
+        serialized = json.dumps(task, sort_keys=True) + prompt + builtin_prompt
         if change_id in serialized or str(change["project_id"]) in serialized or str(change["ground_truth"]) in serialized:
             raise ValueError(f"blind task leaks private identity: {run_id}")
         if repository.is_symlink() or not repository.is_dir():
@@ -254,6 +341,13 @@ def main() -> int:
             or git(repository, "status", "--porcelain=v1", "--untracked-files=all")
         ):
             raise ValueError(f"materialized repository content is invalid: {run_id}")
+        registered_worktrees = [
+            line.removeprefix("worktree ")
+            for line in git(repository, "worktree", "list", "--porcelain").splitlines()
+            if line.startswith("worktree ")
+        ]
+        if registered_worktrees != [str(repository)]:
+            raise ValueError(f"temporary review worktree was not removed: {run_id}")
         fsck = subprocess.run(
             ["git", "-C", str(repository), "fsck", "--no-reflogs", "--unreachable"],
             check=False,
@@ -284,19 +378,37 @@ def main() -> int:
         observation = load_json(workspace / "observations" / f"{run_id}.json")
         human = load_json(workspace / "human-reviews" / f"{run_id}.json")
         errors = validate_record(record, changes[change_id])
+        skill_record = record.get("skill")
+        builtin_record = record.get("builtin")
+        skill_observation = observation.get("skill")
+        builtin_observation = observation.get("builtin")
+        skill_human = human.get("skill")
+        builtin_human = human.get("builtin")
         if errors or (
-            record.get("semantic_result") != observation.get("semantic_result")
-            or record.get("input_tokens") != observation.get("input_tokens")
-            or record.get("output_tokens") != observation.get("output_tokens")
-            or record.get("duration_ms") != observation.get("duration_ms")
+            not isinstance(skill_record, dict)
+            or not isinstance(builtin_record, dict)
+            or not isinstance(skill_observation, dict)
+            or not isinstance(builtin_observation, dict)
+            or not isinstance(skill_human, dict)
+            or not isinstance(builtin_human, dict)
+            or any(
+                record[lane].get(field) != observation[lane].get(field)
+                for lane in ("skill", "builtin")
+                for field in ("semantic_result", "input_tokens", "output_tokens", "duration_ms")
+            )
             or human.get("run_id") != run_id
             or human.get("change_id") != change_id
-            or human.get("result_sha256") != observation.get("result_sha256")
             or human.get("reviewer") != record.get("reviewer")
             or human.get("note") != record.get("review_note")
-            or human.get("core_issue_found") != record.get("core_issue_found")
-            or human.get("high_risk_confirmed") != record.get("high_risk_confirmed")
-            or human.get("report_actionable") != record.get("report_actionable")
+            or any(
+                human[lane].get(field) != record[lane].get(field)
+                for lane in ("skill", "builtin")
+                for field in ("core_issue_found", "report_actionable")
+            )
+            or any(
+                human[lane].get("result_sha256") != observation[lane].get("result_sha256")
+                for lane in ("skill", "builtin")
+            )
         ):
             raise ValueError(f"maintainer record is invalid: {change_id}")
     if record_ids != {str(mappings[run_id]["change_id"]) for run_id in reviewed_runs} or human_ids != reviewed_runs:

@@ -11,7 +11,13 @@ import sys
 
 from qualification_collect import load_json, run, write_atomically
 from qualification_initialize import file_sha256
-from qualification_run import QUALIFICATION_MODEL, QUALIFICATION_REASONING_EFFORT, codex_command
+from qualification_run import (
+    QUALIFICATION_MODEL,
+    QUALIFICATION_REASONING_EFFORT,
+    builtin_codex_command,
+    builtin_result,
+    codex_command,
+)
 
 
 def main() -> int:
@@ -24,9 +30,22 @@ def main() -> int:
     parser.add_argument("--input-tokens", required=True, type=int)
     parser.add_argument("--output-tokens", required=True, type=int)
     parser.add_argument("--duration-ms", required=True, type=int)
+    parser.add_argument("--builtin-result", required=True, type=pathlib.Path)
+    parser.add_argument("--builtin-transcript", required=True, type=pathlib.Path)
+    parser.add_argument("--builtin-runner-metadata", required=True, type=pathlib.Path)
+    parser.add_argument("--builtin-input-tokens", required=True, type=int)
+    parser.add_argument("--builtin-output-tokens", required=True, type=int)
+    parser.add_argument("--builtin-duration-ms", required=True, type=int)
     args = parser.parse_args()
 
-    if min(args.input_tokens, args.output_tokens, args.duration_ms) < 0:
+    if min(
+        args.input_tokens,
+        args.output_tokens,
+        args.duration_ms,
+        args.builtin_input_tokens,
+        args.builtin_output_tokens,
+        args.builtin_duration_ms,
+    ) < 0:
         raise ValueError("metrics must be non-negative")
     workspace = args.workspace.resolve(strict=True)
     baseline = load_json(workspace / "baseline.json")
@@ -36,6 +55,8 @@ def main() -> int:
         or baseline.get("development_only") is not False
         or baseline.get("qualification_model") != QUALIFICATION_MODEL
         or baseline.get("qualification_reasoning_effort") != QUALIFICATION_REASONING_EFFORT
+        or baseline.get("builtin_baseline") != "ordinary_codex_review_without_skill"
+        or baseline.get("builtin_schema_sha256") != file_sha256(workspace / "builtin-review.schema.json")
     ):
         raise ValueError("workspace is not a frozen formal historical pilot")
 
@@ -92,10 +113,39 @@ def main() -> int:
     ):
         raise ValueError("runner metadata does not prove a successful Terra/high Codex run")
 
+    builtin_result_path = args.builtin_result.resolve(strict=True)
+    builtin_transcript = args.builtin_transcript.resolve(strict=True)
+    builtin_runner_path = args.builtin_runner_metadata.resolve(strict=True)
+    operator_root = expected_root / "operator"
+    if any(
+        path.is_symlink() or not path.is_file() or path.parent != operator_root
+        for path in (builtin_result_path, builtin_transcript, builtin_runner_path)
+    ):
+        raise ValueError("built-in evidence is outside the selected historical run")
+    builtin_runner = load_json(builtin_runner_path)
+    builtin_worktree = operator_root / f"builtin-attempt-{builtin_runner.get('attempt')}.worktree"
+    if (
+        builtin_runner.get("run_id") != args.run_id
+        or builtin_runner.get("lane") != "builtin"
+        or builtin_runner.get("host") != "codex"
+        or builtin_runner.get("host_version") != baseline.get("codex_version")
+        or builtin_runner.get("model") != QUALIFICATION_MODEL
+        or builtin_runner.get("reasoning_effort") != QUALIFICATION_REASONING_EFFORT
+        or builtin_runner.get("command")
+        != builtin_codex_command(builtin_worktree, str(task["target"]), workspace / "builtin-review.schema.json")
+        or builtin_runner.get("returncode") != 0
+        or builtin_runner.get("duration_ms") != args.builtin_duration_ms
+        or builtin_runner.get("stdout") != builtin_transcript.name
+        or builtin_worktree.exists()
+    ):
+        raise ValueError("runner metadata does not prove an isolated built-in Terra/high review")
+    builtin_payload = load_json(builtin_result_path)
+    if builtin_result(builtin_transcript.read_text(encoding="utf-8")) != builtin_payload:
+        raise ValueError("built-in result does not match its Codex transcript")
+
     binary = workspace / "quality-review"
-    finalized = json.loads(run(str(binary), "finalize", "--session", str(session)))
-    if finalized.get("status") not in {"COMPLETE", "INCOMPLETE"} or pathlib.Path(str(finalized.get("result_path"))).resolve() != result:
-        raise ValueError("historical session did not finalize to the selected result")
+    if (session / "input" / "repository").exists():
+        raise ValueError("finalized historical session retained its temporary worktree")
     run(str(binary), "validate", str(result))
     payload = load_json(result)
     request = load_json(session / "input" / "review-request.json")
@@ -108,6 +158,9 @@ def main() -> int:
         or request.get("diff_selection_reason") != task.get("diff_reason")
     ):
         raise ValueError("session request does not match its blind task")
+    session_metadata = load_json(session / "input" / "session-metadata.json")
+    if session_metadata.get("repository_root") != task.get("repository"):
+        raise ValueError("session metadata does not identify the materialized repository root")
     markdown = result.with_name("review-result.md")
     if markdown.is_symlink() or not markdown.is_file() or run(str(binary), "render", str(result)).encode() != markdown.read_bytes():
         raise ValueError("historical Markdown report is missing or stale")
@@ -132,13 +185,7 @@ def main() -> int:
     )
     main_review = session / "output" / "main-review.json"
     main_review_sha = file_sha256(main_review) if main_review.is_file() and not main_review.is_symlink() else None
-    verifier = session / "output" / "verifier-review.json"
-    verifier_sha = file_sha256(verifier) if verifier.is_file() and not verifier.is_symlink() else None
-    observation = {
-        "schema_version": 1,
-        "run_id": args.run_id,
-        "change_id": mapping["change_id"],
-        "project_id": mapping["project_id"],
+    skill_observation = {
         "semantic_result": adjudication["semantic_result"],
         "finding_count": len(findings),
         "rule_ids": rule_ids,
@@ -151,6 +198,24 @@ def main() -> int:
         "duration_ms": args.duration_ms,
         "result_sha256": file_sha256(result),
     }
+    builtin_findings = builtin_payload["findings"]
+    builtin_observation = {
+        "semantic_result": "MANUAL_REVIEW" if builtin_findings else "PASS",
+        "finding_count": len(builtin_findings),
+        "findings": builtin_findings,
+        "input_tokens": args.builtin_input_tokens,
+        "output_tokens": args.builtin_output_tokens,
+        "duration_ms": args.builtin_duration_ms,
+        "result_sha256": file_sha256(builtin_result_path),
+    }
+    observation = {
+        "schema_version": 1,
+        "run_id": args.run_id,
+        "change_id": mapping["change_id"],
+        "project_id": mapping["project_id"],
+        "skill": skill_observation,
+        "builtin": builtin_observation,
+    }
     evidence = {
         "schema_version": 1,
         "run_id": args.run_id,
@@ -160,19 +225,30 @@ def main() -> int:
         "model": QUALIFICATION_MODEL,
         "reasoning_effort": QUALIFICATION_REASONING_EFFORT,
         "task": task_relative,
-        "session": session.relative_to(workspace).as_posix(),
-        "input_manifest_sha256": file_sha256(session / "input-manifest.json"),
-        "main_review_sha256": main_review_sha,
-        "verifier_review_sha256": verifier_sha,
-        "result_sha256": observation["result_sha256"],
-        "markdown_sha256": file_sha256(markdown),
-        "transcript": transcript.relative_to(workspace).as_posix(),
-        "transcript_sha256": file_sha256(transcript),
-        "runner_metadata": runner_metadata_path.relative_to(workspace).as_posix(),
-        "runner_metadata_sha256": file_sha256(runner_metadata_path),
-        "input_tokens": args.input_tokens,
-        "output_tokens": args.output_tokens,
-        "duration_ms": args.duration_ms,
+        "skill": {
+            "session": session.relative_to(workspace).as_posix(),
+            "main_review_sha256": main_review_sha,
+            "result_sha256": skill_observation["result_sha256"],
+            "markdown_sha256": file_sha256(markdown),
+            "transcript": transcript.relative_to(workspace).as_posix(),
+            "transcript_sha256": file_sha256(transcript),
+            "runner_metadata": runner_metadata_path.relative_to(workspace).as_posix(),
+            "runner_metadata_sha256": file_sha256(runner_metadata_path),
+            "input_tokens": args.input_tokens,
+            "output_tokens": args.output_tokens,
+            "duration_ms": args.duration_ms,
+        },
+        "builtin": {
+            "result": builtin_result_path.relative_to(workspace).as_posix(),
+            "result_sha256": builtin_observation["result_sha256"],
+            "transcript": builtin_transcript.relative_to(workspace).as_posix(),
+            "transcript_sha256": file_sha256(builtin_transcript),
+            "runner_metadata": builtin_runner_path.relative_to(workspace).as_posix(),
+            "runner_metadata_sha256": file_sha256(builtin_runner_path),
+            "input_tokens": args.builtin_input_tokens,
+            "output_tokens": args.builtin_output_tokens,
+            "duration_ms": args.builtin_duration_ms,
+        },
         "collected_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     write_atomically(observation_path, json.dumps(observation, indent=2, sort_keys=True) + "\n")
@@ -192,7 +268,8 @@ def main() -> int:
         {
             "run_id": args.run_id,
             "change_id": mapping["change_id"],
-            "semantic_result": observation["semantic_result"],
+            "skill_semantic_result": skill_observation["semantic_result"],
+            "builtin_semantic_result": builtin_observation["semantic_result"],
             "observation": str(observation_path),
         },
         sys.stdout,

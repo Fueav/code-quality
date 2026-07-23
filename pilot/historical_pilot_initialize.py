@@ -17,7 +17,7 @@ import tempfile
 
 from historical_pilot import load_json, validate_manifest
 from qualification_initialize import file_sha256, tree_sha256, write_json
-from qualification_run import QUALIFICATION_MODEL, QUALIFICATION_REASONING_EFFORT
+from qualification_run import BUILTIN_REVIEW_SCHEMA, QUALIFICATION_MODEL, QUALIFICATION_REASONING_EFFORT
 
 
 def run(*args: str, cwd: pathlib.Path | None = None) -> str:
@@ -70,6 +70,23 @@ Review this committed change without trying to infer its historical outcome. Do 
 3. Follow only the CLI-returned `workflow_path` until `finalize` returns `COMPLETE` or `INCOMPLETE`.
 4. After `prepare`, inspect only files inside the returned session directory.
 5. Do not add a human judgment. Report the final JSON and Markdown paths to the operator.
+"""
+
+
+def builtin_task_markdown(task: dict[str, object]) -> str:
+    return f"""# Blind Historical Built-in Code Review
+
+Run ID: `{task['run_id']}`
+
+Review only the committed change `{task['base']}` → `{task['target']}` in the current repository. Use ordinary built-in code-review judgment and repository tools. Do not read or invoke any code-quality Skill, rubric, pilot manifest, sibling task, session output, or expected result. Do not modify the repository.
+
+Report only actionable defects introduced by this change. Your final response must be exactly one JSON object with this shape and no Markdown fence:
+
+```json
+{{"schema_version":1,"findings":[{{"path":"relative/file","line":1,"problem":"what is wrong","impact":"concrete production impact","fix":"minimal fix"}}]}}
+```
+
+Use an empty `findings` array when there is no actionable defect.
 """
 
 
@@ -195,6 +212,7 @@ def main() -> int:
             task_path = temporary / "tasks" / "codex" / f"{run_id}.json"
             write_json(task_path, task)
             task_path.with_suffix(".md").write_text(task_markdown(task, final_skill, final_binary), encoding="utf-8")
+            task_path.with_name(f"{run_id}.builtin.md").write_text(builtin_task_markdown(task), encoding="utf-8")
             operator_runs.append(
                 {
                     "run_id": run_id,
@@ -224,6 +242,8 @@ def main() -> int:
         private_manifest.parent.mkdir(parents=True)
         shutil.copyfile(manifest_path, private_manifest)
         os.chmod(private_manifest, 0o600)
+        builtin_schema = temporary / "builtin-review.schema.json"
+        write_json(builtin_schema, BUILTIN_REVIEW_SCHEMA)
         for directory in ("sessions", "observations", "run-evidence", "records", "human-reviews", "batch-logs"):
             (temporary / directory).mkdir()
 
@@ -239,6 +259,8 @@ def main() -> int:
             "codex_version": run("codex", "--version"),
             "qualification_model": QUALIFICATION_MODEL,
             "qualification_reasoning_effort": QUALIFICATION_REASONING_EFFORT,
+            "builtin_baseline": "ordinary_codex_review_without_skill",
+            "builtin_schema_sha256": file_sha256(builtin_schema),
             "policy_version": json.loads((source / "policy" / "manifest.json").read_text(encoding="utf-8"))["policy_version"],
             "manifest_sha256": file_sha256(manifest_path),
             "plugin_sha256": tree_sha256(plugin_target),

@@ -11,7 +11,7 @@ import statistics
 import sys
 
 
-VALID_RESULTS = {"PASS", "MANUAL_REVIEW", "BLOCK", "INCOMPLETE"}
+VALID_RESULTS = {"PASS", "MANUAL_REVIEW", "INCOMPLETE"}
 VALID_LABELS = {"severe", "normal"}
 
 
@@ -88,41 +88,37 @@ def validate_manifest(manifest: dict[str, object]) -> dict[str, dict[str, object
 
 def validate_record(record: dict[str, object], change: dict[str, object]) -> list[str]:
     errors: list[str] = []
-    result = record.get("semantic_result")
     if record.get("schema_version") != 1 or record.get("change_id") != change.get("id"):
         errors.append("record identity is invalid")
-    if result not in VALID_RESULTS:
-        errors.append("semantic_result is invalid")
     if not non_empty(record.get("reviewer")) or not non_empty(record.get("review_note")):
         errors.append("maintainer review is missing")
-    for field in ("input_tokens", "output_tokens", "duration_ms"):
-        value = record.get(field)
-        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-            errors.append(f"{field} is invalid")
-    cost = record.get("estimated_cost_usd")
-    if cost is not None and (not isinstance(cost, (int, float)) or isinstance(cost, bool) or cost < 0):
-        errors.append("estimated_cost_usd is invalid")
-
-    core_issue_found = record.get("core_issue_found")
-    if change.get("ground_truth") == "severe":
-        if not isinstance(core_issue_found, bool):
-            errors.append("severe change requires core_issue_found")
-    elif core_issue_found is not None:
-        errors.append("normal change must use null core_issue_found")
-
-    high_risk_confirmed = record.get("high_risk_confirmed")
-    if result == "BLOCK":
-        if not isinstance(high_risk_confirmed, bool):
-            errors.append("BLOCK requires high_risk_confirmed")
-    elif high_risk_confirmed is not None:
-        errors.append("non-BLOCK result must use null high_risk_confirmed")
-
-    actionable = record.get("report_actionable")
-    if result in {"BLOCK", "MANUAL_REVIEW"}:
-        if not isinstance(actionable, bool):
-            errors.append("finding-bearing report requires report_actionable")
-    elif actionable is not None:
-        errors.append("PASS or INCOMPLETE must use null report_actionable")
+    for lane in ("skill", "builtin"):
+        result = record.get(lane)
+        if not isinstance(result, dict):
+            errors.append(f"{lane} result is missing")
+            continue
+        semantic_result = result.get("semantic_result")
+        if semantic_result not in VALID_RESULTS or (lane == "builtin" and semantic_result == "INCOMPLETE"):
+            errors.append(f"{lane}.semantic_result is invalid")
+        for field in ("input_tokens", "output_tokens", "duration_ms"):
+            value = result.get(field)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                errors.append(f"{lane}.{field} is invalid")
+        cost = result.get("estimated_cost_usd")
+        if cost is not None and (not isinstance(cost, (int, float)) or isinstance(cost, bool) or cost < 0):
+            errors.append(f"{lane}.estimated_cost_usd is invalid")
+        core_issue_found = result.get("core_issue_found")
+        if change.get("ground_truth") == "severe":
+            if not isinstance(core_issue_found, bool):
+                errors.append(f"severe change requires {lane}.core_issue_found")
+        elif core_issue_found is not None:
+            errors.append(f"normal change must use null {lane}.core_issue_found")
+        actionable = result.get("report_actionable")
+        if semantic_result == "MANUAL_REVIEW":
+            if not isinstance(actionable, bool):
+                errors.append(f"{lane} MANUAL_REVIEW requires report_actionable")
+        elif actionable is not None:
+            errors.append(f"{lane} PASS or INCOMPLETE must use null report_actionable")
     return errors
 
 
@@ -166,23 +162,64 @@ def summarize(manifest: dict[str, object], records_directory: pathlib.Path) -> d
     missing = sorted(set(changes) - set(records))
     severe_ids = [change_id for change_id, change in changes.items() if change["ground_truth"] == "severe"]
     normal_ids = [change_id for change_id, change in changes.items() if change["ground_truth"] == "normal"]
-    severe_found = sum(1 for change_id in severe_ids if records.get(change_id, {}).get("core_issue_found") is True)
-    block_records = [record for record in records.values() if record["semantic_result"] == "BLOCK"]
-    confirmed_blocks = sum(1 for record in block_records if record["high_risk_confirmed"] is True)
-    false_blocks = sum(1 for record in block_records if record["high_risk_confirmed"] is False)
-    false_blocks_on_normal = sum(
-        1
-        for change_id in normal_ids
-        if records.get(change_id, {}).get("semantic_result") == "BLOCK"
-        and records[change_id].get("high_risk_confirmed") is False
-    )
-    finding_records = [
-        record for record in records.values() if record["semantic_result"] in {"BLOCK", "MANUAL_REVIEW"}
-    ]
-    actionable = sum(1 for record in finding_records if record["report_actionable"] is True)
-    completed = sum(1 for record in records.values() if record["semantic_result"] != "INCOMPLETE")
-    durations = [int(record["duration_ms"]) for record in records.values()]
-    costs = [float(record["estimated_cost_usd"]) for record in records.values() if record.get("estimated_cost_usd") is not None]
+    def lane_summary(lane: str) -> dict[str, object]:
+        lane_records = {change_id: record[lane] for change_id, record in records.items()}
+        manual_ids = [change_id for change_id, item in lane_records.items() if item["semantic_result"] == "MANUAL_REVIEW"]
+        manual_severe = sum(1 for change_id in severe_ids if change_id in manual_ids)
+        manual_normal = sum(1 for change_id in normal_ids if change_id in manual_ids)
+        found = sum(1 for change_id in severe_ids if lane_records.get(change_id, {}).get("core_issue_found") is True)
+        actionable = sum(1 for change_id in manual_ids if lane_records[change_id]["report_actionable"] is True)
+        completed = sum(1 for item in lane_records.values() if item["semantic_result"] != "INCOMPLETE")
+        durations = [int(item["duration_ms"]) for item in lane_records.values()]
+        costs = [float(item["estimated_cost_usd"]) for item in lane_records.values() if item.get("estimated_cost_usd") is not None]
+        return {
+            "manual_review_findings": {
+                "total": len(manual_ids),
+                "rate": ratio(len(manual_ids), len(changes)),
+                "severe": manual_severe,
+                "severe_rate": ratio(manual_severe, len(severe_ids)),
+                "normal": manual_normal,
+                "normal_rate": ratio(manual_normal, len(normal_ids)),
+            },
+            "severe_issue_discovery": {"found": found, "total": len(severe_ids), "rate": ratio(found, len(severe_ids))},
+            "report_actionability": {"actionable": actionable, "finding_reports": len(manual_ids), "rate": ratio(actionable, len(manual_ids))},
+            "execution": {
+                "completed": completed,
+                "completion_rate": ratio(completed, len(changes)),
+                "input_tokens": sum(int(item["input_tokens"]) for item in lane_records.values()),
+                "output_tokens": sum(int(item["output_tokens"]) for item in lane_records.values()),
+                "duration_ms_p50": int(statistics.median(durations)) if durations else None,
+                "duration_ms_p95": percentile(durations, 0.95),
+                "duration_ms_max": max(durations) if durations else None,
+                "estimated_cost_usd_available": len(costs),
+                "estimated_cost_usd_total": sum(costs) if costs else None,
+            },
+        }
+
+    skill = lane_summary("skill")
+    builtin = lane_summary("builtin")
+    both = skill_only = builtin_only = neither = 0
+    builtin_misses_by_skill: list[str] = []
+    for change_id in severe_ids:
+        skill_found = records.get(change_id, {}).get("skill", {}).get("core_issue_found") is True
+        builtin_found = records.get(change_id, {}).get("builtin", {}).get("core_issue_found") is True
+        if skill_found and builtin_found:
+            both += 1
+        elif skill_found:
+            skill_only += 1
+        elif builtin_found:
+            builtin_only += 1
+            builtin_misses_by_skill.append(change_id)
+        else:
+            neither += 1
+    complete = len(records) == len(changes) and not missing and not errors
+    caught_up = None
+    if complete:
+        caught_up = (
+            builtin_only == 0
+            and skill["severe_issue_discovery"]["found"] >= builtin["severe_issue_discovery"]["found"]
+            and skill["manual_review_findings"]["normal_rate"] <= builtin["manual_review_findings"]["normal_rate"]
+        )
 
     return {
         "schema_version": 1,
@@ -194,36 +231,21 @@ def summarize(manifest: dict[str, object], records_directory: pathlib.Path) -> d
         "valid_records": len(records),
         "missing_records": missing,
         "record_errors": errors,
-        "historical_evidence_complete": len(records) == len(changes) and not missing and not errors,
-        "severe_issue_discovery": {
-            "found": severe_found,
-            "total": len(severe_ids),
-            "rate": ratio(severe_found, len(severe_ids)),
+        "historical_evidence_complete": complete,
+        "skill": skill,
+        "builtin": builtin,
+        "comparison": {
+            "severe_core_issue_pairs": {
+                "both": both,
+                "skill_only": skill_only,
+                "builtin_only": builtin_only,
+                "neither": neither,
+                "builtin_misses_by_skill": builtin_misses_by_skill,
+            },
+            "caught_up_to_builtin_review": caught_up,
+            "criterion": "complete evidence; no severe issue found only by builtin; skill severe discovery is not lower; skill normal MANUAL_REVIEW rate is not higher",
         },
-        "high_risk_results": {
-            "total": len(block_records),
-            "confirmed": confirmed_blocks,
-            "false": false_blocks,
-            "precision": ratio(confirmed_blocks, len(block_records)),
-            "false_rate_on_normal_changes": ratio(false_blocks_on_normal, len(normal_ids)),
-        },
-        "report_actionability": {
-            "actionable": actionable,
-            "finding_reports": len(finding_records),
-            "rate": ratio(actionable, len(finding_records)),
-        },
-        "execution": {
-            "completed": completed,
-            "completion_rate": ratio(completed, len(changes)),
-            "input_tokens": sum(int(record["input_tokens"]) for record in records.values()),
-            "output_tokens": sum(int(record["output_tokens"]) for record in records.values()),
-            "duration_ms_p50": int(statistics.median(durations)) if durations else None,
-            "duration_ms_p95": percentile(durations, 0.95),
-            "duration_ms_max": max(durations) if durations else None,
-            "estimated_cost_usd_available": len(costs),
-            "estimated_cost_usd_total": sum(costs) if costs else None,
-        },
-        "decision": "project maintainers decide live report-only entry; this summary never enables blocking",
+        "decision": "project maintainers decide live report-only entry; this comparison never enables blocking",
     }
 
 

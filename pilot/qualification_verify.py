@@ -213,26 +213,18 @@ def verify_replay_evidence(
         ):
             raise ValueError(f"run metrics do not match the host transcript: {run_id}")
 
-        input_manifest = session / "input-manifest.json"
         main_review = session / "output" / "main-review.json"
         result_path = session / "output" / "review-result.json"
         markdown_path = session / "output" / "review-result.md"
         for field, path in (
-            ("input_manifest", input_manifest),
             ("main_review", main_review),
             ("result", result_path),
             ("markdown", markdown_path),
         ):
             if path.is_symlink() or not path.is_file():
                 raise ValueError(f"{run_id}.{field} evidence is missing")
-        verifier_review = session / "output" / "verifier-review.json"
-        if verifier_review.is_symlink():
-            raise ValueError(f"verifier evidence must not be a symlink: {run_id}")
-        verifier_sha256 = file_sha256(verifier_review) if verifier_review.is_file() and not verifier_review.is_symlink() else None
         if (
-            evidence.get("input_manifest_sha256") != file_sha256(input_manifest)
-            or evidence.get("main_review_sha256") != file_sha256(main_review)
-            or evidence.get("verifier_review_sha256") != verifier_sha256
+            evidence.get("main_review_sha256") != file_sha256(main_review)
             or evidence.get("result_sha256") != file_sha256(result_path)
             or evidence.get("markdown_sha256") != file_sha256(markdown_path)
             or evidence.get("transcript_sha256") != file_sha256(transcript)
@@ -247,14 +239,10 @@ def verify_replay_evidence(
         execution = result_payload.get("execution")
         if not isinstance(execution, dict) or execution.get("host") != "codex":
             raise ValueError(f"result host is invalid: {run_id}")
-        if execution.get("verifier_count") == 1:
-            if verifier_sha256 is None:
-                raise ValueError(f"verifier result is missing: {run_id}")
-        elif execution.get("verifier_count") == 0:
-            if verifier_sha256 is not None:
-                raise ValueError(f"unexpected verifier result exists: {run_id}")
-        else:
-            raise ValueError(f"result verifier count is invalid: {run_id}")
+        if execution.get("verifier_count") != 0:
+            raise ValueError(f"dormant verifier count is not zero: {run_id}")
+        if (session / "input" / "repository").exists():
+            raise ValueError(f"finalized session retained its temporary worktree: {run_id}")
         request = load_json(session / "input" / "review-request.json")
         if result_payload.get("request") != request:
             raise ValueError(f"result request does not match session input: {run_id}")
@@ -265,6 +253,9 @@ def verify_replay_evidence(
             or request.get("diff_selection_reason") != task.get("diff_reason")
         ):
             raise ValueError(f"session request does not match blind task: {run_id}")
+        session_metadata = load_json(session / "input" / "session-metadata.json")
+        if session_metadata.get("repository_root") != task.get("repository"):
+            raise ValueError(f"session repository root does not match blind task: {run_id}")
 
         observed = record.get("observed")
         human = record.get("human_review")
@@ -569,6 +560,13 @@ def main() -> int:
             raise ValueError(f"base repository does not match fixture: {case_id}")
         if tracked_tree(repository, target) != source_tree(fixture / "target"):
             raise ValueError(f"target repository does not match fixture: {case_id}")
+        registered_worktrees = [
+            line.removeprefix("worktree ")
+            for line in run("git", "-C", str(repository), "worktree", "list", "--porcelain").splitlines()
+            if line.startswith("worktree ")
+        ]
+        if registered_worktrees != [str(repository)]:
+            raise ValueError(f"temporary review worktree was not removed: {case_id}")
 
     eval_result = json.loads(run(str(binary), "eval", "--cases", str(cases_path)))
     if (

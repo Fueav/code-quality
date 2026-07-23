@@ -14,6 +14,30 @@ import time
 
 QUALIFICATION_MODEL = "gpt-5.6-terra"
 QUALIFICATION_REASONING_EFFORT = "high"
+BUILTIN_REVIEW_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["schema_version", "findings"],
+    "properties": {
+        "schema_version": {"const": 1},
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["path", "line", "problem", "impact", "fix"],
+                "properties": {
+                    "path": {"type": "string", "minLength": 1},
+                    "line": {"type": "integer", "minimum": 1},
+                    "problem": {"type": "string", "minLength": 1},
+                    "impact": {"type": "string", "minLength": 1},
+                    "fix": {"type": "string", "minLength": 1},
+                },
+            },
+        },
+    },
+}
 
 
 def load_json(path: pathlib.Path) -> dict[str, object]:
@@ -62,11 +86,12 @@ def codex_metrics(raw: str) -> tuple[int, int]:
 
 def next_attempt(operator_directory: pathlib.Path) -> int:
     attempts: list[int] = []
-    for path in operator_directory.glob("attempt-*.metadata.json"):
-        try:
-            attempts.append(int(path.name.split("-", 1)[1].split(".", 1)[0]))
-        except ValueError:
-            continue
+    for pattern, prefix in (("attempt-*.metadata.json", "attempt-"), ("builtin-attempt-*.metadata.json", "builtin-attempt-")):
+        for path in operator_directory.glob(pattern):
+            try:
+                attempts.append(int(path.name.removeprefix(prefix).split(".", 1)[0]))
+            except ValueError:
+                continue
     return max(attempts, default=0) + 1
 
 
@@ -90,6 +115,158 @@ def codex_command(
         "--json",
         "-",
     ]
+
+
+def builtin_codex_command(repository: pathlib.Path, target: str, schema: pathlib.Path) -> list[str]:
+    return [
+        "codex",
+        "exec",
+        "--model",
+        QUALIFICATION_MODEL,
+        "--config",
+        f'model_reasoning_effort="{QUALIFICATION_REASONING_EFFORT}"',
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "--cd",
+        str(repository),
+        "--json",
+        "review",
+        "--commit",
+        target,
+        "--output-schema",
+        str(schema),
+        "-",
+    ]
+
+
+def builtin_result(raw: str) -> dict[str, object]:
+    messages: list[str] = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        item = event.get("item") if isinstance(event, dict) else None
+        if event.get("type") == "item.completed" and isinstance(item, dict) and item.get("type") == "agent_message":
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                messages.append(text.strip())
+    if not messages:
+        raise ValueError("built-in review did not produce a final agent message")
+    value = json.loads(messages[-1])
+    if not isinstance(value, dict) or set(value) != {"schema_version", "findings"} or value.get("schema_version") != 1:
+        raise ValueError("built-in review result has an invalid top-level structure")
+    findings = value.get("findings")
+    if not isinstance(findings, list):
+        raise ValueError("built-in review findings must be an array")
+    for index, finding in enumerate(findings):
+        if not isinstance(finding, dict) or set(finding) != {"path", "line", "problem", "impact", "fix"}:
+            raise ValueError(f"built-in review finding {index} has invalid fields")
+        path = finding.get("path")
+        relative = pathlib.PurePosixPath(path) if isinstance(path, str) else None
+        if relative is None or relative.is_absolute() or ".." in relative.parts or not path.strip():
+            raise ValueError(f"built-in review finding {index} has an invalid path")
+        if not isinstance(finding.get("line"), int) or isinstance(finding.get("line"), bool) or finding["line"] < 1:
+            raise ValueError(f"built-in review finding {index} has an invalid line")
+        for field in ("problem", "impact", "fix"):
+            if not isinstance(finding.get(field), str) or not finding[field].strip():
+                raise ValueError(f"built-in review finding {index} has an invalid {field}")
+    return value
+
+
+def run_builtin_review(
+    workspace: pathlib.Path,
+    task: dict[str, object],
+    prompt: str,
+    operator_directory: pathlib.Path,
+    attempt: int,
+    timeout_seconds: int,
+    version: str,
+) -> dict[str, object]:
+    source_repository = pathlib.Path(str(task["repository"])).resolve(strict=True)
+    schema = workspace / "builtin-review.schema.json"
+    if schema.is_symlink() or not schema.is_file():
+        raise ValueError("frozen built-in review schema is invalid")
+    worktree = operator_directory / f"builtin-attempt-{attempt}.worktree"
+    subprocess.run(
+        ["git", "-C", str(source_repository), "worktree", "add", "--quiet", "--detach", str(worktree), str(task["target"])],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    command = builtin_codex_command(worktree, str(task["target"]), schema)
+    started_at = time.monotonic()
+    try:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=worktree,
+                input=prompt,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+            stdout = completed.stdout
+            stderr = completed.stderr
+            returncode = completed.returncode
+        except subprocess.TimeoutExpired as error:
+            stdout = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else (error.stdout or "")
+            stderr = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+            returncode = 124
+        duration_ms = round((time.monotonic() - started_at) * 1000)
+        transcript = operator_directory / f"builtin-attempt-{attempt}.stdout.jsonl"
+        error_log = operator_directory / f"builtin-attempt-{attempt}.stderr.log"
+        transcript.write_text(stdout, encoding="utf-8")
+        error_log.write_text(stderr, encoding="utf-8")
+        metadata = {
+            "schema_version": 1,
+            "run_id": task["run_id"],
+            "lane": "builtin",
+            "host": "codex",
+            "host_version": version,
+            "model": QUALIFICATION_MODEL,
+            "reasoning_effort": QUALIFICATION_REASONING_EFFORT,
+            "attempt": attempt,
+            "command": command,
+            "returncode": returncode,
+            "duration_ms": duration_ms,
+            "stdout": transcript.name,
+            "stderr": error_log.name,
+        }
+        metadata_path = operator_directory / f"builtin-attempt-{attempt}.metadata.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if returncode != 0:
+            raise ValueError(f"built-in Codex review exited with status {returncode}; see {error_log}")
+        if command_output("git", "-C", str(worktree), "status", "--porcelain=v1", "--untracked-files=all"):
+            raise ValueError("built-in review modified its read-only worktree")
+        input_tokens, output_tokens = codex_metrics(stdout)
+        result = builtin_result(stdout)
+        result_path = operator_directory / f"builtin-attempt-{attempt}.result.json"
+        result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return {
+            "result": result_path,
+            "transcript": transcript,
+            "runner_metadata": metadata_path,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "duration_ms": duration_ms,
+            "worktree": worktree,
+        }
+    finally:
+        removed = subprocess.run(
+            ["git", "-C", str(source_repository), "worktree", "remove", "--force", str(worktree)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if removed.returncode != 0:
+            raise ValueError(f"failed to remove built-in review worktree: {removed.stderr.strip()}")
 
 
 def main() -> int:
@@ -148,6 +325,20 @@ def main() -> int:
         raise ValueError(f"{host} version no longer matches the frozen baseline")
 
     attempt = next_attempt(operator_directory)
+    builtin: dict[str, object] | None = None
+    if profile == "report_only_historical_pilot":
+        builtin_prompt_path = task_path.with_name(f"{args.run_id}.builtin.md")
+        if builtin_prompt_path.is_symlink() or not builtin_prompt_path.is_file():
+            raise ValueError("blind built-in task prompt is invalid")
+        builtin = run_builtin_review(
+            workspace,
+            task,
+            builtin_prompt_path.read_text(encoding="utf-8"),
+            operator_directory,
+            attempt,
+            args.timeout_seconds,
+            version,
+        )
     started_at = time.monotonic()
     try:
         completed = subprocess.run(
@@ -202,7 +393,7 @@ def main() -> int:
     collector = pathlib.Path(__file__).with_name(collector_name)
     with (workspace / ".collect.lock").open("a+", encoding="utf-8") as collection_lock:
         fcntl.flock(collection_lock.fileno(), fcntl.LOCK_EX)
-        collected = command_output(
+        collector_command = [
             sys.executable,
             str(collector),
             "--workspace",
@@ -221,7 +412,25 @@ def main() -> int:
             str(output_tokens),
             "--duration-ms",
             str(duration_ms),
-        )
+        ]
+        if builtin is not None:
+            collector_command.extend(
+                [
+                    "--builtin-result",
+                    str(builtin["result"]),
+                    "--builtin-transcript",
+                    str(builtin["transcript"]),
+                    "--builtin-runner-metadata",
+                    str(builtin["runner_metadata"]),
+                    "--builtin-input-tokens",
+                    str(builtin["input_tokens"]),
+                    "--builtin-output-tokens",
+                    str(builtin["output_tokens"]),
+                    "--builtin-duration-ms",
+                    str(builtin["duration_ms"]),
+                ]
+            )
+        collected = command_output(*collector_command)
         fcntl.flock(collection_lock.fileno(), fcntl.LOCK_UN)
     json.dump(
         {
@@ -231,6 +440,13 @@ def main() -> int:
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "duration_ms": duration_ms,
+            "builtin": {
+                "input_tokens": builtin["input_tokens"],
+                "output_tokens": builtin["output_tokens"],
+                "duration_ms": builtin["duration_ms"],
+            }
+            if builtin is not None
+            else None,
             "collection": json.loads(collected),
         },
         sys.stdout,
