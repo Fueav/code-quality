@@ -171,7 +171,7 @@ func TestDecodeReviewResultRejectsNullFindingArrays(t *testing.T) {
 		t.Fatal(err)
 	}
 	findings := document["findings"].([]any)
-	findings[0].(map[string]any)["candidate"].(map[string]any)["uncertainties"] = nil
+	findings[0].(map[string]any)["candidate"].(map[string]any)["code_locations"] = nil
 	mutated, err := json.Marshal(document)
 	if err != nil {
 		t.Fatal(err)

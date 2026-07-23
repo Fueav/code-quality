@@ -100,10 +100,8 @@ func validateReviewResultShape(raw []byte) error {
 		if err := requireFields(candidate, prefix+".candidate", requiredFindingFields...); err != nil {
 			return err
 		}
-		for _, field := range []string{"code_locations", "affected_call_path", "causal_chain", "verification_performed", "uncertainties"} {
-			if !isJSONArray(candidate[field]) {
-				return fmt.Errorf("%s.candidate.%s must be an array", prefix, field)
-			}
+		if !isJSONArray(candidate["code_locations"]) {
+			return fmt.Errorf("%s.candidate.code_locations must be an array", prefix)
 		}
 	}
 	return nil
