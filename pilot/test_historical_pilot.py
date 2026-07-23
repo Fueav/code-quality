@@ -108,6 +108,7 @@ class HistoricalPilotTest(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(json.loads(completed.stdout)["planned_runs"], 30)
+            workspace = workspace.resolve()
             baseline = json.loads((workspace / "baseline.json").read_text(encoding="utf-8"))
             self.assertEqual(baseline["development_only"], source_dirty)
             operator = json.loads((workspace / "operator-manifest.json").read_text(encoding="utf-8"))
