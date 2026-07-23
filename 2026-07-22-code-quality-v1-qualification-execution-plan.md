@@ -1,136 +1,124 @@
-# Code Quality V1 完整资格验证执行计划
+# Code Quality V1 简化资格与 Report-Only 试点执行计划
 
-日期：2026-07-22
+日期：2026-07-23
 状态：执行中
-冻结候选提交：由初始化器从干净工作树写入 `baseline.json`，不得手工指定
+当前候选：由初始化器从干净工作树冻结，不手工指定
 
 ## 1. 目标
 
-完成 V1 report-only 发布候选的本机 Codex 宿主会话资格验证，生成可复现、经人工确认且 `qualification_complete=true` 的证据包，使其具备进入真实项目 report-only 试点的资格。正式矩阵固定使用 `gpt-5.6-terra` 和 `high` reasoning effort，不调用 Claude。
+V1 是使用者的代码质量安全网：基于既定 20 条底线规则发现本次变更可能引入的严重问题，给出代码证据、影响和修复方向，提高项目代码质量下限。
 
-本计划不启用自动阻断，不扩大 20 条底线规则，不建设模型 Runner 或人工放行平台。
+V1 不追求穷尽所有问题，不把模型训练成确定性规则引擎，不用精确 rule ID 或 S/T/E 一致性证明 report-only 试点资格。最终判断属于使用者，CI 始终只发布报告，不自动阻断。
 
-## 2. 当前基线
+当前本机回放固定使用 Codex、`gpt-5.6-terra` 和 `high` reasoning effort，不调用 Claude。
 
-- Go 测试和 `go vet ./...` 通过。
-- 确定性矩阵覆盖 20 条规则、60 个案例，结果为 60/60 通过。
-- 60 个真实 Git fixture 已通过结构、语言文件、JSON、Go 编译和全量 Git 物化检查；Attempt 1 暴露的反例缺陷、规则重叠和证据路径不足正在修正，语义边界仍待独立人工批准。
-- Attempt 1 在冻结提交 `5523158d59b793d351541b3d15caac0e79f17068` 上完成 100 次本机 Codex Terra/high 运行，100/100 记录有效，但仅 32/60 案例匹配预期，详见资格验证 Attempt 1 记录。
-- 当前正式结论为 `qualification_complete=false`；Attempt 1 不得通过人工确认补成完成态。
-- 远端没有 release tag；当前产物仍是发布候选。
+## 2. 保留与简化
 
-## 3. 资格验证合同
+保留：
 
-资格矩阵固定为：
+- 四个维度和 20 条底线规则；
+- 可信 Git 增量、真实代码位置、入口、触发条件和因果链；
+- S/T/E 作为报告解释字段和确定性阻断公式输入；
+- 只有潜在高风险候选才使用一个批量 verifier；
+- 结构化 JSON、确定性 Markdown、Agent 上限、指标和证据哈希；
+- 所有规则保持 `report_only`。
+
+简化：
+
+- 60 个合成案例各运行一次，不再把正例重复三次；
+- 正例只要求发现经 verifier 确认的高风险问题，不要求精确 rule ID 或 S/T/E 等于金标准；
+- 反例和证据不足案例只要求不得输出 `BLOCK` 或 `INCOMPLETE`，`PASS` 与 `MANUAL_REVIEW` 均可接受；
+- 人工确认作为可选审计和真实项目指标，不再要求逐条确认合成回放；
+- 不再生成或追求 `qualification_complete=true`，改用 `report_only_smoke_complete`；
+- 真实项目历史回放与试运行成为主要产品有效性证据。
+
+前三轮 100 次资格矩阵作为历史失败证据保留，不计入简化门槛，也不再续跑 Attempt 4。
+
+## 3. 60 案例冒烟合同
+
+每条规则保留三个案例：
 
 | 案例类型 | 每条规则案例数 | 每案例运行数 | 总运行数 |
 |---|---:|---:|---:|
-| 严重正例 | 1 | 3 | 60 |
+| 严重正例 | 1 | 1 | 20 |
 | 不得阻断反例 | 1 | 1 | 20 |
 | 证据不足案例 | 1 | 1 | 20 |
-| **合计** | **3** |  | **100** |
+| **合计** | **3** |  | **60** |
 
-每条运行必须来自真实 base/target Git commit，经过 `prepare → main review → optional verifier → finalize → replay record`，并保存最终 JSON、确定性 Markdown、会话输入、模型输出和 replay record。
+每条运行仍使用 opaque run ID、真实 base/target Git commit 和独立宿主会话，执行 Agent 不能读取案例类型、预期结果或私有映射。
 
-正式运行必须是盲测：执行 Agent 不能读取 `evals/cases.json`、预期结果、rule ID、案例类型或私有 run 映射。仓库目录、任务名称和会话提示只使用随机 run ID；只有编排器和事后人工复核人可以读取 run ID 到 case ID 的映射。已接触预期结果的会话不得生成正式资格记录。
+`report_only_smoke_complete=true` 需要：
 
-`qualification_complete=true` 需要同时满足：
-
-- 60 个案例全部覆盖；
-- 20 个正例各有 3 次稳定运行；
-- 结果、规则 ID、S/T/E 与案例预期一致；
-- 没有重复根因或无效记录；
+- 60 个案例各有一个有效 Codex 记录；
+- 正例结果为 `BLOCK`，至少包含一个发现，并有一个 verifier；
+- 反例和证据不足案例结果为 `PASS` 或 `MANUAL_REVIEW`；
+- 没有重复根因、`INCOMPLETE` 或无效记录；
 - 每次最多 2 个 Agent、最多 1 个 verifier；
-- 100 次运行均来自冻结版本的本机 Codex，模型为 `gpt-5.6-terra`、reasoning effort 为 `high`；
-- 每次运行均由独立人工确认。
+- 60/60 记录均采集 token 和耗时；
+- 冻结源、CLI、Skill、Policy、fixture、任务和结果哈希可复验。
 
-token 和耗时不改变语义判定，但正式证据包必须 100/100 采集，供真实项目试点判断成本和时延；最终证据校验会拒绝缺失指标的完成态。
+精确规则归属、S/T/E 差异和人工结论继续记录，但不影响合成冒烟完成态。
 
-## 4. 执行阶段
+## 4. 真实项目验证
 
-### Q0：冻结与预检
+合成冒烟通过后，选择三个持续有改动的项目：
 
-- 固定 Policy、Schema、Skill、CLI 和案例矩阵对应的提交。
-- 运行 Go 测试、vet、确定性 eval 和现有证据验证。
-- 盘点真实 fixture、宿主工具和现有 replay 记录。
+- 一个涉及资金、链上或复杂数据处理的项目；
+- 一个普通后端服务；
+- 一个历史代码较多或测试覆盖较弱的项目。
 
-退出条件：机械门禁通过，缺口可量化。
+共准备至少 30 个已经人工标注的历史变更：
 
-### Q1：补齐真实 Git fixture
+- 至少 15 个包含已确认严重问题；
+- 至少 15 个确认没有严重问题；
+- 每个变更只盲跑一次；
+- 维护者判断是否发现了核心问题、是否存在危险高风险误报，以及报告是否可操作。
 
-按 D1、D2、D3、D4 四批补齐 60 个 fixture。每个 fixture 必须把决定预期结果的事实放进可审查的代码、配置、Schema、迁移或契约中，不得只在说明文字里宣称结论。
+主要指标：
 
-- 正例必须闭合真实入口、触发条件、规模或确定输入、因果链和严重后果。
-- 反例必须包含可直接证明不得阻断的硬上限、保护或兼容机制。
-- 证据不足案例必须保留具体风险路径，但有意不提供将 T2/E1 提升到 T3/E2 的生产事实。
+- 已知严重问题发现比例；
+- `BLOCK` 中经人工确认的比例和危险误报原因；
+- 报告可操作比例；
+- 完成率、失败率、P50/P95 时延、token 和成本；
+- 规则命中分布、缺失上下文和人工推翻原因。
 
-每批先通过 fixture 完整性检查，再由人工抽查边界，之后才允许进入模型回放。
+这些指标用于项目维护者决定是否进入 2–4 周 live report-only 试运行，不在 V1 预设自动阻断阈值。
 
-退出条件：60/60 fixture 完整，文件结构可物化为 base/target commit，预期边界经人工批准。
+## 5. 执行阶段
 
-### Q2：宿主会话回放
+### S0：简化合同与机械门禁
 
-先在一次性冻结 workspace 中用 opaque task 完成端到端 canary；成功后归档该 workspace，并从同一干净提交重新初始化正式 workspace。再以全新随机 run ID 和隔离会话按 D1 → D2 → D3 → D4 批量运行，canary 不计入正式 100 次运行。
+- 同步实现设计、Pilot README、回放汇总和测试；
+- 保持 20 条规则与核心审查流程不变；
+- 运行 Go 测试、vet、fixture inventory 和资格工具单测。
 
-正例三次运行、反例和证据不足案例均使用本机 Codex 的全新隔离会话；每次显式固定 `gpt-5.6-terra` 与 `high` reasoning effort，并在 runner metadata 中留痕。不同重复运行不得复用会话上下文。
+退出条件：文档、代码和测试都只声明 60 次粗粒度 report-only 冒烟。
 
-每完成一条规则就立即运行 replay summarize；不把无效输出留到批次末尾集中处理。
+### S1：冻结并执行 60 次冒烟
 
-退出条件：100 个有效记录，60 个案例全覆盖，宿主和 Agent 限制满足合同。
+- 从干净提交初始化 `.code-quality/report-only-smoke-v1/`；
+- 校验 60 个 opaque 任务和物化仓库；
+- 用本机 Codex Terra/high 执行 60 次；
+- 生成 `smoke-summary.json` 与 `evidence-summary.json`。
 
-### Q3：独立人工复核
+退出条件：`report_only_smoke_complete=true`，或者留下明确的未通过结论；不得根据单次失败自动开启新一轮完整矩阵。
 
-人工复核人检查真实入口、变更归因、触发事实、完整因果链、规则归属、S/T/E、根因去重和 verifier 结论。
+### S2：历史变更试点
 
-- 正确：标记 `confirmed`。
-- 错误：标记 `overturned` 并记录具体原因；修复 fixture、Policy 或流程后重新运行，不篡改旧记录。
-- 无法判断：保持 `pending`，不得计入完成。
+- 确定三个项目、维护联系人和 30 个历史变更；
+- 冻结人工标签后盲跑一次；
+- 由项目维护者完成核心问题、危险误报和可操作性标注；
+- 汇总质量、成本和时延。
 
-执行 Agent 不得自行把自己的运行标记为人工确认。
+退出条件：三名项目维护者可以基于同一证据决定是否开始 live report-only。
 
-退出条件：所有计入资格验证的运行均经独立人工确认。
+### S3：Live Report-Only
 
-### Q4：最终证据包与试点准入
+- 运行 2–4 周，只发布报告；
+- 不改变 CI 成功状态，不自动修改代码；
+- 持续记录人工判断、误报、漏报、失败和成本；
+- 试点结束后再决定规则优化或未来自动阻断验证。
 
-- 重新校验每份最终 JSON，并确定性重渲染 Markdown。
-- 汇总 replay，要求 `qualification_complete=true`。
-- 保存冻结提交、工具版本、fixture 清单、结果路径、人工结论和运行指标。
-- 固定 RC 版本并生成真实项目 report-only 接入清单。
+## 6. 自动阻断边界
 
-退出条件：证据包可从冻结提交复现，试点准入评审通过，所有规则仍为 `report_only`。
-
-## 5. 证据目录合同
-
-资格验证证据保存在未跟踪目录 `.code-quality/qualification-v1/`：
-
-```text
-.code-quality/qualification-v1/
-├── baseline.json
-├── quality-review
-├── plugin/code-quality/
-├── private/cases.json
-├── operator-manifest.json
-├── tasks/<host>/<opaque-run-id>.{json,md}
-├── repositories/<opaque-repository-id>/
-├── sessions/<opaque-run-id>/review-*/
-├── run-evidence/<opaque-run-id>.json
-├── replay-records/
-├── human-reviews/
-├── qualification-summary.json
-├── progress.json
-└── evidence-summary.json
-```
-
-仓库只提交 fixture、验证脚本和不含运行证据的合同；真实会话和审查结果保持未跟踪，避免把被审查代码或模型输出误当作产品源码发布。
-
-`operator-manifest.json` 与 `private/` 仅允许编排器和人工复核人读取；执行 Agent 只能收到单个 opaque task。`run-evidence/` 绑定 task、session input manifest、主审查、可选 verifier、最终 JSON、确定性 Markdown、宿主 transcript 与指标，防止把其他会话的合法结果错配到当前案例。
-
-## 6. 进入真实项目试点前的最终检查
-
-- `qualification_complete=true`；
-- RC 有固定版本且安装方式可复现；
-- 三个试点项目和维护联系人已确定；
-- report-only CI 只发布报告，不把语义 `BLOCK` 映射成失败；
-- 已准备至少 30 个历史改动，并定义人工标注责任人；
-- token、费用、失败率和时延有统一采集口径；
-- 没有启用自动阻断。
+严重案例重复运行、精确 S/T/E 稳定性、逐条人工确认和更严格阈值，只在未来评估自动阻断时重新引入。它们不是 V1 report-only 试点前置条件。

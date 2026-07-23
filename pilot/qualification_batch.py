@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run missing opaque qualification tasks with local Codex workers."""
+"""Run missing opaque report-only smoke tasks with local Codex workers."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def main() -> int:
     workspace = args.workspace.resolve(strict=True)
     baseline = load_json(workspace / "baseline.json")
     if baseline.get("source_dirty") is not False or baseline.get("development_only") is not False:
-        raise ValueError("development or dirty workspace cannot run formal qualification")
+        raise ValueError("development or dirty workspace cannot run report-only smoke")
     run_ids = pending_runs(workspace, args.limit)
     scheduled = len(run_ids)
     log_directory = workspace / "batch-logs"

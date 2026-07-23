@@ -19,7 +19,7 @@ func TestRecordFromResultUsesAuthoritativeFields(t *testing.T) {
 	}
 }
 
-func TestReplayQualificationRequiresFullStableHumanConfirmedMatrix(t *testing.T) {
+func TestReplayReportOnlySmokeDoesNotRequireHumanConfirmationOrExactRule(t *testing.T) {
 	manifest, err := LoadManifest("../../evals/cases.json")
 	if err != nil {
 		t.Fatal(err)
@@ -28,19 +28,72 @@ func TestReplayQualificationRequiresFullStableHumanConfirmedMatrix(t *testing.T)
 	record := ReplayRecord{
 		SchemaVersion: 1, PolicyVersion: "1.1.0", CaseID: "DES-003-positive", Host: "claude-code", RunNumber: 1,
 		Observed: Observed{
-			SemanticResult: quality.ResultBlock, RuleIDs: []string{"DES-003"},
+			SemanticResult: quality.ResultBlock, RuleIDs: []string{"DES-004"},
 			Severity: stringPointer("S3"), TriggerConfidence: stringPointer("T3"), EvidenceLevel: stringPointer("E2"),
 			AgentCount: 2, VerifierCount: 1,
 		},
 		HumanReview: HumanReview{Status: "pending"},
 	}
 	report := RunReplay(manifest, policy, []ReplayRecord{record}, nil)
-	if report.QualificationComplete || report.CasesCovered != 1 || report.SevereCasesStable != 0 || report.ValidRecords != 1 {
+	if report.ReportOnlySmokeComplete || report.CasesCovered != 1 || report.PositiveCasesDetected != 1 || report.ValidRecords != 1 {
 		t.Fatalf("report = %#v", report)
 	}
 	caseReport := findReplayCase(t, report, "DES-003-positive")
-	if caseReport.HumanConfirmed || caseReport.ObservedRuns != 1 || caseReport.RequiredRuns != 3 {
+	if caseReport.HumanConfirmed || !caseReport.SmokeMatched || caseReport.ObservedRuns != 1 || caseReport.RequiredRuns != 1 {
 		t.Fatalf("case report = %#v", caseReport)
+	}
+}
+
+func TestReplayReportOnlySmokeCompletesWithOnePendingRunPerCase(t *testing.T) {
+	manifest, err := LoadManifest("../../evals/cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metric := 1
+	records := make([]ReplayRecord, 0, len(manifest.Cases))
+	for _, item := range manifest.Cases {
+		observed := Observed{
+			SemanticResult: quality.ResultPass,
+			RuleIDs:        []string{},
+			AgentCount:     1,
+		}
+		if item.Kind == "positive" {
+			observed = Observed{
+				SemanticResult:    quality.ResultBlock,
+				RuleIDs:           []string{item.RuleID},
+				Severity:          stringPointer("S3"),
+				TriggerConfidence: stringPointer("T3"),
+				EvidenceLevel:     stringPointer("E2"),
+				AgentCount:        2,
+				VerifierCount:     1,
+			}
+		} else if item.Kind == "counterexample" {
+			observed.SemanticResult = quality.ResultManualReview
+			observed.RuleIDs = []string{item.RuleID}
+			observed.Severity = stringPointer("S3")
+			observed.TriggerConfidence = stringPointer("T2")
+			observed.EvidenceLevel = stringPointer("E1")
+		}
+		records = append(records, ReplayRecord{
+			SchemaVersion: 1,
+			PolicyVersion: "1.1.0",
+			CaseID:        item.ID,
+			Host:          "codex",
+			RunNumber:     1,
+			Observed:      observed,
+			HumanReview:   HumanReview{Status: "pending"},
+		})
+		records[len(records)-1].Observed.InputTokens = &metric
+		records[len(records)-1].Observed.OutputTokens = &metric
+		records[len(records)-1].Observed.DurationMS = &metric
+	}
+	report := RunReplay(manifest, testPolicy(), records, nil)
+	if !report.ReportOnlySmokeComplete || report.ValidRecords != 60 || report.CasesCovered != 60 || report.PositiveCasesDetected != 20 {
+		t.Fatalf("report = %#v", report)
+	}
+	records[0].Observed.InputTokens = nil
+	if RunReplay(manifest, testPolicy(), records, nil).ReportOnlySmokeComplete {
+		t.Fatal("report-only smoke must retain metrics for every run")
 	}
 }
 
@@ -50,7 +103,7 @@ func TestReplayQualificationUsesOnlyLocalCodex(t *testing.T) {
 	}
 }
 
-func TestReplayExpectedMatchRequiresConfiguredVerifierOutcome(t *testing.T) {
+func TestReplaySmokeUsesCoarseRiskExpectations(t *testing.T) {
 	manifest, err := LoadManifest("../../evals/cases.json")
 	if err != nil {
 		t.Fatal(err)
@@ -61,22 +114,31 @@ func TestReplayExpectedMatchRequiresConfiguredVerifierOutcome(t *testing.T) {
 		RuleIDs:        []string{"DES-003"},
 		Severity:       stringPointer("S3"), TriggerConfidence: stringPointer("T3"), EvidenceLevel: stringPointer("E2"),
 	}}
-	if matchesExpected(positive, positiveRecord) {
+	if matchesSmokeExpectation(positive, positiveRecord) {
 		t.Fatal("positive replay without its required verifier must not match")
 	}
 	positiveRecord.Observed.VerifierCount = 1
-	if !matchesExpected(positive, positiveRecord) {
-		t.Fatal("positive replay with one verifier should match")
+	positiveRecord.Observed.RuleIDs = []string{"DES-004"}
+	positiveRecord.Observed.Severity = stringPointer("S2")
+	positiveRecord.Observed.TriggerConfidence = stringPointer("T2")
+	positiveRecord.Observed.EvidenceLevel = stringPointer("E1")
+	if !matchesSmokeExpectation(positive, positiveRecord) {
+		t.Fatal("verified high-risk replay should match without exact rule or S/T/E grading")
 	}
 
 	counterexample := findCase(t, manifest, "DES-003-counterexample")
 	counterexampleRecord := ReplayRecord{Observed: Observed{
-		SemanticResult: quality.ResultPass,
-		RuleIDs:        []string{},
+		SemanticResult: quality.ResultManualReview,
+		RuleIDs:        []string{"DES-003"},
 		VerifierCount:  1,
 	}}
-	if matchesExpected(counterexample, counterexampleRecord) {
-		t.Fatal("counterexample replay with an unexpected verifier must not match")
+	if !matchesSmokeExpectation(counterexample, counterexampleRecord) {
+		t.Fatal("counterexample smoke should accept a non-blocking result")
+	}
+
+	insufficient := findCase(t, manifest, "DES-003-insufficient")
+	if !matchesSmokeExpectation(insufficient, ReplayRecord{Observed: Observed{SemanticResult: quality.ResultPass}}) {
+		t.Fatal("insufficient-evidence smoke should accept PASS when it does not claim high risk")
 	}
 }
 

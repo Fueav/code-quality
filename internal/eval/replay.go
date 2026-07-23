@@ -42,31 +42,30 @@ type HumanReview struct {
 }
 
 type ReplayReport struct {
-	SchemaVersion         int                `json:"schema_version"`
-	PolicyVersion         string             `json:"policy_version"`
-	Suite                 string             `json:"suite"`
-	TotalRecords          int                `json:"total_records"`
-	ValidRecords          int                `json:"valid_records"`
-	InvalidRecords        int                `json:"invalid_records"`
-	CasesCovered          int                `json:"cases_covered"`
-	SevereCasesStable     int                `json:"severe_cases_stable"`
-	MetricsAvailable      int                `json:"metrics_available"`
-	AgentLimitRespected   bool               `json:"agent_limit_respected"`
-	QualificationComplete bool               `json:"qualification_complete"`
-	Hosts                 []string           `json:"hosts"`
-	Cases                 []ReplayCaseReport `json:"cases"`
-	Errors                []string           `json:"errors"`
+	SchemaVersion           int                `json:"schema_version"`
+	PolicyVersion           string             `json:"policy_version"`
+	Suite                   string             `json:"suite"`
+	TotalRecords            int                `json:"total_records"`
+	ValidRecords            int                `json:"valid_records"`
+	InvalidRecords          int                `json:"invalid_records"`
+	CasesCovered            int                `json:"cases_covered"`
+	PositiveCasesDetected   int                `json:"positive_cases_detected"`
+	MetricsAvailable        int                `json:"metrics_available"`
+	AgentLimitRespected     bool               `json:"agent_limit_respected"`
+	ReportOnlySmokeComplete bool               `json:"report_only_smoke_complete"`
+	Hosts                   []string           `json:"hosts"`
+	Cases                   []ReplayCaseReport `json:"cases"`
+	Errors                  []string           `json:"errors"`
 }
 
 type ReplayCaseReport struct {
-	CaseID          string   `json:"case_id"`
-	Kind            string   `json:"kind"`
-	RequiredRuns    int      `json:"required_runs"`
-	ObservedRuns    int      `json:"observed_runs"`
-	Stable          bool     `json:"stable"`
-	HumanConfirmed  bool     `json:"human_confirmed"`
-	ExpectedMatched bool     `json:"expected_matched"`
-	Errors          []string `json:"errors"`
+	CaseID         string   `json:"case_id"`
+	Kind           string   `json:"kind"`
+	RequiredRuns   int      `json:"required_runs"`
+	ObservedRuns   int      `json:"observed_runs"`
+	HumanConfirmed bool     `json:"human_confirmed"`
+	SmokeMatched   bool     `json:"smoke_matched"`
+	Errors         []string `json:"errors"`
 }
 
 func RecordFromResult(caseID, host string, runNumber int, result quality.ReviewResult, human HumanReview) ReplayRecord {
@@ -226,8 +225,8 @@ func RunReplay(manifest Manifest, policy quality.PolicyManifest, records []Repla
 		if len(runs) > 0 {
 			report.CasesCovered++
 		}
-		if item.Kind == "positive" && caseReport.Stable && caseReport.ObservedRuns >= caseReport.RequiredRuns && caseReport.HumanConfirmed && caseReport.ExpectedMatched {
-			report.SevereCasesStable++
+		if item.Kind == "positive" && caseReport.ObservedRuns == caseReport.RequiredRuns && caseReport.SmokeMatched {
+			report.PositiveCasesDetected++
 		}
 	}
 	for host := range hosts {
@@ -235,7 +234,7 @@ func RunReplay(manifest Manifest, policy quality.PolicyManifest, records []Repla
 	}
 	sort.Strings(report.Hosts)
 	report.Errors = unique(report.Errors)
-	report.QualificationComplete = report.InvalidRecords == 0 && report.CasesCovered == len(manifest.Cases) && report.SevereCasesStable == countKind(manifest, "positive") && report.AgentLimitRespected && allReplayCasesQualified(report.Cases) && hostsQualified(report.Hosts)
+	report.ReportOnlySmokeComplete = report.InvalidRecords == 0 && report.CasesCovered == len(manifest.Cases) && report.PositiveCasesDetected == countKind(manifest, "positive") && report.MetricsAvailable == len(manifest.Cases) && report.AgentLimitRespected && allReplayCasesSmokeReady(report.Cases) && hostsQualified(report.Hosts)
 	return report
 }
 
@@ -251,8 +250,8 @@ func validateReplayRecord(record ReplayRecord, cases map[string]Case, policy qua
 	if record.Host != "claude-code" && record.Host != "codex" {
 		errorsFound = append(errorsFound, "host is invalid")
 	}
-	if record.RunNumber < 1 || record.RunNumber > SevereRepetitions {
-		errorsFound = append(errorsFound, "run_number is outside 1..3")
+	if record.RunNumber != 1 {
+		errorsFound = append(errorsFound, "report-only smoke run_number must be 1")
 	}
 	if !validResult(record.Observed.SemanticResult) || hasBlank(record.Observed.RuleIDs) || hasDuplicates(record.Observed.RuleIDs) {
 		errorsFound = append(errorsFound, "observed verdict or rule ids are invalid")
@@ -280,68 +279,45 @@ func validateReplayRecord(record ReplayRecord, cases map[string]Case, policy qua
 
 func evaluateReplayCase(item Case, runs []ReplayRecord) ReplayCaseReport {
 	required := 1
-	if item.Kind == "positive" {
-		required = SevereRepetitions
-	}
 	result := ReplayCaseReport{
 		CaseID: item.ID, Kind: item.Kind, RequiredRuns: required, ObservedRuns: len(runs),
-		Stable: len(runs) > 0, HumanConfirmed: len(runs) > 0, ExpectedMatched: len(runs) > 0, Errors: []string{},
+		HumanConfirmed: len(runs) > 0, SmokeMatched: len(runs) > 0, Errors: []string{},
 	}
-	var signature string
-	for index, run := range runs {
-		current := replaySignature(run)
-		if index == 0 {
-			signature = current
-		} else if current != signature {
-			result.Stable = false
-		}
+	for _, run := range runs {
 		if run.HumanReview.Status != "confirmed" {
 			result.HumanConfirmed = false
 		}
-		if !matchesExpected(item, run) || run.Observed.DuplicateRootCauses != 0 {
-			result.ExpectedMatched = false
+		if !matchesSmokeExpectation(item, run) || run.Observed.DuplicateRootCauses != 0 {
+			result.SmokeMatched = false
 		}
 	}
-	if len(runs) < required {
-		result.Errors = append(result.Errors, fmt.Sprintf("requires %d run(s), found %d", required, len(runs)))
+	if len(runs) != required {
+		result.Errors = append(result.Errors, fmt.Sprintf("requires exactly %d run(s), found %d", required, len(runs)))
 	}
-	if len(runs) > 0 && !result.Stable {
-		result.Errors = append(result.Errors, "rule or S/T/E output is unstable")
-	}
-	if len(runs) > 0 && !result.HumanConfirmed {
-		result.Errors = append(result.Errors, "human review did not confirm every run")
-	}
-	if len(runs) > 0 && !result.ExpectedMatched {
-		result.Errors = append(result.Errors, "observed result does not match the case expectation or has duplicate roots")
+	if len(runs) > 0 && !result.SmokeMatched {
+		result.Errors = append(result.Errors, "observed result violates the coarse report-only smoke expectation or has duplicate roots")
 	}
 	return result
 }
 
-func replaySignature(record ReplayRecord) string {
-	return strings.Join(record.Observed.RuleIDs, ",") + "|" + pointerValue(record.Observed.Severity) + "|" + pointerValue(record.Observed.TriggerConfidence) + "|" + pointerValue(record.Observed.EvidenceLevel)
-}
-
-func matchesExpected(item Case, record ReplayRecord) bool {
-	if record.Observed.SemanticResult != item.Expected.SemanticResult {
+func matchesSmokeExpectation(item Case, record ReplayRecord) bool {
+	switch item.Kind {
+	case "positive":
+		return record.Observed.SemanticResult == quality.ResultBlock && len(record.Observed.RuleIDs) > 0 && record.Observed.VerifierCount == 1
+	case "counterexample", "insufficient":
+		return record.Observed.SemanticResult == quality.ResultPass || record.Observed.SemanticResult == quality.ResultManualReview
+	default:
 		return false
 	}
-	if (item.Expected.VerifierResult == "confirmed" && record.Observed.VerifierCount != 1) ||
-		(item.Expected.VerifierResult == "not_run" && record.Observed.VerifierCount != 0) {
-		return false
-	}
-	if item.Expected.FindingCount == 0 {
-		return len(record.Observed.RuleIDs) == 0
-	}
-	return len(record.Observed.RuleIDs) == 1 && record.Observed.RuleIDs[0] == item.RuleID && pointerValue(record.Observed.Severity) == item.Expected.Severity && pointerValue(record.Observed.TriggerConfidence) == item.Expected.TriggerConfidence && pointerValue(record.Observed.EvidenceLevel) == item.Expected.EvidenceLevel
 }
 
 func hostsQualified(hosts []string) bool {
 	return len(hosts) == 1 && hosts[0] == "codex"
 }
 
-func allReplayCasesQualified(cases []ReplayCaseReport) bool {
+func allReplayCasesSmokeReady(cases []ReplayCaseReport) bool {
 	for _, item := range cases {
-		if item.ObservedRuns < item.RequiredRuns || !item.Stable || !item.HumanConfirmed || !item.ExpectedMatched {
+		if item.ObservedRuns != item.RequiredRuns || !item.SmokeMatched {
 			return false
 		}
 	}

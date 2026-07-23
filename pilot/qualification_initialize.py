@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize a frozen, blind host-session qualification workspace."""
+"""Initialize a frozen, blind report-only smoke workspace."""
 
 from __future__ import annotations
 
@@ -108,12 +108,12 @@ def task_markdown(task: dict[str, object], skill_path: pathlib.Path, binary: pat
             str(task["output_root"]),
         ]
     )
-    return f"""# Blind Code Quality Qualification Run
+    return f"""# Blind Code Quality Report-Only Smoke Run
 
 Run ID: `{task['run_id']}`
 Required host: `{task['host']}`
 
-This is a blind qualification run. Do not search for or read the code-quality source repository, eval cases, operator manifest, sibling tasks, or expected results. Do not infer an expected verdict from the run ID. Work only from the prepared session inputs and the frozen Skill.
+This is a blind report-only smoke run. Do not search for or read the code-quality source repository, eval cases, operator manifest, sibling tasks, or expected results. Do not infer an expected verdict from the run ID. Work only from the prepared session inputs and the frozen Skill.
 
 1. Read the frozen Skill at `{skill_path}`.
 2. Run:
@@ -153,12 +153,14 @@ def main() -> int:
     cases = load_cases(cases_path)
     validate_all_fixtures(cases, fixtures)
     schedule = build_plan(cases, {})
-    if schedule["planned_runs"] != 100 or schedule["host_totals"] != {"codex": 100}:
-        raise ValueError("qualification schedule is not the frozen 100-run Codex-only matrix")
+    planned_runs = len(cases)
+    expected_host_totals = {"codex": planned_runs}
+    if schedule["planned_runs"] != planned_runs or schedule["host_totals"] != expected_host_totals:
+        raise ValueError("smoke schedule is not one Codex run per case")
 
     temporary = pathlib.Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
     try:
-        version = f"0.1.0-qualification.{head[:12]}"
+        version = f"0.1.0-report-only-smoke.{head[:12]}"
         if dirty_lines:
             version += ".dirty-development"
         binary = temporary / "quality-review"
@@ -206,7 +208,7 @@ def main() -> int:
                 "repository": repository["repository"],
                 "base": repository["base"],
                 "target": repository["target"],
-                "diff_reason": f"blind qualification committed increment {run_id}",
+                "diff_reason": f"blind report-only smoke committed increment {run_id}",
                 "output_root": str(output_root),
             }
             task_path = temporary / "tasks" / str(slot["host"]) / f"{run_id}.json"
@@ -225,7 +227,6 @@ def main() -> int:
                     "host": slot["host"],
                     "repository_id": repository["repository_id"],
                     "task": task_path.relative_to(temporary).as_posix(),
-                    "expected": next(case["expected"] for case in cases if case["id"] == case_id),
                 }
             )
 
@@ -243,7 +244,7 @@ def main() -> int:
         for directory in ("sessions", "replay-records", "run-evidence", "human-reviews", "batch-logs"):
             (temporary / directory).mkdir()
         write_json(
-            temporary / "qualification-summary.json",
+            temporary / "smoke-summary.json",
             json.loads(
                 run(
                     str(binary),
@@ -258,6 +259,7 @@ def main() -> int:
         )
         baseline = {
             "schema_version": 1,
+            "profile": "report_only_smoke",
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "source_commit": head,
             "source_dirty": bool(dirty_lines),
@@ -280,11 +282,10 @@ def main() -> int:
             temporary / "progress.json",
             {
                 "schema_version": 1,
-                "planned_runs": 100,
+                "planned_runs": planned_runs,
                 "completed_runs": 0,
-                "human_confirmed_runs": 0,
                 "metrics_available": 0,
-                "qualification_complete": False,
+                "report_only_smoke_complete": False,
             },
         )
         temporary.rename(output)
@@ -297,7 +298,7 @@ def main() -> int:
             "output": str(output),
             "source_commit": head,
             "source_dirty": bool(dirty_lines),
-            "planned_runs": 100,
+            "planned_runs": planned_runs,
             "status": "initialized",
         },
         sys.stdout,

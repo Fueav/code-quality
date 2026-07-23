@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the private independent-human-review queue for collected runs."""
+"""Generate an optional private human-review queue for report-only smoke runs."""
 
 from __future__ import annotations
 
@@ -19,31 +19,22 @@ def load_json(path: pathlib.Path) -> dict[str, object]:
     return value
 
 
-def expected_matches(mapping: dict[str, object], record: dict[str, object]) -> bool:
-    expected = mapping.get("expected")
+def smoke_matches(mapping: dict[str, object], record: dict[str, object]) -> bool:
     observed = record.get("observed")
-    if not isinstance(expected, dict) or not isinstance(observed, dict):
+    kind = mapping.get("kind")
+    if kind not in {"positive", "counterexample", "insufficient"} or not isinstance(observed, dict):
         return False
-    if observed.get("semantic_result") != expected.get("semantic_result"):
+    if observed.get("duplicate_root_causes") != 0:
         return False
     rule_ids = observed.get("rule_ids")
-    verifier_count = observed.get("verifier_count")
-    if expected.get("verifier_result") == "confirmed" and verifier_count != 1:
-        return False
-    if expected.get("verifier_result") == "not_run" and verifier_count != 0:
-        return False
-    finding_count = len(rule_ids) if isinstance(rule_ids, list) else -1
-    if finding_count != expected.get("finding_count"):
-        return False
-    if expected.get("finding_count") == 0:
-        return rule_ids == []
-    return (
-        rule_ids == [mapping.get("rule_id")]
-        and observed.get("severity") == expected.get("severity")
-        and observed.get("trigger_confidence") == expected.get("trigger_confidence")
-        and observed.get("evidence_level") == expected.get("evidence_level")
-        and observed.get("duplicate_root_causes") == 0
-    )
+    if kind == "positive":
+        return (
+            observed.get("semantic_result") == "BLOCK"
+            and isinstance(rule_ids, list)
+            and len(rule_ids) > 0
+            and observed.get("verifier_count") == 1
+        )
+    return observed.get("semantic_result") in {"PASS", "MANUAL_REVIEW"}
 
 
 def main() -> int:
@@ -77,7 +68,7 @@ def main() -> int:
         entries.append((run_id, mapping, record, evidence))
 
     lines = [
-        "# Code Quality V1 Private Human Review Queue",
+        "# Code Quality V1 Optional Human Smoke Review Queue",
         "",
         "> Operator and independent human reviewer only. This file contains expected case identities and must not be shown to a review Agent.",
         "",
@@ -85,14 +76,13 @@ def main() -> int:
         "- Host: local Codex",
         "- Model: `gpt-5.6-terra`",
         "- Reasoning effort: `high`",
-        f"- Pending human decisions: {len(entries)}",
+        f"- Pending optional human decisions: {len(entries)}",
         "",
     ]
     review_tool = pathlib.Path(__file__).with_name("qualification_review.py").resolve()
     for index, (run_id, mapping, record, evidence) in enumerate(entries, start=1):
         session = workspace / str(evidence["session"])
         observed = record["observed"]
-        expected = mapping["expected"]
         confirm_command = shlex.join(
             [
                 sys.executable,
@@ -114,8 +104,8 @@ def main() -> int:
                 f"## {index}. `{run_id}`",
                 "",
                 f"- Case: `{mapping['case_id']}`; rule: `{mapping['rule_id']}`; kind: `{mapping['kind']}`; repetition: `{mapping['run_number']}`",
-                f"- Mechanical expected match: `{'yes' if expected_matches(mapping, record) else 'no'}`",
-                f"- Expected: `{json.dumps(expected, sort_keys=True)}`",
+                f"- Mechanical report-only smoke match: `{'yes' if smoke_matches(mapping, record) else 'no'}`",
+                f"- Fixture kind: `{mapping['kind']}`; exact rule and S/T/E equality are not smoke gates.",
                 f"- Observed: `{json.dumps(observed, sort_keys=True)}`",
                 f"- Trusted diff: `{session / 'input' / 'trusted.diff'}`",
                 f"- Target snapshot: `{session / 'input' / 'repository'}`",
@@ -123,7 +113,7 @@ def main() -> int:
                 f"- Verifier review: `{session / 'output' / 'verifier-review.json'}`",
                 f"- Final report: `{session / 'output' / 'review-result.md'}`",
                 "",
-                "Confirm only after checking entry reachability, change attribution, trigger facts, causal chain, rule/S/T/E, root deduplication, and verifier evidence:",
+                "Optional confirmation should check entry reachability, change attribution, causal chain, root deduplication, and verifier evidence; exact rule and S/T/E equality are not required:",
                 "",
                 "```bash",
                 confirm_command,

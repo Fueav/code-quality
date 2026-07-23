@@ -15,16 +15,16 @@ from qualification_inventory import validate_fixture  # noqa: E402
 from qualification_batch import pending_runs  # noqa: E402
 from qualification_matrix import build_plan, load_cases  # noqa: E402
 from qualification_run import codex_command, codex_metrics  # noqa: E402
-from qualification_review_packet import expected_matches  # noqa: E402
+from qualification_review_packet import smoke_matches  # noqa: E402
 
 
 class QualificationToolsTest(unittest.TestCase):
-    def test_frozen_matrix_is_codex_only(self) -> None:
+    def test_report_only_smoke_matrix_is_codex_only(self) -> None:
         cases = load_cases(SOURCE_ROOT / "evals" / "cases.json")
         plan = build_plan(cases, {})
-        self.assertEqual(plan["planned_runs"], 100)
-        self.assertEqual(plan["host_totals"], {"codex": 100})
-        self.assertEqual(plan["status_totals"], {"missing": 100, "pending": 0, "confirmed": 0, "overturned": 0})
+        self.assertEqual(plan["planned_runs"], 60)
+        self.assertEqual(plan["host_totals"], {"codex": 60})
+        self.assertEqual(plan["status_totals"], {"missing": 60, "pending": 0, "confirmed": 0, "overturned": 0})
 
     def test_all_eval_cases_have_reviewable_fixtures(self) -> None:
         cases = load_cases(SOURCE_ROOT / "evals" / "cases.json")
@@ -42,7 +42,7 @@ class QualificationToolsTest(unittest.TestCase):
                 "repository": root / "repo-opaque",
                 "base": "a" * 40,
                 "target": "b" * 40,
-                "diff_reason": "blind qualification committed increment run-opaque",
+                "diff_reason": "blind report-only smoke committed increment run-opaque",
                 "output_root": root / "sessions" / "run-opaque",
             }
             prompt = task_markdown(task, root / "skill" / "SKILL.md", root / "quality-review")
@@ -88,17 +88,10 @@ class QualificationToolsTest(unittest.TestCase):
             )
             self.assertEqual(pending_runs(workspace, None), ["run-a", "run-b"])
 
-    def test_review_match_requires_expected_verifier_count(self) -> None:
+    def test_review_match_uses_coarse_report_only_smoke_contract(self) -> None:
         mapping = {
+            "kind": "positive",
             "rule_id": "DES-003",
-            "expected": {
-                "semantic_result": "BLOCK",
-                "finding_count": 1,
-                "severity": "S3",
-                "trigger_confidence": "T3",
-                "evidence_level": "E2",
-                "verifier_result": "confirmed",
-            },
         }
         observed = {
             "semantic_result": "BLOCK",
@@ -109,9 +102,18 @@ class QualificationToolsTest(unittest.TestCase):
             "duplicate_root_causes": 0,
             "verifier_count": 0,
         }
-        self.assertFalse(expected_matches(mapping, {"observed": observed}))
+        self.assertFalse(smoke_matches(mapping, {"observed": observed}))
         observed["verifier_count"] = 1
-        self.assertTrue(expected_matches(mapping, {"observed": observed}))
+        observed["rule_ids"] = ["DES-004"]
+        observed["severity"] = "S2"
+        observed["trigger_confidence"] = "T2"
+        observed["evidence_level"] = "E1"
+        self.assertTrue(smoke_matches(mapping, {"observed": observed}))
+
+        mapping["kind"] = "counterexample"
+        observed["semantic_result"] = "MANUAL_REVIEW"
+        observed["verifier_count"] = 0
+        self.assertTrue(smoke_matches(mapping, {"observed": observed}))
 
 
 if __name__ == "__main__":

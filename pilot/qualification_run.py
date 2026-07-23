@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one opaque qualification task in a fresh local Codex session."""
+"""Run one opaque report-only smoke task in a fresh local Codex session."""
 
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ def main() -> int:
     workspace = args.workspace.resolve(strict=True)
     baseline = load_json(workspace / "baseline.json")
     if baseline.get("source_dirty") is not False or baseline.get("development_only") is not False:
-        raise ValueError("development or dirty workspace cannot collect qualification evidence")
+        raise ValueError("development or dirty workspace cannot collect smoke evidence")
     operator = load_json(workspace / "operator-manifest.json")
     mappings = operator.get("runs")
     if not isinstance(mappings, list):

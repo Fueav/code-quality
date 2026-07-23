@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Codex-only 100-run host-session qualification schedule."""
+"""Build the Codex-only 60-run report-only smoke schedule."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def build_plan(cases: list[dict[str, object]], records: dict[tuple[str, str, int
         kind = case.get("kind")
         if kind not in {"positive", "counterexample", "insufficient"}:
             raise ValueError(f"{case_id}.kind is invalid")
-        repetitions = 3 if kind == "positive" else 1
+        repetitions = 1
         for run_number in range(1, repetitions + 1):
             host = host_for(kind, run_number, rule_ordinals[rule_id])
             identity = (case_id, host, run_number)
@@ -109,7 +109,7 @@ def build_plan(cases: list[dict[str, object]], records: dict[tuple[str, str, int
         "planned_runs": len(slots),
         "host_totals": host_totals,
         "status_totals": status_totals,
-        "schedule_complete": status_totals["confirmed"] == len(slots) and not unexpected,
+        "schedule_complete": status_totals["missing"] == 0 and not unexpected,
         "unexpected_records": unexpected,
         "slots": slots,
     }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect one blind run into replay evidence and refresh qualification progress."""
+"""Collect one blind run and refresh report-only smoke progress."""
 
 from __future__ import annotations
 
@@ -84,12 +84,12 @@ def main() -> int:
     session = result.parent.parent
     baseline = load_json(workspace / "baseline.json")
     if baseline.get("source_dirty") is not False or baseline.get("development_only") is not False:
-        raise ValueError("development or dirty workspace cannot collect qualification evidence")
+        raise ValueError("development or dirty workspace cannot collect smoke evidence")
     if (
         baseline.get("qualification_model") != QUALIFICATION_MODEL
         or baseline.get("qualification_reasoning_effort") != QUALIFICATION_REASONING_EFFORT
     ):
-        raise ValueError("qualification model or reasoning effort does not match the frozen contract")
+        raise ValueError("smoke model or reasoning effort does not match the frozen contract")
 
     operator = load_json(workspace / "operator-manifest.json")
     runs = operator.get("runs")
@@ -100,7 +100,7 @@ def main() -> int:
         raise ValueError("run ID is unknown or duplicated")
     mapping = matches[0]
     if mapping.get("host") != "codex":
-        raise ValueError("formal qualification accepts only local Codex runs")
+        raise ValueError("report-only smoke accepts only local Codex runs")
     task_relative = mapping.get("task")
     if task_relative != f"tasks/{mapping.get('host')}/{args.run_id}.json":
         raise ValueError("operator task mapping is invalid")
@@ -110,7 +110,7 @@ def main() -> int:
 
     metric_values = (args.input_tokens, args.output_tokens, args.duration_ms)
     if not all(value is not None for value in metric_values):
-        raise ValueError("formal qualification requires input tokens, output tokens, and duration")
+        raise ValueError("report-only smoke requires input tokens, output tokens, and duration")
     if any(value is not None and value < 0 for value in metric_values):
         raise ValueError("metrics must be non-negative")
     if args.human_status == "overturned" and not args.overturn_reason:
@@ -243,7 +243,7 @@ def main() -> int:
         )
     summary = json.loads(summary_raw)
     write_atomically(record_path, json.dumps(record, indent=2, sort_keys=True) + "\n")
-    write_atomically(workspace / "qualification-summary.json", json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    write_atomically(workspace / "smoke-summary.json", json.dumps(summary, indent=2, sort_keys=True) + "\n")
     evidence = {
         "schema_version": 1,
         "run_id": args.run_id,
@@ -286,18 +286,12 @@ def main() -> int:
             workspace / "human-reviews" / f"{args.run_id}.json",
             json.dumps(human_review, indent=2, sort_keys=True) + "\n",
         )
-    confirmed_runs = 0
-    for path in replay_directory.glob("*.json"):
-        human_review = load_json(path).get("human_review")
-        if isinstance(human_review, dict) and human_review.get("status") == "confirmed":
-            confirmed_runs += 1
     progress = {
         "schema_version": 1,
-        "planned_runs": 100,
+        "planned_runs": baseline["planned_runs"],
         "completed_runs": summary["valid_records"],
-        "human_confirmed_runs": confirmed_runs,
         "metrics_available": summary["metrics_available"],
-        "qualification_complete": summary["qualification_complete"],
+        "report_only_smoke_complete": summary["report_only_smoke_complete"],
     }
     write_atomically(workspace / "progress.json", json.dumps(progress, indent=2, sort_keys=True) + "\n")
     json.dump(
@@ -306,7 +300,7 @@ def main() -> int:
             "record": str(record_path),
             "semantic_result": record["observed"]["semantic_result"],
             "human_status": args.human_status,
-            "qualification_complete": summary["qualification_complete"],
+            "report_only_smoke_complete": summary["report_only_smoke_complete"],
         },
         sys.stdout,
         sort_keys=True,

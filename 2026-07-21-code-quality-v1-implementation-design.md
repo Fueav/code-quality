@@ -163,9 +163,9 @@ rollout_mode: report_only
 ci_action: publish_report
 ```
 
-规则初始状态均为 `report_only`。每条规则至少包含严重正例、不得阻断反例和 `MANUAL_REVIEW` 证据不足案例。Eval 记录命中、S/T/E 稳定性、根因去重、人工结论、推翻原因、Agent 数、token 和耗时。
+规则初始状态均为 `report_only`。每条规则至少包含严重正例、不得阻断反例和证据不足案例。进入 report-only 试点前，每个案例只做一次盲回放：正例需要发现经 verifier 确认的高风险，反例和证据不足案例只要求不得输出 `BLOCK` 或 `INCOMPLETE`；精确 rule ID 与 S/T/E 一致性不是冒烟门槛。
 
-确定性测试覆盖 Schema、阻断公式、降级规则、总体优先级和 Markdown 渲染。完成 V1.1 规定的重复运行和历史回放后，规则才允许进入后续自动阻断版本。V1 不实现人工放行平台。
+确定性测试覆盖 Schema、阻断公式、降级规则、总体优先级和 Markdown 渲染。真实项目历史回放与维护者反馈是 report-only 产品有效性的主要证据。严重案例重复运行、精确稳定性和逐条人工确认只属于未来自动阻断评估。V1 不实现人工放行平台。
 
 ## 13. 实施顺序
 
@@ -197,4 +197,6 @@ ci_action: publish_report
 - Agent 硬上限为 2，且无候选时只使用 1 个；
 - 所有 `BLOCK` 候选满足 V1.1 完整字段、验证和归因要求；
 - 执行或输入不完整时明确输出 `INCOMPLETE`；
+- 60 个合成案例各一次的粗粒度 report-only 冒烟可复验；
+- 三个项目、30 个历史变更上的发现率、危险误报、可操作性和成本可汇总；
 - V1 只发布 report-only，不包含自动阻断能力。

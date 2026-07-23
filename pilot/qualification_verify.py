@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a frozen blind qualification workspace and its task mapping."""
+"""Verify a frozen blind report-only smoke workspace and its task mapping."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from qualification_run import QUALIFICATION_MODEL, QUALIFICATION_REASONING_EFFOR
 
 
 FORBIDDEN_TASK_PATTERN = re.compile(r"positive|counterexample|insufficient|(?:DES|COR|REL|SEC|CHG)-", re.IGNORECASE)
+REPORT_ONLY_SMOKE_RUNS = 60
 
 
 def load_json(path: pathlib.Path) -> dict[str, object]:
@@ -358,24 +359,22 @@ def verify_replay_evidence(
             str(replay_directory),
         )
     )
-    if load_json(workspace / "qualification-summary.json") != fresh_summary:
-        raise ValueError("saved qualification summary is stale")
+    if load_json(workspace / "smoke-summary.json") != fresh_summary:
+        raise ValueError("saved smoke summary is stale")
     expected_progress = {
         "schema_version": 1,
-        "planned_runs": 100,
+        "planned_runs": REPORT_ONLY_SMOKE_RUNS,
         "completed_runs": fresh_summary["valid_records"],
-        "human_confirmed_runs": human_statuses["confirmed"],
         "metrics_available": fresh_summary["metrics_available"],
-        "qualification_complete": fresh_summary["qualification_complete"],
+        "report_only_smoke_complete": fresh_summary["report_only_smoke_complete"],
     }
     if load_json(workspace / "progress.json") != expected_progress:
-        raise ValueError("saved qualification progress is stale")
-    if fresh_summary["qualification_complete"] and (
-        fresh_summary["valid_records"] != 100
-        or fresh_summary["metrics_available"] != 100
-        or human_statuses != {"pending": 0, "confirmed": 100, "overturned": 0}
+        raise ValueError("saved smoke progress is stale")
+    if fresh_summary["report_only_smoke_complete"] and (
+        fresh_summary["valid_records"] != REPORT_ONLY_SMOKE_RUNS
+        or fresh_summary["metrics_available"] != REPORT_ONLY_SMOKE_RUNS
     ):
-        raise ValueError("qualification completion is missing required metrics or human confirmations")
+        raise ValueError("smoke completion is missing required records or metrics")
 
     evidence_summary = {
         "schema_version": 1,
@@ -387,10 +386,12 @@ def verify_replay_evidence(
         "host_version": baseline["codex_version"],
         "model": QUALIFICATION_MODEL,
         "reasoning_effort": QUALIFICATION_REASONING_EFFORT,
-        "planned_runs": 100,
+        "planned_runs": REPORT_ONLY_SMOKE_RUNS,
         "valid_records": fresh_summary["valid_records"],
         "invalid_records": fresh_summary["invalid_records"],
         "cases_covered": fresh_summary["cases_covered"],
+        "smoke_cases_matched": sum(1 for item in fresh_summary["cases"] if item["smoke_matched"]),
+        "positive_cases_detected": fresh_summary["positive_cases_detected"],
         "human_statuses": human_statuses,
         "semantic_results": semantic_results,
         "metrics_available": fresh_summary["metrics_available"],
@@ -400,7 +401,7 @@ def verify_replay_evidence(
         "duration_ms_p95": percentile_nearest_rank(durations, 95),
         "duration_ms_max": max(durations) if durations else None,
         "agent_limit_respected": fresh_summary["agent_limit_respected"],
-        "qualification_complete": fresh_summary["qualification_complete"],
+        "report_only_smoke_complete": fresh_summary["report_only_smoke_complete"],
     }
     return fresh_summary, evidence_summary
 
@@ -416,10 +417,14 @@ def main() -> int:
     source = args.source.resolve(strict=True)
     baseline = load_json(workspace / "baseline.json")
     if baseline.get("source_dirty") is not False or baseline.get("development_only") is not False:
-        raise ValueError("development or dirty workspace cannot qualify")
-    if baseline.get("schema_version") != 1 or baseline.get("planned_runs") != 100:
+        raise ValueError("development or dirty workspace cannot produce smoke evidence")
+    if (
+        baseline.get("schema_version") != 1
+        or baseline.get("profile") != "report_only_smoke"
+        or baseline.get("planned_runs") != REPORT_ONLY_SMOKE_RUNS
+    ):
         raise ValueError("baseline identity is invalid")
-    if baseline.get("host_totals") != {"codex": 100}:
+    if baseline.get("host_totals") != {"codex": REPORT_ONLY_SMOKE_RUNS}:
         raise ValueError("baseline host schedule is invalid")
     if not isinstance(baseline.get("codex_version"), str) or not baseline["codex_version"]:
         raise ValueError("baseline Codex version is missing")
@@ -462,7 +467,11 @@ def main() -> int:
     }
     operator = load_json(workspace / "operator-manifest.json")
     runs = operator.get("runs")
-    if operator.get("visibility") != "operator_and_human_reviewer_only" or not isinstance(runs, list) or len(runs) != 100:
+    if (
+        operator.get("visibility") != "operator_and_human_reviewer_only"
+        or not isinstance(runs, list)
+        or len(runs) != REPORT_ONLY_SMOKE_RUNS
+    ):
         raise ValueError("operator manifest is invalid")
 
     seen_runs: set[str] = set()
@@ -494,7 +503,6 @@ def main() -> int:
         if (
             mapping.get("rule_id") != expected_slot["rule_id"]
             or mapping.get("kind") != expected_slot["kind"]
-            or mapping.get("expected") != case_by_id[str(case_id)].get("expected")
         ):
             raise ValueError(f"operator expected mapping is invalid for {run_id}")
         seen_runs.add(run_id)
@@ -533,7 +541,7 @@ def main() -> int:
         base = str(task["base"])
         target = str(task["target"])
         if (
-            task.get("diff_reason") != f"blind qualification committed increment {run_id}"
+            task.get("diff_reason") != f"blind report-only smoke committed increment {run_id}"
             or task.get("output_root") != str(workspace / "sessions" / run_id)
         ):
             raise ValueError(f"blind task paths are invalid for {run_id}")
@@ -548,13 +556,12 @@ def main() -> int:
         if previous != (repository, base, target):
             raise ValueError(f"case maps to multiple repositories: {case_id}")
 
-    if host_totals != {"codex": 100}:
+    if host_totals != {"codex": REPORT_ONLY_SMOKE_RUNS}:
         raise ValueError("host schedule is not Codex-only")
     if seen_slots != set(expected_slots):
         raise ValueError("operator schedule does not match the frozen matrix")
-    for case_id, case in case_by_id.items():
-        required = 3 if case.get("kind") == "positive" else 1
-        if case_run_counts.get(case_id) != required:
+    for case_id in case_by_id:
+        if case_run_counts.get(case_id) != 1:
             raise ValueError(f"run count is invalid for {case_id}")
         repository, base, target = repositories[case_id]
         fixture = source / "pilot" / "fixtures" / case_id.lower()
@@ -591,7 +598,7 @@ def main() -> int:
         "valid_replay_records": replay_summary["valid_records"],
         "human_confirmed_runs": evidence_summary["human_statuses"]["confirmed"],
         "metrics_available": replay_summary["metrics_available"],
-        "qualification_complete": replay_summary["qualification_complete"],
+        "report_only_smoke_complete": replay_summary["report_only_smoke_complete"],
         "evidence_summary": str(workspace / "evidence-summary.json") if args.write_summary else None,
         "status": "valid",
     }
