@@ -22,7 +22,7 @@ jobs:
       - name: Install pinned quality-review release
         run: go install github.com/Fueav/code-quality/cmd/quality-review@${QUALITY_REVIEW_VERSION}
         env:
-          QUALITY_REVIEW_VERSION: v0.1.0
+          QUALITY_REVIEW_VERSION: v0.1.1
       - name: Validate deterministic report
         run: quality-review validate "${QUALITY_RESULT_JSON}"
       - name: Render validated report

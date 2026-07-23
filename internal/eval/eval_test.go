@@ -98,7 +98,7 @@ func testPolicy() quality.PolicyManifest {
 	for _, id := range ids {
 		rules = append(rules, quality.PolicyRule{ID: id, Dimension: dimensions[id], Status: "report_only"})
 	}
-	return quality.PolicyManifest{SchemaVersion: 1, PolicyVersion: "1.1.0", Rubric: "policy/v1.1/rubric.md", AgentLimit: 2, Rules: rules}
+	return quality.PolicyManifest{SchemaVersion: 1, PolicyVersion: "1.1.1", Rubric: "policy/v1.1/rubric.md", AgentLimit: 2, Rules: rules}
 }
 
 func containsError(errors []string, substring string) bool {

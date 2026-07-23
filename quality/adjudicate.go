@@ -72,7 +72,7 @@ func Adjudicate(request ReviewRequest, review ModelReview, policy PolicyManifest
 		}
 	}
 	if result.Adjudication.SemanticResult == ResultPass {
-		result.Adjudication.Reasons = []string{"no finding satisfies the V1.1 reporting threshold"}
+		result.Adjudication.Reasons = []string{"no material changed-code finding was reported"}
 	}
 	return result
 }

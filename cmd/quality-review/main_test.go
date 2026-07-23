@@ -61,12 +61,10 @@ func TestPrepareCreatesCommittedReviewSession(t *testing.T) {
 	}
 }
 
-func TestFinalizeWithoutPotentialBlockUsesOneAgent(t *testing.T) {
+func TestFinalizeReportOnlyManualFindingUsesOneAgent(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	prepared, _ := prepareSession(t, repo, base, target)
 	review := integrationMainReview()
-	review.Findings[0].Severity = "S2"
-	review.Findings[0].TriggerConfidence = "T2"
 	review.Findings[0].ProposedVerdict = "MANUAL_REVIEW"
 	writeJSON(t, prepared.MainReviewPath, review)
 
@@ -78,7 +76,7 @@ func TestFinalizeWithoutPotentialBlockUsesOneAgent(t *testing.T) {
 	if result.Execution.AgentCount != 1 || result.Execution.VerifierCount != 0 {
 		t.Fatalf("execution = %#v", result.Execution)
 	}
-	if result.Execution.Host != "claude-code" || result.Execution.SkillVersion != "0.1.0" {
+	if result.Execution.Host != "claude-code" || result.Execution.SkillVersion != "0.1.1" {
 		t.Fatalf("trusted host metadata was not preserved: %#v", result.Execution)
 	}
 	if len(result.InspectedContext) != 1 || result.InspectedContext[0].Path != "app.go" {

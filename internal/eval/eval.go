@@ -245,7 +245,7 @@ func adjudicateCase(item Case, policy quality.PolicyManifest) quality.ReviewResu
 		UninspectedScope:      []string{},
 		MissingContext:        []string{},
 		InspectedContext:      []quality.InspectedContext{{Path: "app.go", Purpose: "Evaluate the changed production path."}},
-		Execution:             quality.Execution{Host: "claude-code", SkillVersion: "0.1.0", AgentCount: 1},
+		Execution:             quality.Execution{Host: "claude-code", SkillVersion: "0.1.1", AgentCount: 1},
 	}
 	if item.Expected.FindingCount == 1 {
 		review.Findings = []quality.Finding{{
@@ -270,7 +270,7 @@ func adjudicateCase(item Case, policy quality.PolicyManifest) quality.ReviewResu
 			Uncertainties:       []string{},
 		}}}
 		review = quality.MergeVerifierReview(review, verifier)
-		review.Execution = quality.Execution{Host: "claude-code", SkillVersion: "0.1.0", AgentCount: 2, VerifierCount: 1}
+		review.Execution = quality.Execution{Host: "claude-code", SkillVersion: "0.1.1", AgentCount: 2, VerifierCount: 1}
 	}
 	return quality.Adjudicate(evalRequest(item.ID), review, policy)
 }

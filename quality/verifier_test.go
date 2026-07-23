@@ -7,7 +7,7 @@ func TestPotentialBlockFindingsUsesCompleteFormula(t *testing.T) {
 	block.VerifierResult = "not_run"
 	manual := block
 	manual.ID = "F-002"
-	manual.EvidenceLevel = "E1"
+	manual.ProposedVerdict = ResultManualReview
 	review := reviewWith(manual, block)
 	candidates := PotentialBlockFindings(review)
 	if len(candidates) != 1 || candidates[0].ID != "F-001" {
@@ -44,14 +44,14 @@ func TestMergeVerifierReviewControlsBlocking(t *testing.T) {
 	finding := validBlockingFinding()
 	finding.VerifierResult = "not_run"
 	main := reviewWith(finding)
-	main.Execution = Execution{Host: "claude-code", SkillVersion: "0.1.0", AgentCount: 1}
+	main.Execution = Execution{Host: "claude-code", SkillVersion: "0.1.1", AgentCount: 1}
 	verifier := VerifierReview{Decisions: []VerifierDecision{{
 		FindingID: "F-001", Result: "confirmed",
 		VerificationSummary: "Confirmed the entry, trigger, and production scale.",
 		Uncertainties:       []string{},
 	}}}
 	merged := MergeVerifierReview(main, verifier)
-	merged.Execution = Execution{Host: "claude-code", SkillVersion: "0.1.0", AgentCount: 2, VerifierCount: 1}
+	merged.Execution = Execution{Host: "claude-code", SkillVersion: "0.1.1", AgentCount: 2, VerifierCount: 1}
 	result := Adjudicate(validRequest(), merged, validPolicy())
 	if result.Adjudication.SemanticResult != ResultBlock {
 		t.Fatalf("result = %#v", result)

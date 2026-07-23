@@ -25,7 +25,7 @@ func ValidateMainReview(review ModelReview, policy PolicyManifest) []string {
 func PotentialBlockFindings(review ModelReview) []Finding {
 	candidates := make([]Finding, 0, len(review.Findings))
 	for _, finding := range review.Findings {
-		if finding.VerifierResult == "not_run" && satisfiesBlockFormula(finding) {
+		if finding.ProposedVerdict == ResultBlock && finding.VerifierResult == "not_run" && satisfiesBlockFormula(finding) {
 			candidates = append(candidates, finding)
 		}
 	}

@@ -6,7 +6,7 @@ code-quality-report-only:
   stage: test
   image: golang:1.24
   variables:
-    QUALITY_REVIEW_VERSION: "v0.1.0"
+    QUALITY_REVIEW_VERSION: "v0.1.1"
     QUALITY_RESULT_JSON: ".code-quality/report-only/review-result.json"
     QUALITY_RESULT_MARKDOWN: ".code-quality/report-only/review-result.md"
   script:

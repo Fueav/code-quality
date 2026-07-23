@@ -357,7 +357,7 @@ func reviewWith(findings ...Finding) ModelReview {
 		InspectedContext: []InspectedContext{{Path: "internal/worker.go", Purpose: "Trace the production call path."}},
 		Execution: Execution{
 			Host:          "claude-code",
-			SkillVersion:  "0.1.0",
+			SkillVersion:  "0.1.1",
 			AgentCount:    1 + verifiers,
 			VerifierCount: verifiers,
 		},
@@ -378,7 +378,7 @@ func validPolicy() PolicyManifest {
 	}
 	return PolicyManifest{
 		SchemaVersion: 1,
-		PolicyVersion: "1.1.0",
+		PolicyVersion: "1.1.1",
 		Rubric:        "policy/v1.1/rubric.md",
 		AgentLimit:    2,
 		Rules:         rules,
