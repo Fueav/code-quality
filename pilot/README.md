@@ -123,13 +123,44 @@ Summarize:
 - P50/P95 duration, tokens, and cost;
 - missing context and human-overturn reasons.
 
-Store the frozen project/change labels in one manifest and one reviewed observation per change under a records directory. Each observation records the semantic result, whether the known core issue was found, whether a `BLOCK` was correct, whether a finding-bearing report was actionable, reviewer identity, metrics, and optional estimated cost.
+Freeze the project/change labels in one manifest. Every change must be exactly one first-parent commit with full base and target SHAs. A severe label must name the known core issue and its historical evidence; commit titles alone are not ground truth.
+
+Initialize from a clean code-quality commit:
 
 ```bash
-python3 pilot/historical_pilot.py \
-  --manifest .code-quality/historical-pilot/manifest.json \
-  --records .code-quality/historical-pilot/records \
-  --output .code-quality/historical-pilot/summary.json
+python3 pilot/historical_pilot_initialize.py \
+  --manifest .code-quality/historical-pilot-labels.json \
+  --output .code-quality/historical-pilot-v1
+```
+
+The initializer builds the frozen CLI, copies the Skill, and shallow-materializes one opaque repository per change containing only the base and target commits. Later fixes and the private labels are unavailable to the review Agent.
+
+Verify the blind schedule before any model call, then run each change once with local Terra/high Codex:
+
+```bash
+python3 pilot/historical_pilot_verify.py \
+  --workspace .code-quality/historical-pilot-v1
+
+python3 pilot/qualification_batch.py \
+  --workspace .code-quality/historical-pilot-v1 \
+  --workers 4
+```
+
+Generate the private maintainer queue after all observations are collected:
+
+```bash
+python3 pilot/historical_pilot_review_packet.py \
+  --workspace .code-quality/historical-pilot-v1
+```
+
+The queue supplies one `historical_pilot_review.py` command per observation. The maintainer records whether the known core issue was found, whether any `BLOCK` is truly high risk, whether a finding-bearing report is actionable, and optional estimated cost. Judgments are immutable and never shown to an Agent.
+
+Finally verify every report, deterministic render, transcript, metric, digest, and maintainer record and write the summary:
+
+```bash
+python3 pilot/historical_pilot_verify.py \
+  --workspace .code-quality/historical-pilot-v1 \
+  --write-summary
 ```
 
 The summary reports evidence completeness and metrics; it never enables blocking or makes the maintainers' pilot decision.

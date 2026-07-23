@@ -41,6 +41,14 @@ def write_json_atomically(path: pathlib.Path, value: object) -> None:
 
 
 def pending_runs(workspace: pathlib.Path, limit: int | None) -> list[str]:
+    baseline = load_json(workspace / "baseline.json")
+    profile = baseline.get("profile")
+    if profile == "report_only_smoke":
+        completed_directory = "replay-records"
+    elif profile == "report_only_historical_pilot":
+        completed_directory = "observations"
+    else:
+        raise ValueError("workspace profile is not runnable")
     operator = load_json(workspace / "operator-manifest.json")
     runs = operator.get("runs")
     if not isinstance(runs, list):
@@ -52,7 +60,7 @@ def pending_runs(workspace: pathlib.Path, limit: int | None) -> list[str]:
         run_id = mapping.get("run_id")
         if not isinstance(run_id, str) or mapping.get("host") != "codex":
             raise ValueError("operator run identity is not Codex-only")
-        if (workspace / "replay-records" / f"{run_id}.json").is_file():
+        if (workspace / completed_directory / f"{run_id}.json").is_file():
             continue
         if limit is None or len(result) < limit:
             result.append(run_id)
@@ -75,8 +83,10 @@ def main() -> int:
         raise ValueError("--timeout-seconds must be positive")
     workspace = args.workspace.resolve(strict=True)
     baseline = load_json(workspace / "baseline.json")
+    if baseline.get("profile") not in {"report_only_smoke", "report_only_historical_pilot"}:
+        raise ValueError("workspace profile is not runnable")
     if baseline.get("source_dirty") is not False or baseline.get("development_only") is not False:
-        raise ValueError("development or dirty workspace cannot run report-only smoke")
+        raise ValueError("development or dirty workspace cannot run formal report-only evidence")
     run_ids = pending_runs(workspace, args.limit)
     scheduled = len(run_ids)
     log_directory = workspace / "batch-logs"

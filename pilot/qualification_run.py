@@ -103,8 +103,11 @@ def main() -> int:
         raise ValueError("--timeout-seconds must be positive")
     workspace = args.workspace.resolve(strict=True)
     baseline = load_json(workspace / "baseline.json")
+    profile = baseline.get("profile")
+    if profile not in {"report_only_smoke", "report_only_historical_pilot"}:
+        raise ValueError("workspace profile is not runnable")
     if baseline.get("source_dirty") is not False or baseline.get("development_only") is not False:
-        raise ValueError("development or dirty workspace cannot collect smoke evidence")
+        raise ValueError("development or dirty workspace cannot collect formal evidence")
     operator = load_json(workspace / "operator-manifest.json")
     mappings = operator.get("runs")
     if not isinstance(mappings, list):
@@ -133,8 +136,9 @@ def main() -> int:
     session_root.mkdir(parents=True, exist_ok=True)
     operator_directory = session_root / "operator"
     operator_directory.mkdir(mode=0o700, exist_ok=True)
-    if (workspace / "replay-records" / f"{args.run_id}.json").exists():
-        raise ValueError("run already has replay evidence")
+    completed_directory = "replay-records" if profile == "report_only_smoke" else "observations"
+    if (workspace / completed_directory / f"{args.run_id}.json").exists():
+        raise ValueError("run already has immutable evidence")
 
     before_results = set(session_root.glob("review-*/output/review-result.json"))
     command = codex_command(session_root)
@@ -194,7 +198,8 @@ def main() -> int:
     if len(new_results) != 1:
         raise ValueError(f"host run produced {len(new_results)} new finalized results; expected exactly one")
     result = new_results.pop()
-    collector = pathlib.Path(__file__).with_name("qualification_collect.py")
+    collector_name = "qualification_collect.py" if profile == "report_only_smoke" else "historical_pilot_collect.py"
+    collector = pathlib.Path(__file__).with_name(collector_name)
     with (workspace / ".collect.lock").open("a+", encoding="utf-8") as collection_lock:
         fcntl.flock(collection_lock.fileno(), fcntl.LOCK_EX)
         collected = command_output(

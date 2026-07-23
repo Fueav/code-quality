@@ -75,6 +75,10 @@ class QualificationToolsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             workspace = pathlib.Path(directory)
             (workspace / "replay-records").mkdir()
+            (workspace / "baseline.json").write_text(
+                json.dumps({"profile": "report_only_smoke"}),
+                encoding="utf-8",
+            )
             (workspace / "operator-manifest.json").write_text(
                 json.dumps(
                     {
@@ -87,6 +91,14 @@ class QualificationToolsTest(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual(pending_runs(workspace, None), ["run-a", "run-b"])
+
+            (workspace / "observations").mkdir()
+            (workspace / "baseline.json").write_text(
+                json.dumps({"profile": "report_only_historical_pilot"}),
+                encoding="utf-8",
+            )
+            (workspace / "observations" / "run-a.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(pending_runs(workspace, None), ["run-b"])
 
     def test_review_match_uses_coarse_report_only_smoke_contract(self) -> None:
         mapping = {
