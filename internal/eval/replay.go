@@ -303,7 +303,7 @@ func evaluateReplayCase(item Case, runs []ReplayRecord) ReplayCaseReport {
 func matchesSmokeExpectation(item Case, record ReplayRecord) bool {
 	switch item.Kind {
 	case "positive":
-		return record.Observed.SemanticResult == quality.ResultBlock && len(record.Observed.RuleIDs) > 0 && record.Observed.VerifierCount == 1
+		return record.Observed.SemanticResult == quality.ResultManualReview && len(record.Observed.RuleIDs) > 0
 	case "counterexample", "insufficient":
 		return record.Observed.SemanticResult == quality.ResultPass || record.Observed.SemanticResult == quality.ResultManualReview
 	default:

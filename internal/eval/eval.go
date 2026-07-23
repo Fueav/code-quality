@@ -145,17 +145,13 @@ func validateExpected(prefix string, item Case) []string {
 	var errors []string
 	expected := item.Expected
 	switch item.Kind {
-	case "positive":
-		if expected.SemanticResult != quality.ResultBlock || expected.FindingCount != 1 || expected.Severity != "S3" || expected.TriggerConfidence != "T3" || (expected.EvidenceLevel != "E2" && expected.EvidenceLevel != "E3") || expected.VerifierResult != "confirmed" {
-			errors = append(errors, prefix+" positive expectation does not satisfy the blocking contract")
+	case "positive", "insufficient":
+		if expected.SemanticResult != quality.ResultManualReview || expected.FindingCount != 1 {
+			errors = append(errors, prefix+" expectation must be MANUAL_REVIEW with exactly one finding")
 		}
 	case "counterexample":
-		if expected.SemanticResult != quality.ResultPass || expected.FindingCount != 0 || expected.Severity != "" || expected.TriggerConfidence != "" || expected.EvidenceLevel != "" || expected.VerifierResult != "not_run" {
+		if expected.SemanticResult != quality.ResultPass || expected.FindingCount != 0 {
 			errors = append(errors, prefix+" counterexample expectation must be PASS without findings")
-		}
-	case "insufficient":
-		if expected.SemanticResult != quality.ResultManualReview || expected.FindingCount != 1 || expected.Severity != "S3" || expected.TriggerConfidence != "T2" || expected.EvidenceLevel != "E1" || expected.VerifierResult != "not_run" {
-			errors = append(errors, prefix+" insufficient expectation must be S3/T2/E1 MANUAL_REVIEW")
 		}
 	}
 	return errors

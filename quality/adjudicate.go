@@ -32,46 +32,40 @@ func Adjudicate(request ReviewRequest, review ModelReview, policy PolicyManifest
 		},
 	}
 
+	// Fatal validation only: policy, request, and report-level structure.
 	validationErrors := append(ValidatePolicy(policy), ValidateRequest(request)...)
-	validationErrors = append(validationErrors, ValidateModelReview(review, policy)...)
+	validationErrors = append(validationErrors, ValidateModelReviewStructure(review, policy)...)
 	if len(validationErrors) > 0 {
 		result.Adjudication.SemanticResult = ResultIncomplete
 		result.Adjudication.Reasons = uniqueSorted(validationErrors)
 		return result
 	}
 
+	// Per-finding: drop malformed findings, keep the rest as MANUAL_REVIEW.
+	var dropped []string
 	for _, finding := range review.Findings {
-		verdict := adjudicateFinding(finding)
-		if verdict == "" {
+		if problems := ValidateFinding(finding, policy); len(problems) > 0 {
+			dropped = append(dropped, fmt.Sprintf("dropped finding %s: %s", finding.ID, strings.Join(problems, "; ")))
 			continue
 		}
 		result.Findings = append(result.Findings, AdjudicatedFinding{
 			Candidate:    finding,
-			FinalVerdict: verdict,
+			FinalVerdict: ResultManualReview,
 		})
 	}
+	if len(dropped) > 0 {
+		result.MissingContext = append(result.MissingContext, dropped...)
+	}
 
-	for _, finding := range result.Findings {
-		if finding.FinalVerdict == ResultBlock {
-			result.Adjudication.SemanticResult = ResultBlock
+	if len(result.Findings) > 0 {
+		result.Adjudication.SemanticResult = ResultManualReview
+		for _, finding := range result.Findings {
 			result.Adjudication.Reasons = append(
 				result.Adjudication.Reasons,
-				fmt.Sprintf("%s satisfies the V1.1 blocking formula", finding.Candidate.ID),
+				fmt.Sprintf("%s requires manual review", finding.Candidate.ID),
 			)
 		}
-	}
-	if result.Adjudication.SemanticResult != ResultBlock {
-		for _, finding := range result.Findings {
-			if finding.FinalVerdict == ResultManualReview {
-				result.Adjudication.SemanticResult = ResultManualReview
-				result.Adjudication.Reasons = append(
-					result.Adjudication.Reasons,
-					fmt.Sprintf("%s requires manual review", finding.Candidate.ID),
-				)
-			}
-		}
-	}
-	if result.Adjudication.SemanticResult == ResultPass {
+	} else {
 		result.Adjudication.Reasons = []string{"no material changed-code finding was reported"}
 	}
 	return result
@@ -102,38 +96,6 @@ func IncompleteResultWithExecution(request ReviewRequest, policy PolicyManifest,
 			Reasons:        uniqueSorted(reasons),
 		},
 	}
-}
-
-func adjudicateFinding(finding Finding) string {
-	if finding.VerifierResult == "refuted" {
-		return ""
-	}
-	if finding.VerifierResult == "insufficient" {
-		return ResultManualReview
-	}
-	if satisfiesBlockFormula(finding) {
-		if finding.VerifierResult == "confirmed" {
-			return ResultBlock
-		}
-		return ResultManualReview
-	}
-	if !finding.FindingIsNotStylePreference {
-		return ""
-	}
-	if finding.Severity == "S1" || finding.TriggerConfidence == "T1" {
-		return ""
-	}
-	return ResultManualReview
-}
-
-func satisfiesBlockFormula(finding Finding) bool {
-	return finding.Severity == "S3" &&
-		finding.TriggerConfidence == "T3" &&
-		(finding.EvidenceLevel == "E2" || finding.EvidenceLevel == "E3") &&
-		finding.IntroducedOrWorsenedByChange &&
-		finding.FindingIsNotStylePreference &&
-		strings.TrimSpace(finding.TriggerCondition) != "" &&
-		len(finding.CausalChain) > 0
 }
 
 func nonNilInspected(values []InspectedContext) []InspectedContext {

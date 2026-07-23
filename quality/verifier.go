@@ -2,7 +2,6 @@ package quality
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -13,7 +12,7 @@ type VerifierRequest struct {
 }
 
 func ValidateMainReview(review ModelReview, policy PolicyManifest) []string {
-	errors := ValidateModelReview(review, policy)
+	errors := ValidateModelReviewStructure(review, policy)
 	for index, finding := range review.Findings {
 		if finding.VerifierResult != "not_run" {
 			errors = append(errors, fmt.Sprintf("findings[%d].verifier_result must be not_run in the main review", index))
@@ -23,16 +22,7 @@ func ValidateMainReview(review ModelReview, policy PolicyManifest) []string {
 }
 
 func PotentialBlockFindings(review ModelReview) []Finding {
-	candidates := make([]Finding, 0, len(review.Findings))
-	for _, finding := range review.Findings {
-		if finding.ProposedVerdict == ResultBlock && finding.VerifierResult == "not_run" && satisfiesBlockFormula(finding) {
-			candidates = append(candidates, finding)
-		}
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].ID < candidates[j].ID
-	})
-	return candidates
+	return []Finding{}
 }
 
 func BuildVerifierRequest(request ReviewRequest, review ModelReview) VerifierRequest {

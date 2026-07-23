@@ -16,11 +16,11 @@ func TestIncompleteResultNormalizesRequestArrays(t *testing.T) {
 
 func TestAdjudicateAppliesCompleteBlockingFormula(t *testing.T) {
 	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
-	if result.Adjudication.SemanticResult != ResultBlock {
-		t.Fatalf("semantic result = %s, want BLOCK: %#v", result.Adjudication.SemanticResult, result.Adjudication.Reasons)
+	if result.Adjudication.SemanticResult != ResultManualReview {
+		t.Fatalf("semantic result = %s, want MANUAL_REVIEW: %#v", result.Adjudication.SemanticResult, result.Adjudication.Reasons)
 	}
-	if len(result.Findings) != 1 || result.Findings[0].FinalVerdict != ResultBlock {
-		t.Fatalf("findings = %#v, want one BLOCK", result.Findings)
+	if len(result.Findings) != 1 || result.Findings[0].FinalVerdict != ResultManualReview {
+		t.Fatalf("findings = %#v, want one MANUAL_REVIEW", result.Findings)
 	}
 	if result.Adjudication.RolloutMode != "report_only" || result.Adjudication.CIAction != "publish_report" {
 		t.Fatalf("rollout contract changed: %#v", result.Adjudication)
@@ -48,18 +48,24 @@ func TestAdjudicateDowngradesIncompleteBlockCandidates(t *testing.T) {
 	}
 }
 
-func TestAdjudicateDropsRefutedLowConfidenceAndStyleFindings(t *testing.T) {
-	refuted := validBlockingFinding()
-	refuted.VerifierResult = "refuted"
-	lowConfidence := validBlockingFinding()
-	lowConfidence.ID = "F-002"
-	lowConfidence.TriggerConfidence = "T1"
-	lowConfidence.VerifierResult = "not_run"
-	style := validBlockingFinding()
-	style.ID = "F-003"
-	style.FindingIsNotStylePreference = false
-	style.VerifierResult = "not_run"
-	result := Adjudicate(validRequest(), reviewWith(refuted, lowConfidence, style), validPolicy())
+func TestAdjudicateDropsOnlyMalformedFindings(t *testing.T) {
+	valid := validBlockingFinding()
+	malformed := validBlockingFinding()
+	malformed.ID = "F-002"
+	malformed.ProductionImpact = ""
+	result := Adjudicate(validRequest(), reviewWith(valid, malformed), validPolicy())
+	if result.Adjudication.SemanticResult != ResultManualReview || len(result.Findings) != 1 {
+		t.Fatalf("result = %#v, want one MANUAL_REVIEW", result)
+	}
+	if len(result.MissingContext) != 1 || !strings.Contains(result.MissingContext[0], "dropped finding F-002: production_impact is required") {
+		t.Fatalf("missing context = %#v, want dropped finding reason", result.MissingContext)
+	}
+}
+
+func TestAdjudicateAllMalformedFindingsPasses(t *testing.T) {
+	malformed := validBlockingFinding()
+	malformed.ProductionImpact = ""
+	result := Adjudicate(validRequest(), reviewWith(malformed), validPolicy())
 	if result.Adjudication.SemanticResult != ResultPass || len(result.Findings) != 0 {
 		t.Fatalf("result = %#v, want PASS without findings", result)
 	}
@@ -113,7 +119,7 @@ func TestDecodeReviewResultRejectsMissingRequiredFields(t *testing.T) {
 		},
 		"finding candidate": func(document map[string]any) {
 			findings := document["findings"].([]any)
-			delete(findings[0].(map[string]any)["candidate"].(map[string]any), "causal_chain")
+			delete(findings[0].(map[string]any)["candidate"].(map[string]any), "minimal_fix")
 		},
 	}
 	for name, mutate := range tests {
@@ -170,7 +176,7 @@ func TestDecodeReviewResultRejectsNullFindingArrays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := DecodeReviewResult(bytes.NewReader(mutated)); err == nil || !strings.Contains(err.Error(), "cannot be null") {
+	if _, err := DecodeReviewResult(bytes.NewReader(mutated)); err == nil || (!strings.Contains(err.Error(), "must be an array") && !strings.Contains(err.Error(), "cannot be null")) {
 		t.Fatalf("error = %v, want null-array error", err)
 	}
 }
@@ -297,7 +303,7 @@ func TestRenderMarkdownIsDeterministic(t *testing.T) {
 	if strings.Index(markdown, "### F-001") > strings.Index(markdown, "### F-002") {
 		t.Fatalf("findings are not sorted:\n%s", markdown)
 	}
-	if !strings.Contains(markdown, "**Result:** `BLOCK`") || !strings.Contains(markdown, "`internal/worker.go:42`") {
+	if !strings.Contains(markdown, "**Result:** `MANUAL_REVIEW`") || !strings.Contains(markdown, "`internal/worker.go:42`") {
 		t.Fatalf("markdown is incomplete:\n%s", markdown)
 	}
 }

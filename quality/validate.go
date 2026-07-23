@@ -10,14 +10,9 @@ import (
 )
 
 var (
-	validSeverity     = set("S1", "S2", "S3")
-	validTrigger      = set("T1", "T2", "T3")
-	validEvidence     = set("E1", "E2", "E3")
-	validProposal     = set("MANUAL_REVIEW", "BLOCK")
-	validVerification = set("not_run", "confirmed", "refuted", "insufficient")
-	validDimensions   = set("D1", "D2", "D3", "D4")
-	validRuleStatus   = set("report_only", "block_eligible")
-	requiredRules     = map[string]string{
+	validDimensions = set("D1", "D2", "D3", "D4")
+	validRuleStatus = set("report_only", "block_eligible")
+	requiredRules   = map[string]string{
 		"DES-001": "D1", "DES-002": "D1", "DES-003": "D1", "DES-004": "D1", "DES-005": "D1",
 		"COR-001": "D2", "COR-002": "D2", "COR-003": "D2", "COR-004": "D2", "COR-005": "D2",
 		"REL-001": "D3", "REL-002": "D3", "REL-003": "D3", "REL-004": "D3", "REL-005": "D3",
@@ -120,7 +115,10 @@ func ValidateRequest(request ReviewRequest) []string {
 	return uniqueSorted(errors)
 }
 
-func ValidateModelReview(review ModelReview, policy PolicyManifest) []string {
+// ValidateModelReviewStructure checks only report-level structure. These are
+// fatal: any error means the whole review is INCOMPLETE. Per-finding field
+// quality is checked separately by ValidateFinding and is forgiving.
+func ValidateModelReviewStructure(review ModelReview, policy PolicyManifest) []string {
 	var errors []string
 	errors = append(errors, validateExecution(review.Execution, policy, false)...)
 	if hasBlankOrDuplicate(review.ActivatedRuleFamilies) {
@@ -153,63 +151,14 @@ func ValidateModelReview(review ModelReview, policy PolicyManifest) []string {
 	if len(seenFamilies) != len(validDimensions) {
 		errors = append(errors, "every V1.1 dimension must be active or have an inactive reason")
 	}
-	knownRules := make(map[string]struct{}, len(policy.Rules))
-	for _, rule := range policy.Rules {
-		knownRules[rule.ID] = struct{}{}
-	}
 	seenFindings := map[string]struct{}{}
 	for index, finding := range review.Findings {
-		prefix := fmt.Sprintf("findings[%d]", index)
 		if strings.TrimSpace(finding.ID) == "" {
-			errors = append(errors, prefix+".id is required")
+			errors = append(errors, fmt.Sprintf("findings[%d].id is required", index))
 		} else if _, exists := seenFindings[finding.ID]; exists {
-			errors = append(errors, prefix+".id is duplicated")
+			errors = append(errors, fmt.Sprintf("findings[%d].id is duplicated", index))
 		} else {
 			seenFindings[finding.ID] = struct{}{}
-		}
-		if _, ok := knownRules[finding.RuleID]; !ok {
-			errors = append(errors, prefix+".rule_id is unknown")
-		}
-		if _, ok := validProposal[finding.ProposedVerdict]; !ok {
-			errors = append(errors, prefix+".proposed_verdict is invalid")
-		}
-		if _, ok := validSeverity[finding.Severity]; !ok {
-			errors = append(errors, prefix+".severity is invalid")
-		}
-		if _, ok := validTrigger[finding.TriggerConfidence]; !ok {
-			errors = append(errors, prefix+".trigger_confidence is invalid")
-		}
-		if _, ok := validEvidence[finding.EvidenceLevel]; !ok {
-			errors = append(errors, prefix+".evidence_level is invalid")
-		}
-		if _, ok := validVerification[finding.VerifierResult]; !ok {
-			errors = append(errors, prefix+".verifier_result is invalid")
-		}
-		if len(finding.CodeLocations) == 0 {
-			errors = append(errors, prefix+".code_locations is required")
-		}
-		for _, location := range finding.CodeLocations {
-			if !isCleanRelativePath(location.Path) || location.Line < 1 {
-				errors = append(errors, prefix+".code_locations contains an invalid location")
-			}
-		}
-		if hasBlank(finding.AffectedCallPath) {
-			errors = append(errors, prefix+".affected_call_path is required")
-		}
-		if strings.TrimSpace(finding.TriggerCondition) == "" {
-			errors = append(errors, prefix+".trigger_condition is required")
-		}
-		if hasBlank(finding.CausalChain) {
-			errors = append(errors, prefix+".causal_chain is required")
-		}
-		if strings.TrimSpace(finding.ProductionImpact) == "" {
-			errors = append(errors, prefix+".production_impact is required")
-		}
-		if hasBlank(finding.VerificationPerformed) {
-			errors = append(errors, prefix+".verification_performed is required")
-		}
-		if strings.TrimSpace(finding.MinimalFix) == "" {
-			errors = append(errors, prefix+".minimal_fix is required")
 		}
 	}
 	if containsBlank(review.UninspectedScope) {
@@ -229,6 +178,38 @@ func ValidateModelReview(review ModelReview, policy PolicyManifest) []string {
 		seenContext[context.Path] = struct{}{}
 	}
 	return uniqueSorted(errors)
+}
+
+// ValidateFinding returns the reasons a single finding is not reportable. An
+// empty result means the finding is kept; a non-empty result means the
+// adjudicator drops just this finding (it never fails the whole review).
+func ValidateFinding(finding Finding, policy PolicyManifest) []string {
+	var problems []string
+	known := false
+	for _, rule := range policy.Rules {
+		if rule.ID == finding.RuleID {
+			known = true
+			break
+		}
+	}
+	if !known {
+		problems = append(problems, "rule_id is unknown")
+	}
+	if len(finding.CodeLocations) == 0 {
+		problems = append(problems, "code_locations is required")
+	}
+	for _, location := range finding.CodeLocations {
+		if !isCleanRelativePath(location.Path) || location.Line < 1 {
+			problems = append(problems, "code_locations contains an invalid location")
+		}
+	}
+	if strings.TrimSpace(finding.ProductionImpact) == "" {
+		problems = append(problems, "production_impact is required")
+	}
+	if strings.TrimSpace(finding.MinimalFix) == "" {
+		problems = append(problems, "minimal_fix is required")
+	}
+	return problems
 }
 
 func validateExecution(execution Execution, policy PolicyManifest, allowAbsent bool) []string {

@@ -82,6 +82,9 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 			t.Fatal("Codex output schema uses an unsupported draft declaration")
 		}
 	}
+	if lens, err := ReviewLens(); err != nil || !strings.Contains(string(lens), "最多 3 个最高影响的独立根因") {
+		t.Fatalf("embedded review lens unavailable: %v", err)
+	}
 }
 
 func TestEmbeddedRubricMatchesV1RuntimeAgentContract(t *testing.T) {
@@ -108,7 +111,7 @@ func TestEmbeddedWorkflowUsesOrdinarySingleAgentReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	workflow := string(raw)
-	for _, expected := range []string{"ordinary diff-first code review", `proposed_verdict: "MANUAL_REVIEW"`, "do not start another Agent"} {
+	for _, expected := range []string{"ordinary diff-first review", "Each finding needs only", "Do not start a subagent"} {
 		if !strings.Contains(workflow, expected) {
 			t.Fatalf("embedded workflow is missing %q", expected)
 		}

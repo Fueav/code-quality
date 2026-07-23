@@ -25,12 +25,12 @@ func TestDecodeModelReviewRejectsOversizedInput(t *testing.T) {
 	}
 }
 
-func TestDecodeModelReviewRequiresFindingAndLocationFields(t *testing.T) {
-	review := validDecodeModelReview()
-	raw, err := json.Marshal(review)
-	if err != nil {
-		t.Fatal(err)
+func TestDecodeModelReviewAcceptsFiveRequiredFindingFields(t *testing.T) {
+	raw := []byte(`{"activated_rule_families":["D1"],"inactive_rule_families":[{"id":"D2","reason":"not affected"},{"id":"D3","reason":"not affected"},{"id":"D4","reason":"not affected"}],"findings":[{"id":"F-001","rule_id":"DES-003","code_locations":[{"path":"app.go","line":1}],"production_impact":"impact","minimal_fix":"fix"}],"uninspected_scope":[],"missing_context":[],"inspected_context":[{"path":"app.go","purpose":"Trace the changed entry."}]}`)
+	if _, err := DecodeModelReview(strings.NewReader(string(raw))); err != nil {
+		t.Fatalf("minimal finding was rejected: %v", err)
 	}
+
 	var document map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &document); err != nil {
 		t.Fatal(err)
@@ -39,17 +39,6 @@ func TestDecodeModelReviewRequiresFindingAndLocationFields(t *testing.T) {
 	if err := json.Unmarshal(document["findings"], &findings); err != nil {
 		t.Fatal(err)
 	}
-	delete(findings[0], "trigger_condition")
-	document["findings"], _ = json.Marshal(findings)
-	raw, _ = json.Marshal(document)
-	if _, err := DecodeModelReview(strings.NewReader(string(raw))); err == nil || !strings.Contains(err.Error(), "trigger_condition is required") {
-		t.Fatalf("error = %v", err)
-	}
-
-	review = validDecodeModelReview()
-	raw, _ = json.Marshal(review)
-	_ = json.Unmarshal(raw, &document)
-	_ = json.Unmarshal(document["findings"], &findings)
 	var locations []map[string]json.RawMessage
 	_ = json.Unmarshal(findings[0]["code_locations"], &locations)
 	delete(locations[0], "line")

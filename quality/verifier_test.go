@@ -2,7 +2,7 @@ package quality
 
 import "testing"
 
-func TestPotentialBlockFindingsUsesCompleteFormula(t *testing.T) {
+func TestPotentialBlockFindingsIsDisabled(t *testing.T) {
 	block := validBlockingFinding()
 	block.VerifierResult = "not_run"
 	manual := block
@@ -10,7 +10,7 @@ func TestPotentialBlockFindingsUsesCompleteFormula(t *testing.T) {
 	manual.ProposedVerdict = ResultManualReview
 	review := reviewWith(manual, block)
 	candidates := PotentialBlockFindings(review)
-	if len(candidates) != 1 || candidates[0].ID != "F-001" {
+	if len(candidates) != 0 {
 		t.Fatalf("candidates = %#v", candidates)
 	}
 }
@@ -53,7 +53,7 @@ func TestMergeVerifierReviewControlsBlocking(t *testing.T) {
 	merged := MergeVerifierReview(main, verifier)
 	merged.Execution = Execution{Host: "claude-code", SkillVersion: "0.1.1", AgentCount: 2, VerifierCount: 1}
 	result := Adjudicate(validRequest(), merged, validPolicy())
-	if result.Adjudication.SemanticResult != ResultBlock {
+	if result.Adjudication.SemanticResult != ResultManualReview {
 		t.Fatalf("result = %#v", result)
 	}
 	if got := merged.Findings[0].VerificationPerformed[len(merged.Findings[0].VerificationPerformed)-1]; got != "Verifier: Confirmed the entry, trigger, and production scale." {

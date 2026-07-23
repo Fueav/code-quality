@@ -1,11 +1,8 @@
 package session
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -18,10 +15,7 @@ import (
 	"github.com/Fueav/code-quality/quality"
 )
 
-const (
-	maxSnapshotBytes = int64(512 << 20)
-	maxDiffBytes     = int64(2 << 20)
-)
+const maxDiffBytes = int64(2 << 20)
 
 type Layout struct {
 	SessionDir          string
@@ -72,9 +66,10 @@ type Options struct {
 }
 
 type Metadata struct {
-	SchemaVersion int    `json:"schema_version"`
-	Host          string `json:"host"`
-	SkillVersion  string `json:"skill_version"`
+	SchemaVersion  int    `json:"schema_version"`
+	Host           string `json:"host"`
+	SkillVersion   string `json:"skill_version"`
+	RepositoryRoot string `json:"repository_root"`
 }
 
 func Prepare(ctx context.Context, options Options) (Prepared, error) {
@@ -95,20 +90,21 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, fmt.Errorf("create review session: %w", err)
 	}
+	layout := NewLayout(directory)
 	prepared := false
 	defer func() {
 		if !prepared {
+			removeWorktree(options.RepositoryRoot, layout.RepositoryDir)
 			_ = cleanupPartialSession(root, directory)
 		}
 	}()
-	layout := NewLayout(directory)
-	if err := os.MkdirAll(layout.RepositoryDir, 0o700); err != nil {
+	if err := os.MkdirAll(layout.InputDir, 0o700); err != nil {
 		return Prepared{}, err
 	}
 	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
 		return Prepared{}, err
 	}
-	if err := extractCommit(ctx, options.RepositoryRoot, options.Request.TargetCommit, layout.RepositoryDir); err != nil {
+	if err := addWorktree(ctx, options.RepositoryRoot, options.Request.TargetCommit, layout.RepositoryDir); err != nil {
 		return Prepared{}, err
 	}
 	evidence, err := DiscoverEvidence(options.RepositoryRoot, options.Request.TargetCommit, layout.EvidenceDir)
@@ -121,13 +117,13 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if err := writeJSON(layout.RequestPath, options.Request); err != nil {
 		return Prepared{}, err
 	}
-	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion}); err != nil {
+	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion, RepositoryRoot: options.RepositoryRoot}); err != nil {
 		return Prepared{}, err
 	}
 	if err := writeTrustedDiff(ctx, options.RepositoryRoot, options.Request, layout.DiffPath); err != nil {
 		return Prepared{}, err
 	}
-	if err := writeEmbedded(layout.RubricPath, bundle.Rubric); err != nil {
+	if err := writeEmbedded(layout.RubricPath, bundle.ReviewLens); err != nil {
 		return Prepared{}, err
 	}
 	if err := writeEmbedded(layout.WorkflowPath, bundle.Workflow); err != nil {
@@ -138,12 +134,6 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	}
 	if err := writeSchema(layout.VerifierSchemaPath, "verifier-review.schema.json"); err != nil {
 		return Prepared{}, err
-	}
-	if err := writeInputManifest(layout); err != nil {
-		return Prepared{}, err
-	}
-	if err := makeReadOnly(layout.InputDir); err != nil {
-		return Prepared{}, fmt.Errorf("make review input read-only: %w", err)
 	}
 	prepared = true
 	return Prepared{
@@ -246,74 +236,6 @@ func ReadRegularFile(path string, limit int64) ([]byte, error) {
 	return raw, nil
 }
 
-type inputManifest struct {
-	SchemaVersion int               `json:"schema_version"`
-	Files         map[string]string `json:"files"`
-}
-
-func writeInputManifest(layout Layout) error {
-	files, err := inputDigests(layout.InputDir)
-	if err != nil {
-		return err
-	}
-	return writeJSON(layout.ManifestPath, inputManifest{SchemaVersion: 1, Files: files})
-}
-
-func VerifyInputManifest(layout Layout) error {
-	raw, err := ReadRegularFile(layout.ManifestPath, maxReviewBytes)
-	if err != nil {
-		return fmt.Errorf("read input manifest: %w", err)
-	}
-	manifest, err := quality.DecodeStrict[inputManifest](bytes.NewReader(raw))
-	if err != nil {
-		return fmt.Errorf("decode input manifest: %w", err)
-	}
-	if manifest.SchemaVersion != 1 {
-		return errors.New("input manifest schema_version must be 1")
-	}
-	actual, err := inputDigests(layout.InputDir)
-	if err != nil {
-		return err
-	}
-	if len(actual) != len(manifest.Files) {
-		return errors.New("trusted review input was modified")
-	}
-	for path, digest := range manifest.Files {
-		actualDigest, exists := actual[path]
-		if !exists || !validSHA256(digest) || actualDigest != digest {
-			return errors.New("trusted review input was modified")
-		}
-	}
-	return nil
-}
-
-func inputDigests(root string) (map[string]string, error) {
-	result := map[string]string{}
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return fmt.Errorf("trusted input contains unsupported path %s", path)
-		}
-		contents, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		digest := sha256.Sum256(contents)
-		result[filepath.ToSlash(relative)] = hex.EncodeToString(digest[:])
-		return nil
-	})
-	return result, err
-}
-
 func prepareOutputRoot(value string) (string, error) {
 	if strings.TrimSpace(value) == "" {
 		return "", errors.New("output root is required")
@@ -377,104 +299,6 @@ func writeTrustedDiff(ctx context.Context, root string, request quality.ReviewRe
 	return closeErr
 }
 
-func extractCommit(ctx context.Context, root, commit, destination string) error {
-	command := exec.CommandContext(ctx, "git", "-C", root, "archive", "--format=tar", commit)
-	stdout, err := command.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("start target archive: %w", err)
-	}
-	extractErr := extractTar(stdout, destination, maxSnapshotBytes)
-	if extractErr != nil {
-		_ = stdout.Close()
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		return extractErr
-	}
-	if err := command.Wait(); err != nil {
-		return fmt.Errorf("archive target commit: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-	return nil
-}
-
-func extractTar(reader io.Reader, destination string, maxBytes int64) error {
-	archive := tar.NewReader(reader)
-	var total int64
-	for {
-		header, err := archive.Next()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("read target archive: %w", err)
-		}
-		clean := filepath.Clean(header.Name)
-		if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("archive contains unsafe path %q", header.Name)
-		}
-		target := filepath.Join(destination, clean)
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o700); err != nil {
-				return err
-			}
-		case tar.TypeReg, tar.TypeRegA:
-			if err := writeArchiveFile(archive, target, header.Size, &total, maxBytes); err != nil {
-				return err
-			}
-		case tar.TypeSymlink:
-			if err := writeArchiveBytes(target, []byte(header.Linkname), &total, maxBytes); err != nil {
-				return err
-			}
-		case tar.TypeXGlobalHeader, tar.TypeXHeader:
-			continue
-		default:
-			return fmt.Errorf("archive contains unsupported entry %q", header.Name)
-		}
-	}
-}
-
-func writeArchiveFile(reader io.Reader, target string, size int64, total *int64, limit int64) error {
-	if size < 0 || *total+size > limit {
-		return errors.New("target snapshot exceeds the configured limit")
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.CopyN(file, reader, size)
-	closeErr := file.Close()
-	if copyErr != nil {
-		return copyErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	*total += size
-	return nil
-}
-
-func writeArchiveBytes(target string, contents []byte, total *int64, limit int64) error {
-	if *total+int64(len(contents)) > limit {
-		return errors.New("target snapshot exceeds the configured limit")
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return err
-	}
-	if err := os.WriteFile(target, contents, 0o600); err != nil {
-		return err
-	}
-	*total += int64(len(contents))
-	return nil
-}
-
 func writeGitOutputLimited(ctx context.Context, root string, writer io.Writer, limit int64, arguments ...string) error {
 	command := exec.CommandContext(ctx, "git", append([]string{"-C", root}, arguments...)...)
 	stdout, err := command.StdoutPipe()
@@ -502,16 +326,20 @@ func writeGitOutputLimited(ctx context.Context, root string, writer io.Writer, l
 	return nil
 }
 
-func makeReadOnly(root string) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			return os.Chmod(path, 0o500)
-		}
-		return os.Chmod(path, 0o400)
-	})
+func addWorktree(ctx context.Context, root, commit, worktreePath string) error {
+	var stderr bytes.Buffer
+	command := exec.CommandContext(ctx, "git", "-C", root, "worktree", "add", "--detach", worktreePath, commit)
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("add review worktree: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// removeWorktree is best-effort cleanup; a leftover worktree can be pruned with
+// `git worktree prune` and does not affect the review result.
+func removeWorktree(root, worktreePath string) {
+	_ = exec.Command("git", "-C", root, "worktree", "remove", "--force", worktreePath).Run()
 }
 
 func cleanupPartialSession(root, directory string) error {

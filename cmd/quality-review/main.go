@@ -119,18 +119,14 @@ func runFinalize(args []string, policy quality.PolicyManifest, stdout, stderr io
 	flags := flag.NewFlagSet("finalize", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	sessionDir := flags.String("session", "", "prepared review session directory")
-	verifierUnavailable := flags.String("verifier-unavailable", "", "reason a verifier Agent could not run")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*sessionDir) == "" {
-		fmt.Fprintln(stderr, "usage: quality-review finalize --session <directory> [--verifier-unavailable <reason>]")
+		fmt.Fprintln(stderr, "usage: quality-review finalize --session <directory>")
 		return 2
 	}
-	result, err := reviewsession.Finalize(reviewsession.FinalizeOptions{
-		SessionDir:          *sessionDir,
-		VerifierUnavailable: *verifierUnavailable,
-	}, policy)
+	result, err := reviewsession.Finalize(reviewsession.FinalizeOptions{SessionDir: *sessionDir}, policy)
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: finalize: %v\n", err)
 		return 1
@@ -166,9 +162,6 @@ func runAdjudicate(args []string, policy quality.PolicyManifest, stdout, stderr 
 		return encodeResult(stdout, stderr, quality.IncompleteResult(request, policy, reasons...))
 	}
 	review.Execution = quality.Execution{Host: *host, SkillVersion: quality.SkillVersion, AgentCount: 1}
-	if validationErrors := quality.ValidateMainReview(review, policy); len(validationErrors) > 0 {
-		return encodeResult(stdout, stderr, quality.IncompleteResult(request, policy, "invalid main review: "+strings.Join(validationErrors, "; ")))
-	}
 	return encodeResult(stdout, stderr, quality.Adjudicate(request, review, policy))
 }
 

@@ -13,6 +13,10 @@ func Rubric() ([]byte, error) {
 	return files.ReadFile("policy/v1.1/rubric.md")
 }
 
+func ReviewLens() ([]byte, error) {
+	return files.ReadFile("policy/v1.1/review-lens.md")
+}
+
 func Workflow() ([]byte, error) {
 	return files.ReadFile("policy/v1.1/workflow.md")
 }

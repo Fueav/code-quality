@@ -9,12 +9,12 @@ import (
 )
 
 func TestRecordFromResultUsesAuthoritativeFields(t *testing.T) {
-	result := replayResult(quality.ResultBlock, "DES-003", "S3", "T3", "E2", 2, 1)
+	result := replayResult(quality.ResultManualReview, "DES-003", "S3", "T3", "E2", 1, 0)
 	record := RecordFromResult("DES-003-positive", "claude-code", 1, result, HumanReview{Status: "pending"})
-	if record.Observed.SemanticResult != quality.ResultBlock || len(record.Observed.RuleIDs) != 1 || record.Observed.RuleIDs[0] != "DES-003" {
+	if record.Observed.SemanticResult != quality.ResultManualReview || len(record.Observed.RuleIDs) != 1 || record.Observed.RuleIDs[0] != "DES-003" {
 		t.Fatalf("record = %#v", record)
 	}
-	if pointerValue(record.Observed.Severity) != "S3" || record.Observed.AgentCount != 2 || record.Observed.VerifierCount != 1 {
+	if pointerValue(record.Observed.Severity) != "S3" || record.Observed.AgentCount != 1 || record.Observed.VerifierCount != 0 {
 		t.Fatalf("observed = %#v", record.Observed)
 	}
 }
@@ -28,9 +28,9 @@ func TestReplayReportOnlySmokeDoesNotRequireHumanConfirmationOrExactRule(t *test
 	record := ReplayRecord{
 		SchemaVersion: 1, PolicyVersion: "1.1.1", CaseID: "DES-003-positive", Host: "claude-code", RunNumber: 1,
 		Observed: Observed{
-			SemanticResult: quality.ResultBlock, RuleIDs: []string{"DES-004"},
+			SemanticResult: quality.ResultManualReview, RuleIDs: []string{"DES-004"},
 			Severity: stringPointer("S3"), TriggerConfidence: stringPointer("T3"), EvidenceLevel: stringPointer("E2"),
-			AgentCount: 2, VerifierCount: 1,
+			AgentCount: 1, VerifierCount: 0,
 		},
 		HumanReview: HumanReview{Status: "pending"},
 	}
@@ -59,13 +59,13 @@ func TestReplayReportOnlySmokeCompletesWithOnePendingRunPerCase(t *testing.T) {
 		}
 		if item.Kind == "positive" {
 			observed = Observed{
-				SemanticResult:    quality.ResultBlock,
+				SemanticResult:    quality.ResultManualReview,
 				RuleIDs:           []string{item.RuleID},
 				Severity:          stringPointer("S3"),
 				TriggerConfidence: stringPointer("T3"),
 				EvidenceLevel:     stringPointer("E2"),
-				AgentCount:        2,
-				VerifierCount:     1,
+				AgentCount:        1,
+				VerifierCount:     0,
 			}
 		} else if item.Kind == "counterexample" {
 			observed.SemanticResult = quality.ResultManualReview
@@ -110,20 +110,19 @@ func TestReplaySmokeUsesCoarseRiskExpectations(t *testing.T) {
 	}
 	positive := findCase(t, manifest, "DES-003-positive")
 	positiveRecord := ReplayRecord{Observed: Observed{
-		SemanticResult: quality.ResultBlock,
+		SemanticResult: quality.ResultManualReview,
 		RuleIDs:        []string{"DES-003"},
 		Severity:       stringPointer("S3"), TriggerConfidence: stringPointer("T3"), EvidenceLevel: stringPointer("E2"),
 	}}
-	if matchesSmokeExpectation(positive, positiveRecord) {
-		t.Fatal("positive replay without its required verifier must not match")
+	if !matchesSmokeExpectation(positive, positiveRecord) {
+		t.Fatal("report-only positive replay should match without a verifier")
 	}
-	positiveRecord.Observed.VerifierCount = 1
 	positiveRecord.Observed.RuleIDs = []string{"DES-004"}
 	positiveRecord.Observed.Severity = stringPointer("S2")
 	positiveRecord.Observed.TriggerConfidence = stringPointer("T2")
 	positiveRecord.Observed.EvidenceLevel = stringPointer("E1")
 	if !matchesSmokeExpectation(positive, positiveRecord) {
-		t.Fatal("verified high-risk replay should match without exact rule or S/T/E grading")
+		t.Fatal("positive replay should match without exact rule or S/T/E grading")
 	}
 
 	counterexample := findCase(t, manifest, "DES-003-counterexample")

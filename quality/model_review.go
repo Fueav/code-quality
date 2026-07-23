@@ -50,10 +50,7 @@ var requiredModelReviewFields = []string{
 }
 
 var requiredFindingFields = []string{
-	"id", "rule_id", "proposed_verdict", "severity", "trigger_confidence", "evidence_level",
-	"introduced_or_worsened_by_change", "finding_is_not_style_preference", "code_locations",
-	"affected_call_path", "trigger_condition", "causal_chain", "production_impact",
-	"verification_performed", "minimal_fix", "uncertainties", "verifier_result",
+	"id", "rule_id", "code_locations", "production_impact", "minimal_fix",
 }
 
 func DecodeModelReview(reader io.Reader) (ModelReview, error) {
@@ -113,10 +110,8 @@ func validateModelReviewShape(raw []byte) error {
 		if err := requireFields(finding, prefix, requiredFindingFields...); err != nil {
 			return err
 		}
-		for _, field := range []string{"code_locations", "affected_call_path", "causal_chain", "verification_performed", "uncertainties"} {
-			if !isJSONArray(finding[field]) {
-				return fmt.Errorf("%s.%s must be an array", prefix, field)
-			}
+		if !isJSONArray(finding["code_locations"]) {
+			return fmt.Errorf("%s.code_locations must be an array", prefix)
 		}
 		var locations []map[string]json.RawMessage
 		if err := json.Unmarshal(finding["code_locations"], &locations); err != nil {

@@ -50,8 +50,8 @@ func TestPrepareCreatesCommittedReviewSession(t *testing.T) {
 	if !strings.Contains(string(contents), "func Run") {
 		t.Fatalf("snapshot = %q", contents)
 	}
-	if _, err := os.Lstat(filepath.Join(prepared.RepositoryDir, ".git")); !os.IsNotExist(err) {
-		t.Fatalf("snapshot exposes .git: %v", err)
+	if info, err := os.Lstat(filepath.Join(prepared.RepositoryDir, ".git")); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("repository is not a git worktree: %v", err)
 	}
 	for _, path := range []string{prepared.RequestPath, prepared.DiffPath, prepared.RubricPath, prepared.ModelSchemaPath} {
 		info, err := os.Lstat(path)
@@ -71,6 +71,9 @@ func TestFinalizeReportOnlyManualFindingUsesOneAgent(t *testing.T) {
 	finalized := finalizeSession(t, prepared.SessionDir)
 	if finalized.Status != "COMPLETE" || finalized.SemanticResult != quality.ResultManualReview {
 		t.Fatalf("finalized = %#v", finalized)
+	}
+	if _, err := os.Lstat(prepared.RepositoryDir); !os.IsNotExist(err) {
+		t.Fatalf("worktree was not removed: %v", err)
 	}
 	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
 	if result.Execution.AgentCount != 1 || result.Execution.VerifierCount != 0 {
@@ -94,66 +97,6 @@ func TestFinalizeReportOnlyManualFindingUsesOneAgent(t *testing.T) {
 	}
 }
 
-func TestFinalizeRequestsOneBatchVerifierAndBlocksWhenConfirmed(t *testing.T) {
-	repo, base, target := cliReviewFixture(t)
-	prepared, _ := prepareSession(t, repo, base, target)
-	writeJSON(t, prepared.MainReviewPath, integrationMainReview())
-
-	first := finalizeSession(t, prepared.SessionDir)
-	if first.Status != "NEEDS_VERIFIER" || first.VerifierRequestPath == "" || first.VerifierReviewPath == "" {
-		t.Fatalf("first finalize = %#v", first)
-	}
-	request := readJSON[quality.VerifierRequest](t, first.VerifierRequestPath)
-	if len(request.Candidates) != 1 || request.Candidates[0].ID != "F-001" {
-		t.Fatalf("verifier request = %#v", request)
-	}
-	writeJSON(t, first.VerifierReviewPath, quality.VerifierReview{Decisions: []quality.VerifierDecision{{
-		FindingID: "F-001", Result: "confirmed",
-		VerificationSummary: "Confirmed the production entry, concrete trigger, and complete chain.",
-		Uncertainties:       []string{},
-	}}})
-
-	second := finalizeSession(t, prepared.SessionDir)
-	if second.Status != "COMPLETE" || second.SemanticResult != quality.ResultBlock {
-		t.Fatalf("second finalize = %#v", second)
-	}
-	result := readJSON[quality.ReviewResult](t, second.ResultPath)
-	if result.Execution.AgentCount != 2 || result.Execution.VerifierCount != 1 || len(result.Findings) != 1 {
-		t.Fatalf("result = %#v", result)
-	}
-	if result.Findings[0].Candidate.VerifierResult != "confirmed" {
-		t.Fatalf("verifier result was not merged: %#v", result.Findings[0])
-	}
-}
-
-func TestFinalizeCanRecordUnavailableVerifierWithoutForgingBlock(t *testing.T) {
-	repo, base, target := cliReviewFixture(t)
-	prepared, _ := prepareSession(t, repo, base, target)
-	writeJSON(t, prepared.MainReviewPath, integrationMainReview())
-	var stdout, stderr bytes.Buffer
-	code := run([]string{
-		"finalize", "--session", prepared.SessionDir,
-		"--verifier-unavailable", "host does not expose subagents",
-	}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
-	}
-	var finalized reviewsession.Finalized
-	if err := json.Unmarshal(stdout.Bytes(), &finalized); err != nil {
-		t.Fatal(err)
-	}
-	if finalized.SemanticResult != quality.ResultManualReview {
-		t.Fatalf("finalized = %#v", finalized)
-	}
-	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
-	if result.Execution.AgentCount != 1 || result.Findings[0].Candidate.VerifierResult != "not_run" {
-		t.Fatalf("result = %#v", result)
-	}
-	if len(result.MissingContext) != 1 || !strings.Contains(result.MissingContext[0], "host does not expose subagents") {
-		t.Fatalf("missing context = %#v", result.MissingContext)
-	}
-}
-
 func TestFinalizeMissingMainReviewProducesIncompleteReport(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	prepared, _ := prepareSession(t, repo, base, target)
@@ -161,79 +104,11 @@ func TestFinalizeMissingMainReviewProducesIncompleteReport(t *testing.T) {
 	if finalized.Status != "INCOMPLETE" || finalized.SemanticResult != quality.ResultIncomplete {
 		t.Fatalf("finalized = %#v", finalized)
 	}
+	if _, err := os.Lstat(prepared.RepositoryDir); !os.IsNotExist(err) {
+		t.Fatalf("worktree was not removed: %v", err)
+	}
 	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
 	if len(result.Adjudication.Reasons) != 1 || !strings.Contains(result.Adjudication.Reasons[0], "main review is missing") {
-		t.Fatalf("result = %#v", result)
-	}
-}
-
-func TestFinalizeDetectsModifiedTrustedInput(t *testing.T) {
-	repo, base, target := cliReviewFixture(t)
-	prepared, _ := prepareSession(t, repo, base, target)
-	restoreFixturePermissions(prepared.SessionDir)
-	if err := os.WriteFile(prepared.DiffPath, []byte("forged diff\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	writeJSON(t, prepared.MainReviewPath, integrationMainReview())
-	finalized := finalizeSession(t, prepared.SessionDir)
-	if finalized.Status != "INCOMPLETE" {
-		t.Fatalf("finalized = %#v", finalized)
-	}
-	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
-	if len(result.Adjudication.Reasons) != 1 || !strings.Contains(result.Adjudication.Reasons[0], "trusted review input was modified") {
-		t.Fatalf("result = %#v", result)
-	}
-}
-
-func TestFinalizeRejectsForgedManifestKeysWithEmptyDigests(t *testing.T) {
-	repo, base, target := cliReviewFixture(t)
-	prepared, _ := prepareSession(t, repo, base, target)
-	restoreFixturePermissions(prepared.SessionDir)
-	var manifest struct {
-		SchemaVersion int               `json:"schema_version"`
-		Files         map[string]string `json:"files"`
-	}
-	manifest = readJSON[struct {
-		SchemaVersion int               `json:"schema_version"`
-		Files         map[string]string `json:"files"`
-	}](t, prepared.ManifestPath)
-	paths := make([]string, 0, len(manifest.Files))
-	for path := range manifest.Files {
-		paths = append(paths, path)
-	}
-	for _, path := range paths {
-		delete(manifest.Files, path)
-		manifest.Files["forged/"+path] = ""
-	}
-	writeJSON(t, prepared.ManifestPath, manifest)
-	writeJSON(t, prepared.MainReviewPath, integrationMainReview())
-	finalized := finalizeSession(t, prepared.SessionDir)
-	if finalized.Status != "INCOMPLETE" {
-		t.Fatalf("finalized = %#v", finalized)
-	}
-	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
-	if len(result.Adjudication.Reasons) != 1 || !strings.Contains(result.Adjudication.Reasons[0], "trusted review input was modified") {
-		t.Fatalf("result = %#v", result)
-	}
-}
-
-func TestFinalizeRejectsTamperedVerifierRequest(t *testing.T) {
-	repo, base, target := cliReviewFixture(t)
-	prepared, _ := prepareSession(t, repo, base, target)
-	writeJSON(t, prepared.MainReviewPath, integrationMainReview())
-	first := finalizeSession(t, prepared.SessionDir)
-	request := readJSON[quality.VerifierRequest](t, first.VerifierRequestPath)
-	request.Candidates[0].ID = "F-forged"
-	if err := os.Chmod(first.VerifierRequestPath, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	writeJSON(t, first.VerifierRequestPath, request)
-	second := finalizeSession(t, prepared.SessionDir)
-	if second.Status != "INCOMPLETE" {
-		t.Fatalf("finalized = %#v", second)
-	}
-	result := readJSON[quality.ReviewResult](t, second.ResultPath)
-	if len(result.Adjudication.Reasons) != 1 || !strings.Contains(result.Adjudication.Reasons[0], "existing verifier request does not match") {
 		t.Fatalf("result = %#v", result)
 	}
 }
@@ -466,7 +341,10 @@ func prepareSession(t *testing.T, repo, base, target string) (reviewsession.Prep
 	if err := json.Unmarshal(stdout.Bytes(), &prepared); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { restoreFixturePermissions(prepared.SessionDir) })
+	t.Cleanup(func() {
+		_ = exec.Command("git", "-C", repo, "worktree", "remove", "--force", prepared.RepositoryDir).Run()
+		restoreFixturePermissions(prepared.SessionDir)
+	})
 	return prepared, stderr.String()
 }
 
