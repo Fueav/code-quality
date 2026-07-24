@@ -9,12 +9,12 @@ import (
 )
 
 func TestRecordFromResultUsesAuthoritativeFields(t *testing.T) {
-	result := replayResult(quality.ResultManualReview, "DES-003", "S3", "T3", "E2", 1, 0)
+	result := replayResult(quality.ResultManualReview, "DES-003", 1, 0)
 	record := RecordFromResult("DES-003-positive", "claude-code", 1, result, HumanReview{Status: "pending"})
 	if record.Observed.SemanticResult != quality.ResultManualReview || len(record.Observed.RuleIDs) != 1 || record.Observed.RuleIDs[0] != "DES-003" {
 		t.Fatalf("record = %#v", record)
 	}
-	if pointerValue(record.Observed.Severity) != "S3" || record.Observed.AgentCount != 1 || record.Observed.VerifierCount != 0 {
+	if record.Observed.Severity != nil || record.Observed.TriggerConfidence != nil || record.Observed.EvidenceLevel != nil || record.Observed.AgentCount != 1 || record.Observed.VerifierCount != 0 {
 		t.Fatalf("observed = %#v", record.Observed)
 	}
 }
@@ -222,7 +222,7 @@ func TestLoadReplayRecordsRejectsSymlink(t *testing.T) {
 	}
 }
 
-func replayResult(verdict, ruleID, severity, trigger, evidence string, agents, verifiers int) quality.ReviewResult {
+func replayResult(verdict, ruleID string, agents, verifiers int) quality.ReviewResult {
 	result := quality.ReviewResult{
 		SchemaVersion: 1, PolicyVersion: "1.1.1",
 		Execution:    quality.Execution{Host: "claude-code", SkillVersion: "0.1.1", AgentCount: agents, VerifierCount: verifiers},
@@ -231,8 +231,8 @@ func replayResult(verdict, ruleID, severity, trigger, evidence string, agents, v
 	}
 	if ruleID != "" {
 		result.Findings = []quality.AdjudicatedFinding{{Candidate: quality.Finding{
-			RuleID: ruleID, Severity: severity, TriggerConfidence: trigger, EvidenceLevel: evidence,
-			AffectedCallPath: []string{"Entry", "Changed"}, TriggerCondition: "fixture",
+			RuleID:        ruleID,
+			CodeLocations: []quality.CodeLocation{{Path: "app.go", Line: 3}},
 		}}}
 	}
 	return result

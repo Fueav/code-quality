@@ -14,8 +14,8 @@ func TestIncompleteResultNormalizesRequestArrays(t *testing.T) {
 	}
 }
 
-func TestAdjudicateAppliesCompleteBlockingFormula(t *testing.T) {
-	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+func TestAdjudicateMapsValidFindingToManualReview(t *testing.T) {
+	result := Adjudicate(validRequest(), reviewWith(validFinding()), validPolicy())
 	if result.Adjudication.SemanticResult != ResultManualReview {
 		t.Fatalf("semantic result = %s, want MANUAL_REVIEW: %#v", result.Adjudication.SemanticResult, result.Adjudication.Reasons)
 	}
@@ -27,30 +27,9 @@ func TestAdjudicateAppliesCompleteBlockingFormula(t *testing.T) {
 	}
 }
 
-func TestAdjudicateDowngradesIncompleteBlockCandidates(t *testing.T) {
-	tests := map[string]func(*Finding){
-		"severity":           func(f *Finding) { f.Severity = "S2" },
-		"trigger confidence": func(f *Finding) { f.TriggerConfidence = "T2" },
-		"evidence":           func(f *Finding) { f.EvidenceLevel = "E1" },
-		"change attribution": func(f *Finding) { f.IntroducedOrWorsenedByChange = false },
-		"verifier uncertain": func(f *Finding) { f.VerifierResult = "insufficient" },
-		"verifier not run":   func(f *Finding) { f.VerifierResult = "not_run" },
-	}
-	for name, mutate := range tests {
-		t.Run(name, func(t *testing.T) {
-			finding := validBlockingFinding()
-			mutate(&finding)
-			result := Adjudicate(validRequest(), reviewWith(finding), validPolicy())
-			if result.Adjudication.SemanticResult != ResultManualReview {
-				t.Fatalf("semantic result = %s, want MANUAL_REVIEW", result.Adjudication.SemanticResult)
-			}
-		})
-	}
-}
-
 func TestAdjudicateDropsOnlyMalformedFindings(t *testing.T) {
-	valid := validBlockingFinding()
-	malformed := validBlockingFinding()
+	valid := validFinding()
+	malformed := validFinding()
 	malformed.ID = "F-002"
 	malformed.ProductionImpact = ""
 	result := Adjudicate(validRequest(), reviewWith(valid, malformed), validPolicy())
@@ -63,7 +42,7 @@ func TestAdjudicateDropsOnlyMalformedFindings(t *testing.T) {
 }
 
 func TestAdjudicateAllMalformedFindingsPasses(t *testing.T) {
-	malformed := validBlockingFinding()
+	malformed := validFinding()
 	malformed.ProductionImpact = ""
 	result := Adjudicate(validRequest(), reviewWith(malformed), validPolicy())
 	if result.Adjudication.SemanticResult != ResultPass || len(result.Findings) != 0 {
@@ -74,7 +53,7 @@ func TestAdjudicateAllMalformedFindingsPasses(t *testing.T) {
 func TestAdjudicateInvalidInputIsIncomplete(t *testing.T) {
 	request := validRequest()
 	request.BaseCommit = ""
-	review := reviewWith(validBlockingFinding())
+	review := reviewWith(validFinding())
 	review.Execution.AgentCount = 3
 	result := Adjudicate(request, review, validPolicy())
 	if result.Adjudication.SemanticResult != ResultIncomplete {
@@ -89,7 +68,7 @@ func TestAdjudicateInvalidInputIsIncomplete(t *testing.T) {
 }
 
 func TestAdjudicateRejectsDuplicateInspectedContext(t *testing.T) {
-	review := reviewWith(validBlockingFinding())
+	review := reviewWith(validFinding())
 	review.InspectedContext = append(review.InspectedContext, review.InspectedContext[0])
 	result := Adjudicate(validRequest(), review, validPolicy())
 	if result.Adjudication.SemanticResult != ResultIncomplete || !contains(result.Adjudication.Reasons, "duplicate paths") {
@@ -98,7 +77,7 @@ func TestAdjudicateRejectsDuplicateInspectedContext(t *testing.T) {
 }
 
 func TestDecodeReviewResultRejectsMissingRequiredFields(t *testing.T) {
-	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+	result := Adjudicate(validRequest(), reviewWith(validFinding()), validPolicy())
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +120,7 @@ func TestDecodeReviewResultRejectsMissingRequiredFields(t *testing.T) {
 }
 
 func TestDecodeReviewResultRejectsNullRequiredArrays(t *testing.T) {
-	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+	result := Adjudicate(validRequest(), reviewWith(validFinding()), validPolicy())
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +140,7 @@ func TestDecodeReviewResultRejectsNullRequiredArrays(t *testing.T) {
 }
 
 func TestDecodeReviewResultRejectsNullFindingArrays(t *testing.T) {
-	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+	result := Adjudicate(validRequest(), reviewWith(validFinding()), validPolicy())
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +215,7 @@ func TestDecodeReviewResultAllowsNullableMetricsAndEmptyIncompleteExecution(t *t
 
 func TestValidateResultRejectsTamperedVerdict(t *testing.T) {
 	policy := validPolicy()
-	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), policy)
+	result := Adjudicate(validRequest(), reviewWith(validFinding()), policy)
 	result.Adjudication.SemanticResult = ResultPass
 	if errors := ValidateResult(result, policy); !contains(errors, "result does not match deterministic adjudication") {
 		t.Fatalf("errors = %#v, want tamper error", errors)
@@ -261,7 +240,7 @@ func TestValidateResultRejectsMalformedIncompleteExecution(t *testing.T) {
 }
 
 func TestValidateResultRejectsIncompleteWithPartialReviewOutput(t *testing.T) {
-	result := Adjudicate(validRequest(), reviewWith(validBlockingFinding()), validPolicy())
+	result := Adjudicate(validRequest(), reviewWith(validFinding()), validPolicy())
 	result.Adjudication.SemanticResult = ResultIncomplete
 	result.Adjudication.Reasons = []string{"forged incomplete status"}
 	if errors := ValidateResult(result, validPolicy()); !contains(errors, "must not contain partial review output") {
@@ -293,9 +272,9 @@ func TestPolicyRequiresTwoAgentRuntimeLimit(t *testing.T) {
 }
 
 func TestRenderMarkdownIsDeterministic(t *testing.T) {
-	first := validBlockingFinding()
+	first := validFinding()
 	first.ID = "F-002"
-	second := validBlockingFinding()
+	second := validFinding()
 	second.ID = "F-001"
 	second.RuleID = "COR-005"
 	result := Adjudicate(validRequest(), reviewWith(first, second), validPolicy())
@@ -320,36 +299,17 @@ func validRequest() ReviewRequest {
 	}
 }
 
-func validBlockingFinding() Finding {
+func validFinding() Finding {
 	return Finding{
-		ID:                           "F-001",
-		RuleID:                       "DES-003",
-		ProposedVerdict:              "BLOCK",
-		Severity:                     "S3",
-		TriggerConfidence:            "T3",
-		EvidenceLevel:                "E2",
-		IntroducedOrWorsenedByChange: true,
-		FindingIsNotStylePreference:  true,
-		CodeLocations:                []CodeLocation{{Path: "internal/worker.go", Line: 42}},
-		AffectedCallPath:             []string{"cmd/service.main", "worker.RunWorker"},
-		TriggerCondition:             "Every one of 500000 records invokes the remote API.",
-		CausalChain:                  []string{"The changed loop iterates every record.", "Each iteration performs one remote request.", "The job exceeds its scheduling interval."},
-		ProductionImpact:             "The worker accumulates permanently and exhausts remote quota.",
-		VerificationPerformed:        []string{"Traced cmd/service.main to worker.RunWorker."},
-		MinimalFix:                   "Restore bounded batch processing.",
-		Uncertainties:                []string{},
-		VerifierResult:               "confirmed",
+		ID:               "F-001",
+		RuleID:           "DES-003",
+		CodeLocations:    []CodeLocation{{Path: "internal/worker.go", Line: 42}},
+		ProductionImpact: "The worker accumulates permanently and exhausts remote quota.",
+		MinimalFix:       "Restore bounded batch processing.",
 	}
 }
 
 func reviewWith(findings ...Finding) ModelReview {
-	verifiers := 0
-	for _, finding := range findings {
-		if finding.VerifierResult != "not_run" {
-			verifiers = 1
-			break
-		}
-	}
 	return ModelReview{
 		ActivatedRuleFamilies: []string{"D1"},
 		InactiveRuleFamilies: []InactiveRuleFamily{
@@ -362,10 +322,9 @@ func reviewWith(findings ...Finding) ModelReview {
 		MissingContext:   []string{},
 		InspectedContext: []InspectedContext{{Path: "internal/worker.go", Purpose: "Trace the production call path."}},
 		Execution: Execution{
-			Host:          "claude-code",
-			SkillVersion:  "0.1.1",
-			AgentCount:    1 + verifiers,
-			VerifierCount: verifiers,
+			Host:         "claude-code",
+			SkillVersion: "0.1.1",
+			AgentCount:   1,
 		},
 	}
 }

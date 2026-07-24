@@ -246,6 +246,10 @@ def main() -> int:
         write_json(builtin_schema, BUILTIN_REVIEW_SCHEMA)
         for directory in ("sessions", "observations", "run-evidence", "records", "human-reviews", "batch-logs"):
             (temporary / directory).mkdir()
+        try:
+            codex_version = run("codex", "--version")
+        except (OSError, ValueError):
+            codex_version = "unavailable"
 
         baseline = {
             "schema_version": 1,
@@ -256,7 +260,7 @@ def main() -> int:
             "development_only": dirty,
             "rc_version": version,
             "go_version": run("go", "version"),
-            "codex_version": run("codex", "--version"),
+            "codex_version": codex_version,
             "qualification_model": QUALIFICATION_MODEL,
             "qualification_reasoning_effort": QUALIFICATION_REASONING_EFFORT,
             "builtin_baseline": "ordinary_codex_review_without_skill",

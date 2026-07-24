@@ -36,9 +36,7 @@ func RenderMarkdown(result ReviewResult) string {
 			candidate := finding.Candidate
 			fmt.Fprintf(&output, "### %s · %s\n\n", candidate.ID, candidate.RuleID)
 			fmt.Fprintf(&output, "- Verdict: `%s`\n", finding.FinalVerdict)
-			fmt.Fprintf(&output, "- Severity / Trigger / Evidence: `%s / %s / %s`\n", candidate.Severity, candidate.TriggerConfidence, candidate.EvidenceLevel)
 			fmt.Fprintf(&output, "- Impact: %s\n", candidate.ProductionImpact)
-			fmt.Fprintf(&output, "- Trigger: %s\n", candidate.TriggerCondition)
 			fmt.Fprintf(&output, "- Location: %s\n", renderLocations(candidate.CodeLocations))
 			fmt.Fprintf(&output, "- Minimal fix: %s\n", candidate.MinimalFix)
 		}

@@ -122,6 +122,8 @@ def codex_command(
     ]
 
 
+# The builtin lane is `codex exec` with a generic review prompt and JSON result,
+# not Codex's official `review` subcommand, whose output is natural language.
 def builtin_codex_command(repository: pathlib.Path, target: str, schema: pathlib.Path) -> list[str]:
     return [
         "codex",
@@ -155,7 +157,13 @@ def builtin_result(raw: str) -> dict[str, object]:
                 messages.append(text.strip())
     if not messages:
         raise ValueError("built-in review did not produce a final agent message")
-    value = json.loads(messages[-1])
+    payload = messages[-1].strip()
+    lines = payload.splitlines()
+    if lines and lines[0].strip().lower() in {"```", "```json"}:
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    value = json.loads("\n".join(lines).strip())
     if not isinstance(value, dict) or set(value) != {"schema_version", "findings"} or value.get("schema_version") != 1:
         raise ValueError("built-in review result has an invalid top-level structure")
     findings = value.get("findings")

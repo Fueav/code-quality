@@ -64,22 +64,22 @@ class QualificationToolsTest(unittest.TestCase):
         for required in (
             "--ignore-user-config",
             "--ignore-rules",
-            "--sandbox",
-            "workspace-write",
+            "--dangerously-bypass-approvals-and-sandbox",
             "gpt-5.6-terra",
             'model_reasoning_effort="high"',
         ):
             self.assertIn(required, command)
 
-    def test_builtin_baseline_uses_native_commit_review(self) -> None:
+    def test_builtin_baseline_uses_exec_prompt(self) -> None:
         command = builtin_codex_command(
             pathlib.Path("/qualification/sessions/run-opaque/operator/builtin.worktree"),
             "b" * 40,
             pathlib.Path("/qualification/builtin-review.schema.json"),
         )
-        self.assertIn("review", command)
-        self.assertEqual(command[command.index("--commit") + 1], "b" * 40)
-        self.assertEqual(command[command.index("--output-schema") + 1], "/qualification/builtin-review.schema.json")
+        self.assertIn("exec", command)
+        self.assertNotIn("review", command)
+        self.assertNotIn("--commit", command)
+        self.assertNotIn("--output-schema", command)
         self.assertIn("read-only", command)
 
     def test_batch_queue_hides_expected_case_identity(self) -> None:
@@ -138,34 +138,28 @@ class QualificationToolsTest(unittest.TestCase):
         self.assertTrue(smoke_matches(mapping, {"observed": observed}))
 
     def test_builtin_result_requires_machine_readable_findings(self) -> None:
-        raw = "\n".join(
-            [
-                json.dumps(
+        result = json.dumps(
+            {
+                "schema_version": 1,
+                "findings": [
                     {
-                        "type": "item.completed",
-                        "item": {
-                            "type": "agent_message",
-                            "text": json.dumps(
-                                {
-                                    "schema_version": 1,
-                                    "findings": [
-                                        {
-                                            "path": "app.go",
-                                            "line": 12,
-                                            "problem": "nil dereference",
-                                            "impact": "request panic",
-                                            "fix": "guard the optional value",
-                                        }
-                                    ],
-                                }
-                            ),
-                        },
+                        "path": "app.go",
+                        "line": 12,
+                        "problem": "nil dereference",
+                        "impact": "request panic",
+                        "fix": "guard the optional value",
                     }
-                ),
-                json.dumps({"type": "turn.completed", "usage": {"input_tokens": 50, "output_tokens": 25}}),
-            ]
+                ],
+            }
         )
-        self.assertEqual(builtin_result(raw)["findings"][0]["path"], "app.go")
+        for message in (result, f"```json\n{result}\n```"):
+            raw = "\n".join(
+                [
+                    json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": message}}),
+                    json.dumps({"type": "turn.completed", "usage": {"input_tokens": 50, "output_tokens": 25}}),
+                ]
+            )
+            self.assertEqual(builtin_result(raw)["findings"][0]["path"], "app.go")
 
 
 if __name__ == "__main__":

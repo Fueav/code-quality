@@ -10,43 +10,8 @@ import (
 
 const maxModelReviewJSONBytes = 10 << 20
 
-func DecodeVerifierReview(reader io.Reader) (VerifierReview, error) {
-	raw, err := io.ReadAll(io.LimitReader(reader, maxModelReviewJSONBytes+1))
-	if err != nil {
-		return VerifierReview{}, err
-	}
-	if len(raw) > maxModelReviewJSONBytes {
-		return VerifierReview{}, errors.New("verifier review exceeds 10 MiB")
-	}
-	var document map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &document); err != nil {
-		return VerifierReview{}, err
-	}
-	if err := requireFields(document, "verifier review", "decisions"); err != nil {
-		return VerifierReview{}, err
-	}
-	if !isJSONArray(document["decisions"]) {
-		return VerifierReview{}, errors.New("verifier review.decisions must be an array")
-	}
-	var decisions []map[string]json.RawMessage
-	if err := json.Unmarshal(document["decisions"], &decisions); err != nil {
-		return VerifierReview{}, fmt.Errorf("decode verifier decisions: %w", err)
-	}
-	for index, decision := range decisions {
-		if err := requireFields(decision, fmt.Sprintf("decisions[%d]", index),
-			"finding_id", "result", "verification_summary", "uncertainties",
-		); err != nil {
-			return VerifierReview{}, err
-		}
-		if !isJSONArray(decision["uncertainties"]) {
-			return VerifierReview{}, fmt.Errorf("decisions[%d].uncertainties must be an array", index)
-		}
-	}
-	return DecodeStrict[VerifierReview](bytes.NewReader(raw))
-}
-
 var requiredModelReviewFields = []string{
-	"activated_rule_families", "inactive_rule_families", "findings", "uninspected_scope", "missing_context", "inspected_context",
+	"activated_rule_families", "findings", "uninspected_scope", "missing_context", "inspected_context",
 }
 
 var requiredFindingFields = []string{
@@ -75,19 +40,24 @@ func validateModelReviewShape(raw []byte) error {
 	if err := requireFields(document, "model review", requiredModelReviewFields...); err != nil {
 		return err
 	}
-	for _, field := range []string{"activated_rule_families", "inactive_rule_families", "findings", "uninspected_scope", "missing_context", "inspected_context"} {
+	for _, field := range requiredModelReviewFields {
 		if !isJSONArray(document[field]) {
 			return fmt.Errorf("model review.%s must be an array", field)
 		}
 	}
 
-	var inactive []map[string]json.RawMessage
-	if err := json.Unmarshal(document["inactive_rule_families"], &inactive); err != nil {
-		return fmt.Errorf("decode inactive_rule_families: %w", err)
-	}
-	for index, family := range inactive {
-		if err := requireFields(family, fmt.Sprintf("inactive_rule_families[%d]", index), "id", "reason"); err != nil {
-			return err
+	if rawInactive, exists := document["inactive_rule_families"]; exists {
+		if !isJSONArray(rawInactive) {
+			return errors.New("model review.inactive_rule_families must be an array")
+		}
+		var inactive []map[string]json.RawMessage
+		if err := json.Unmarshal(rawInactive, &inactive); err != nil {
+			return fmt.Errorf("decode inactive_rule_families: %w", err)
+		}
+		for index, family := range inactive {
+			if err := requireFields(family, fmt.Sprintf("inactive_rule_families[%d]", index), "id", "reason"); err != nil {
+				return err
+			}
 		}
 	}
 

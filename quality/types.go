@@ -24,23 +24,11 @@ type CodeLocation struct {
 }
 
 type Finding struct {
-	ID                           string         `json:"id"`
-	RuleID                       string         `json:"rule_id"`
-	ProposedVerdict              string         `json:"proposed_verdict"`
-	Severity                     string         `json:"severity"`
-	TriggerConfidence            string         `json:"trigger_confidence"`
-	EvidenceLevel                string         `json:"evidence_level"`
-	IntroducedOrWorsenedByChange bool           `json:"introduced_or_worsened_by_change"`
-	FindingIsNotStylePreference  bool           `json:"finding_is_not_style_preference"`
-	CodeLocations                []CodeLocation `json:"code_locations"`
-	AffectedCallPath             []string       `json:"affected_call_path"`
-	TriggerCondition             string         `json:"trigger_condition"`
-	CausalChain                  []string       `json:"causal_chain"`
-	ProductionImpact             string         `json:"production_impact"`
-	VerificationPerformed        []string       `json:"verification_performed"`
-	MinimalFix                   string         `json:"minimal_fix"`
-	Uncertainties                []string       `json:"uncertainties"`
-	VerifierResult               string         `json:"verifier_result"`
+	ID               string         `json:"id"`
+	RuleID           string         `json:"rule_id"`
+	CodeLocations    []CodeLocation `json:"code_locations"`
+	ProductionImpact string         `json:"production_impact"`
+	MinimalFix       string         `json:"minimal_fix"`
 }
 
 type InspectedContext struct {
@@ -57,17 +45,6 @@ type Execution struct {
 	OutputTokens  *int   `json:"output_tokens"`
 	DurationMS    *int   `json:"duration_ms"`
 	RetryCount    *int   `json:"retry_count"`
-}
-
-type VerifierDecision struct {
-	FindingID           string   `json:"finding_id"`
-	Result              string   `json:"result"`
-	VerificationSummary string   `json:"verification_summary"`
-	Uncertainties       []string `json:"uncertainties"`
-}
-
-type VerifierReview struct {
-	Decisions []VerifierDecision `json:"decisions"`
 }
 
 type ModelReview struct {

@@ -17,18 +17,15 @@ type FinalizeOptions struct {
 }
 
 type Finalized struct {
-	SchemaVersion       int    `json:"schema_version"`
-	Status              string `json:"status"`
-	SessionDir          string `json:"session_dir"`
-	VerifierRequestPath string `json:"verifier_request_path,omitempty"`
-	VerifierReviewPath  string `json:"verifier_review_path,omitempty"`
-	RepositoryDir       string `json:"repository_dir,omitempty"`
-	DiffPath            string `json:"diff_path,omitempty"`
-	RubricPath          string `json:"rubric_path,omitempty"`
-	VerifierSchemaPath  string `json:"verifier_schema_path,omitempty"`
-	ResultPath          string `json:"result_path,omitempty"`
-	MarkdownPath        string `json:"markdown_path,omitempty"`
-	SemanticResult      string `json:"semantic_result,omitempty"`
+	SchemaVersion  int    `json:"schema_version"`
+	Status         string `json:"status"`
+	SessionDir     string `json:"session_dir"`
+	RepositoryDir  string `json:"repository_dir,omitempty"`
+	DiffPath       string `json:"diff_path,omitempty"`
+	RubricPath     string `json:"rubric_path,omitempty"`
+	ResultPath     string `json:"result_path,omitempty"`
+	MarkdownPath   string `json:"markdown_path,omitempty"`
+	SemanticResult string `json:"semantic_result,omitempty"`
 }
 
 func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized, error) {

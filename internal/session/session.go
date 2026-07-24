@@ -29,12 +29,9 @@ type Layout struct {
 	RubricPath          string
 	WorkflowPath        string
 	ModelSchemaPath     string
-	VerifierSchemaPath  string
 	ManifestPath        string
 	MetadataPath        string
 	MainReviewPath      string
-	VerifierRequestPath string
-	VerifierReviewPath  string
 	ResultPath          string
 	MarkdownPath        string
 }
@@ -50,7 +47,6 @@ type Prepared struct {
 	RubricPath          string `json:"rubric_path"`
 	WorkflowPath        string `json:"workflow_path"`
 	ModelSchemaPath     string `json:"model_schema_path"`
-	VerifierSchemaPath  string `json:"verifier_schema_path"`
 	ManifestPath        string `json:"manifest_path"`
 	MetadataPath        string `json:"metadata_path"`
 	MainReviewPath      string `json:"main_review_path"`
@@ -132,9 +128,6 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if err := writeSchema(layout.ModelSchemaPath, "model-review.schema.json"); err != nil {
 		return Prepared{}, err
 	}
-	if err := writeSchema(layout.VerifierSchemaPath, "verifier-review.schema.json"); err != nil {
-		return Prepared{}, err
-	}
 	prepared = true
 	return Prepared{
 		SchemaVersion:       1,
@@ -147,7 +140,6 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 		RubricPath:          layout.RubricPath,
 		WorkflowPath:        layout.WorkflowPath,
 		ModelSchemaPath:     layout.ModelSchemaPath,
-		VerifierSchemaPath:  layout.VerifierSchemaPath,
 		ManifestPath:        layout.ManifestPath,
 		MetadataPath:        layout.MetadataPath,
 		MainReviewPath:      layout.MainReviewPath,
@@ -174,12 +166,9 @@ func NewLayout(directory string) Layout {
 		RubricPath:          filepath.Join(input, "rubric.md"),
 		WorkflowPath:        filepath.Join(input, "workflow.md"),
 		ModelSchemaPath:     filepath.Join(input, "model-review.schema.json"),
-		VerifierSchemaPath:  filepath.Join(input, "verifier-review.schema.json"),
 		ManifestPath:        filepath.Join(directory, "input-manifest.json"),
 		MetadataPath:        filepath.Join(input, "session-metadata.json"),
 		MainReviewPath:      filepath.Join(output, "main-review.json"),
-		VerifierRequestPath: filepath.Join(output, "verifier-request.json"),
-		VerifierReviewPath:  filepath.Join(output, "verifier-review.json"),
 		ResultPath:          filepath.Join(output, "review-result.json"),
 		MarkdownPath:        filepath.Join(output, "review-result.md"),
 	}

@@ -72,7 +72,6 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-request.schema.json",
 		"model-review.schema.json",
 		"review-result.schema.json",
-		"verifier-review.schema.json",
 	} {
 		schema, err := Schema(name)
 		if err != nil || len(schema) == 0 {

@@ -245,28 +245,12 @@ func adjudicateCase(item Case, policy quality.PolicyManifest) quality.ReviewResu
 	}
 	if item.Expected.FindingCount == 1 {
 		review.Findings = []quality.Finding{{
-			ID: "F-001", RuleID: item.RuleID, ProposedVerdict: proposedVerdict(item.Kind),
-			Severity: item.Expected.Severity, TriggerConfidence: item.Expected.TriggerConfidence,
-			EvidenceLevel: item.Expected.EvidenceLevel, IntroducedOrWorsenedByChange: true,
-			FindingIsNotStylePreference: true,
-			CodeLocations:               []quality.CodeLocation{{Path: "app.go", Line: 3}},
-			AffectedCallPath:            []string{"Entry", "Changed"},
-			TriggerCondition:            strings.Join(item.Fixture.Facts, " "),
-			CausalChain:                 []string{"The changed production path executes the fixture behavior.", "The behavior produces the documented production impact."},
-			ProductionImpact:            "The case-specific V1.1 production-floor impact occurs.",
-			VerificationPerformed:       []string{"Evaluated against the frozen case facts."},
-			MinimalFix:                  "Restore the protected behavior described by the fixture.",
-			Uncertainties:               uncertainty(item.Kind), VerifierResult: "not_run",
+			ID:               "F-001",
+			RuleID:           item.RuleID,
+			CodeLocations:    []quality.CodeLocation{{Path: "app.go", Line: 3}},
+			ProductionImpact: "The case-specific V1.1 production-floor impact occurs.",
+			MinimalFix:       "Restore the protected behavior described by the fixture.",
 		}}
-	}
-	if item.Kind == "positive" {
-		verifier := quality.VerifierReview{Decisions: []quality.VerifierDecision{{
-			FindingID: "F-001", Result: "confirmed",
-			VerificationSummary: "Confirmed the case facts, trigger, change attribution, and causal chain.",
-			Uncertainties:       []string{},
-		}}}
-		review = quality.MergeVerifierReview(review, verifier)
-		review.Execution = quality.Execution{Host: "claude-code", SkillVersion: "0.1.1", AgentCount: 2, VerifierCount: 1}
 	}
 	return quality.Adjudicate(evalRequest(item.ID), review, policy)
 }
@@ -288,20 +272,6 @@ func inactiveFamilies(active string) []quality.InactiveRuleFamily {
 		}
 	}
 	return result
-}
-
-func proposedVerdict(kind string) string {
-	if kind == "positive" {
-		return quality.ResultBlock
-	}
-	return quality.ResultManualReview
-}
-
-func uncertainty(kind string) []string {
-	if kind == "insufficient" {
-		return []string{"The target deployment facts are not proven by the fixture."}
-	}
-	return []string{}
 }
 
 func allReportOnly(policy quality.PolicyManifest) bool {

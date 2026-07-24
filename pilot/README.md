@@ -111,7 +111,7 @@ Prepare at least 30 immutable, human-labeled changes:
 
 - at least 15 with a confirmed severe issue;
 - at least 15 confirmed normal changes;
-- one blind Skill review and one isolated ordinary built-in review per change, both using the same model, reasoning effort, base, and target;
+- one blind Skill review and one isolated ordinary builtin-lane review per change, both using the same model, reasoning effort, base, and target;
 - one maintainer decision on whether each review found the core issue and whether each finding-bearing report was actionable.
 
 Summarize:
@@ -137,7 +137,7 @@ python3 pilot/historical_pilot_initialize.py \
 
 The initializer builds the frozen CLI, copies the Skill, and shallow-materializes one opaque repository per change containing only the base and target commits. Later fixes and the private labels are unavailable to the review Agent.
 
-Verify the blind schedule before any model call, then run each change through two isolated local Terra/high Codex lanes. The Skill lane uses the frozen code-quality workflow. The built-in lane reviews the same commit pair with ordinary Codex review judgment, without loading the Skill or reading its session:
+Verify the blind schedule before any model call, then run each change through two isolated local Terra/high Codex lanes. The Skill lane uses the frozen code-quality workflow. The builtin lane runs `codex exec` with a generic review prompt and requires machine-readable JSON, without loading the Skill or reading its session. It does not invoke Codex's official `review` subcommand, whose natural-language output is not the pilot's parseable baseline contract:
 
 ```bash
 python3 pilot/historical_pilot_verify.py \

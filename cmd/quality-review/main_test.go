@@ -65,7 +65,6 @@ func TestFinalizeReportOnlyManualFindingUsesOneAgent(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	prepared, _ := prepareSession(t, repo, base, target)
 	review := integrationMainReview()
-	review.Findings[0].ProposedVerdict = "MANUAL_REVIEW"
 	writeJSON(t, prepared.MainReviewPath, review)
 
 	finalized := finalizeSession(t, prepared.SessionDir)
@@ -410,18 +409,11 @@ func integrationMainReview() quality.ModelReview {
 			{ID: "D4", Reason: "No security or rollout change."},
 		},
 		Findings: []quality.Finding{{
-			ID: "F-001", RuleID: "DES-003", ProposedVerdict: "BLOCK",
-			Severity: "S3", TriggerConfidence: "T3", EvidenceLevel: "E2",
-			IntroducedOrWorsenedByChange: true, FindingIsNotStylePreference: true,
-			CodeLocations:         []quality.CodeLocation{{Path: "app.go", Line: 3}},
-			AffectedCallPath:      []string{"entry", "Run"},
-			TriggerCondition:      "Every production record invokes the remote API.",
-			CausalChain:           []string{"The loop visits every record.", "Each record performs one request."},
-			ProductionImpact:      "The job cannot finish before the next schedule.",
-			VerificationPerformed: []string{"Traced the production entry and configured record count."},
-			MinimalFix:            "Restore bounded batch processing.",
-			Uncertainties:         []string{},
-			VerifierResult:        "not_run",
+			ID:               "F-001",
+			RuleID:           "DES-003",
+			CodeLocations:    []quality.CodeLocation{{Path: "app.go", Line: 3}},
+			ProductionImpact: "The job cannot finish before the next schedule.",
+			MinimalFix:       "Restore bounded batch processing.",
 		}},
 		UninspectedScope: []string{}, MissingContext: []string{},
 		InspectedContext: []quality.InspectedContext{{Path: "app.go", Purpose: "Trace the changed entry."}},

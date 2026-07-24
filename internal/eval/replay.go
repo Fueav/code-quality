@@ -70,21 +70,15 @@ type ReplayCaseReport struct {
 
 func RecordFromResult(caseID, host string, runNumber int, result quality.ReviewResult, human HumanReview) ReplayRecord {
 	ruleIDs := make([]string, 0, len(result.Findings))
-	var severity, trigger, evidence *string
-	for index, finding := range result.Findings {
+	for _, finding := range result.Findings {
 		ruleIDs = append(ruleIDs, finding.Candidate.RuleID)
-		if index == 0 {
-			severity = stringPointer(finding.Candidate.Severity)
-			trigger = stringPointer(finding.Candidate.TriggerConfidence)
-			evidence = stringPointer(finding.Candidate.EvidenceLevel)
-		}
 	}
 	sort.Strings(ruleIDs)
 	return ReplayRecord{
 		SchemaVersion: 1, PolicyVersion: result.PolicyVersion, CaseID: caseID, Host: host, RunNumber: runNumber,
 		Observed: Observed{
-			SemanticResult: result.Adjudication.SemanticResult,
-			RuleIDs:        ruleIDs, Severity: severity, TriggerConfidence: trigger, EvidenceLevel: evidence,
+			SemanticResult:      result.Adjudication.SemanticResult,
+			RuleIDs:             ruleIDs,
 			DuplicateRootCauses: duplicateRootCauses(result.Findings),
 			AgentCount:          result.Execution.AgentCount, VerifierCount: result.Execution.VerifierCount,
 			InputTokens: result.Execution.InputTokens, OutputTokens: result.Execution.OutputTokens, DurationMS: result.Execution.DurationMS,
@@ -98,7 +92,12 @@ func duplicateRootCauses(findings []quality.AdjudicatedFinding) int {
 	duplicates := 0
 	for _, finding := range findings {
 		candidate := finding.Candidate
-		key := candidate.RuleID + "|" + strings.Join(candidate.AffectedCallPath, ">") + "|" + candidate.TriggerCondition
+		locations := make([]string, 0, len(candidate.CodeLocations))
+		for _, location := range candidate.CodeLocations {
+			locations = append(locations, fmt.Sprintf("%s:%d", location.Path, location.Line))
+		}
+		sort.Strings(locations)
+		key := candidate.RuleID + "|" + strings.Join(locations, ",")
 		if _, exists := seen[key]; exists {
 			duplicates++
 		}

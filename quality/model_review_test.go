@@ -73,7 +73,7 @@ func TestDecodeModelReviewRequiresInspectedContextFields(t *testing.T) {
 }
 
 func TestDecodeModelReviewAcceptsRequiredEmptyArrays(t *testing.T) {
-	raw := `{"activated_rule_families":["D1","D2","D3","D4"],"inactive_rule_families":[],"findings":[],"uninspected_scope":[],"missing_context":[],"inspected_context":[]}`
+	raw := `{"activated_rule_families":[],"findings":[],"uninspected_scope":[],"missing_context":[],"inspected_context":[]}`
 	review, err := DecodeModelReview(strings.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
@@ -90,12 +90,11 @@ func validDecodeModelReview() ModelReview {
 			{ID: "D2", Reason: "not affected"}, {ID: "D3", Reason: "not affected"}, {ID: "D4", Reason: "not affected"},
 		},
 		Findings: []Finding{{
-			ID: "F-001", RuleID: "DES-003", ProposedVerdict: "MANUAL_REVIEW",
-			Severity: "S2", TriggerConfidence: "T2", EvidenceLevel: "E2",
-			IntroducedOrWorsenedByChange: true, FindingIsNotStylePreference: true,
-			CodeLocations: []CodeLocation{{Path: "app.go", Line: 1}}, AffectedCallPath: []string{"entry"},
-			TriggerCondition: "condition", CausalChain: []string{"cause"}, ProductionImpact: "impact",
-			VerificationPerformed: []string{"trace"}, MinimalFix: "fix", Uncertainties: []string{}, VerifierResult: "not_run",
+			ID:               "F-001",
+			RuleID:           "DES-003",
+			CodeLocations:    []CodeLocation{{Path: "app.go", Line: 1}},
+			ProductionImpact: "impact",
+			MinimalFix:       "fix",
 		}},
 		UninspectedScope: []string{}, MissingContext: []string{},
 		InspectedContext: []InspectedContext{{Path: "app.go", Purpose: "Trace the changed entry."}},

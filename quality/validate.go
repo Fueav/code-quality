@@ -124,32 +124,10 @@ func ValidateModelReviewStructure(review ModelReview, policy PolicyManifest) []s
 	if hasBlankOrDuplicate(review.ActivatedRuleFamilies) {
 		errors = append(errors, "activated_rule_families must be unique and non-empty")
 	}
-	seenFamilies := map[string]string{}
 	for _, family := range review.ActivatedRuleFamilies {
 		if _, ok := validDimensions[family]; !ok {
 			errors = append(errors, "activated_rule_families contains an unknown dimension")
 		}
-		seenFamilies[family] = "active"
-	}
-	seenInactive := map[string]struct{}{}
-	for index, family := range review.InactiveRuleFamilies {
-		if strings.TrimSpace(family.ID) == "" || strings.TrimSpace(family.Reason) == "" {
-			errors = append(errors, fmt.Sprintf("inactive_rule_families[%d] is incomplete", index))
-		}
-		if _, exists := seenInactive[family.ID]; exists {
-			errors = append(errors, "inactive_rule_families contains duplicate ids")
-		}
-		if _, ok := validDimensions[family.ID]; !ok {
-			errors = append(errors, "inactive_rule_families contains an unknown dimension")
-		}
-		if state, exists := seenFamilies[family.ID]; exists {
-			errors = append(errors, "rule family is both active and inactive: "+state)
-		}
-		seenInactive[family.ID] = struct{}{}
-		seenFamilies[family.ID] = "inactive"
-	}
-	if len(seenFamilies) != len(validDimensions) {
-		errors = append(errors, "every V1.1 dimension must be active or have an inactive reason")
 	}
 	seenFindings := map[string]struct{}{}
 	for index, finding := range review.Findings {
