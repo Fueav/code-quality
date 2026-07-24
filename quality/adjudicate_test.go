@@ -323,7 +323,7 @@ func reviewWith(findings ...Finding) ModelReview {
 		InspectedContext: []InspectedContext{{Path: "internal/worker.go", Purpose: "Trace the production call path."}},
 		Execution: Execution{
 			Host:         "claude-code",
-			SkillVersion: "0.1.1",
+			SkillVersion: SkillVersion,
 			AgentCount:   1,
 		},
 	}

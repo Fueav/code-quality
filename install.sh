@@ -4,7 +4,7 @@
 # and installs it to ~/.local/bin (override with INSTALL_DIR).
 #
 #   curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
-#   curl -fsSL .../install.sh | sh -s -- v0.1.1      # pin a version
+#   curl -fsSL .../install.sh | sh -s -- v0.1.2      # pin a version
 set -eu
 
 REPO="Fueav/code-quality"

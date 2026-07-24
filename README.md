@@ -15,12 +15,22 @@ Report-only 代码质量审查组件。在 Claude Code / Codex 会话里对一�
 # 最新版
 curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
 # 指定版本
-curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.1.1
+curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.1.2
 ```
 
 确认：`quality-review version`
 
-**2) Skill**：在 Claude Code / Codex 里安装 `code-quality` plugin（仓库 `plugins/code-quality/` 内含 `.claude-plugin` 与 `.codex-plugin`）。
+**2) Plugin**：按宿主复制整行命令；它会登记本仓库 marketplace 并安装 `code-quality`：
+
+```sh
+# Codex
+codex plugin marketplace add Fueav/code-quality --ref v0.1.2 && codex plugin add code-quality@fueav-code-quality
+
+# Claude Code
+claude plugin marketplace add Fueav/code-quality@v0.1.2 && claude plugin install code-quality@fueav-code-quality
+```
+
+仓库根目录同时提供 Codex 的 `.agents/plugins/marketplace.json` 与 Claude Code 的 `.claude-plugin/marketplace.json`，两端共用 `plugins/code-quality/` 的同一份 Skill。
 
 > Skill 与二进制**版本必须匹配**（`finalize` 会校验，不匹配返回 `INCOMPLETE`）。装同一个 release tag 的两者即可。
 

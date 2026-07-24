@@ -225,7 +225,7 @@ func TestLoadReplayRecordsRejectsSymlink(t *testing.T) {
 func replayResult(verdict, ruleID string, agents, verifiers int) quality.ReviewResult {
 	result := quality.ReviewResult{
 		SchemaVersion: 1, PolicyVersion: "1.1.1",
-		Execution:    quality.Execution{Host: "claude-code", SkillVersion: "0.1.1", AgentCount: agents, VerifierCount: verifiers},
+		Execution:    quality.Execution{Host: "claude-code", SkillVersion: quality.SkillVersion, AgentCount: agents, VerifierCount: verifiers},
 		Adjudication: quality.Adjudication{SemanticResult: verdict, RolloutMode: "report_only", CIAction: "publish_report", Reasons: []string{"fixture"}},
 		Findings:     []quality.AdjudicatedFinding{},
 	}

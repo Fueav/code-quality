@@ -1,0 +1,20 @@
+{
+  "name": "fueav-code-quality",
+  "interface": {
+    "displayName": "Fueav Code Quality"
+  },
+  "plugins": [
+    {
+      "name": "code-quality",
+      "source": {
+        "source": "local",
+        "path": "./plugins/code-quality"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

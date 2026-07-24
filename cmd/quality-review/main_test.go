@@ -78,7 +78,7 @@ func TestFinalizeReportOnlyManualFindingUsesOneAgent(t *testing.T) {
 	if result.Execution.AgentCount != 1 || result.Execution.VerifierCount != 0 {
 		t.Fatalf("execution = %#v", result.Execution)
 	}
-	if result.Execution.Host != "claude-code" || result.Execution.SkillVersion != "0.1.1" {
+	if result.Execution.Host != "claude-code" || result.Execution.SkillVersion != quality.SkillVersion {
 		t.Fatalf("trusted host metadata was not preserved: %#v", result.Execution)
 	}
 	if len(result.InspectedContext) != 1 || result.InspectedContext[0].Path != "app.go" {

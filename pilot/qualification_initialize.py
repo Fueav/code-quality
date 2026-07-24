@@ -160,7 +160,7 @@ def main() -> int:
 
     temporary = pathlib.Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
     try:
-        version = f"0.1.1-report-only-smoke.{head[:12]}"
+        version = f"0.1.2-report-only-smoke.{head[:12]}"
         if dirty_lines:
             version += ".dirty-development"
         binary = temporary / "quality-review"
