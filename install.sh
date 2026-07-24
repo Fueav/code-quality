@@ -35,8 +35,8 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 echo "Downloading ${asset} (${VERSION})..."
-curl -fsSL "${base}/${asset}" -o "${tmp}/${BIN}"
-curl -fsSL "${base}/checksums.txt" -o "${tmp}/checksums.txt"
+curl -fsSL --retry 3 --retry-delay 2 "${base}/${asset}" -o "${tmp}/${BIN}"
+curl -fsSL --retry 3 --retry-delay 2 "${base}/checksums.txt" -o "${tmp}/checksums.txt"
 
 expected=$(grep " ${asset}\$" "${tmp}/checksums.txt" | awk '{print $1}')
 if [ -z "$expected" ]; then
