@@ -1,0 +1,48 @@
+# code-quality (`quality-review`)
+
+Report-only 代码质量审查组件。在 Claude Code / Codex 会话里对一个**已提交的代码增量**做审查，发现本次改动引入或加重的生产底线缺陷（正确性、数据、稳定性、安全、兼容性），输出结构化报告——**只给建议，不阻断合并、不改 CI**。
+
+## 形态
+
+- **`quality-review`** — 静态 Go CLI（确定性引擎：基线固定、schema 校验、裁决、渲染报告）。不调模型、不需要 API key。
+- **`plugins/code-quality/`** — Claude Code 与 Codex 共用的薄 Skill，在会话里触发流程。模型能力借用你当前已登录的 Claude Code / Codex 会话。
+
+## 安装
+
+**1) CLI 二进制**（自动判平台、校验 sha256、装到 `~/.local/bin`）：
+
+```sh
+# 最新版
+curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
+# 指定版本
+curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.1.1
+```
+
+确认：`quality-review version`
+
+**2) Skill**：在 Claude Code / Codex 里安装 `code-quality` plugin（仓库 `plugins/code-quality/` 内含 `.claude-plugin` 与 `.codex-plugin`）。
+
+> Skill 与二进制**版本必须匹配**（`finalize` 会校验，不匹配返回 `INCOMPLETE`）。装同一个 release tag 的两者即可。
+
+## 使用
+
+在 Claude Code / Codex 会话里，用自然语言触发（例如「帮我审一下这个改动」）。Skill 会：
+
+1. `prepare` —— 钉住本次 commit 增量（base→target diff）；
+2. 当前会话按 20 条底线规则审查引入/加重的缺陷；
+3. `finalize` —— 产出 `review-result.json` + `review-result.md`（report-only 建议）。
+
+使用者无需配置模型、无需了解内部规则。
+
+## 版本冻结
+
+每个 release tag 把 policy（20 条规则）、schema、确定性引擎、CLI 一起冻结成一个不变版本，报告可追溯到具体版本。
+
+## 发布（维护者）
+
+```sh
+make test
+git tag vX.Y.Z && git push origin vX.Y.Z
+make dist VERSION=vX.Y.Z    # 交叉编译到 dist/ + checksums.txt + install.sh
+gh release create vX.Y.Z dist/* --title vX.Y.Z --notes "…"
+```

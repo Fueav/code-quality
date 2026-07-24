@@ -2,3 +2,5 @@
 .claude/
 .code-quality/
 __pycache__/
+dist/
+/quality-review
