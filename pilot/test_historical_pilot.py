@@ -441,8 +441,11 @@ class HistoricalPilotTest(unittest.TestCase):
             self.assertEqual(summary["skill"]["severe_issue_discovery"]["rate"], 1)
             self.assertEqual(summary["builtin"]["severe_issue_discovery"]["found"], 14)
             self.assertEqual(summary["builtin"]["manual_review_findings"]["normal_rate"], 1 / 15)
-            self.assertEqual(summary["comparison"]["severe_core_issue_pairs"]["skill_only"], 1)
-            self.assertTrue(summary["comparison"]["caught_up_to_builtin_review"])
+            self.assertEqual(summary["primary_evaluation"]["metric"], "finding_comparison")
+            self.assertIsNone(summary["primary_evaluation"]["automatic_pass"])
+            self.assertEqual(summary["supplemental_ground_truth_metrics"]["severe_core_issue_pairs"]["skill_only"], 1)
+            self.assertEqual(summary["supplemental_ground_truth_metrics"]["role"], "supplemental_only")
+            self.assertNotIn("caught_up_to_builtin_review", summary)
             self.assertEqual(summary["skill"]["execution"]["input_tokens"], 3000)
 
     @staticmethod

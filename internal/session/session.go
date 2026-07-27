@@ -32,6 +32,7 @@ type Layout struct {
 	ManifestPath        string
 	MetadataPath        string
 	MainReviewPath      string
+	RereviewPath        string
 	ResultPath          string
 	MarkdownPath        string
 }
@@ -169,6 +170,7 @@ func NewLayout(directory string) Layout {
 		ManifestPath:        filepath.Join(directory, "input-manifest.json"),
 		MetadataPath:        filepath.Join(input, "session-metadata.json"),
 		MainReviewPath:      filepath.Join(output, "main-review.json"),
+		RereviewPath:        filepath.Join(output, "rereview.json"),
 		ResultPath:          filepath.Join(output, "review-result.json"),
 		MarkdownPath:        filepath.Join(output, "review-result.md"),
 	}

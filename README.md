@@ -15,7 +15,7 @@ Report-only 代码质量审查组件。在 Claude Code / Codex 会话里对一�
 # 最新版
 curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
 # 指定版本
-curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.1.3
+curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.2.0
 ```
 
 确认：`quality-review version`
@@ -24,10 +24,10 @@ curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/instal
 
 ```sh
 # Codex
-codex plugin marketplace add Fueav/code-quality --ref v0.1.3 && codex plugin add code-quality@fueav-code-quality
+codex plugin marketplace add Fueav/code-quality --ref v0.2.0 && codex plugin add code-quality@fueav-code-quality
 
 # Claude Code
-claude plugin marketplace add Fueav/code-quality@v0.1.3 && claude plugin install code-quality@fueav-code-quality
+claude plugin marketplace add Fueav/code-quality@v0.2.0 && claude plugin install code-quality@fueav-code-quality
 ```
 
 仓库根目录同时提供 Codex 的 `.agents/plugins/marketplace.json` 与 Claude Code 的 `.claude-plugin/marketplace.json`，两端共用 `plugins/code-quality/` 的同一份 Skill。
@@ -38,9 +38,13 @@ claude plugin marketplace add Fueav/code-quality@v0.1.3 && claude plugin install
 
 1. `prepare` —— 钉住本次 commit 增量（base→target diff）；
 2. 当前会话按 20 条底线规则审查引入/加重的缺陷；
-3. `finalize` —— 产出 `review-result.json` + `review-result.md`（report-only 建议）。
+3. `finalize` —— 零发现时明确要求一次复审，否则产出 `review-result.json` + `review-result.md`（report-only 建议）。
 
 使用者无需配置模型、无需了解内部规则。
+
+## 对照评测
+
+`quality-review compare --product <findings.json> --baseline <findings.json>` 接受两份来源无关的 finding set，输出仅本产品、仅对照、双方共有三个分区，并附带逐条人工判定模板。每条输入包含 `id`、`comparison_key`、`dimension`、`code_locations` 和 `description`；两侧属于同一问题时由评测准备者赋相同 `comparison_key`。引擎不猜测语义等价，也不自动判断发现是否有效。
 
 ## 版本冻结
 

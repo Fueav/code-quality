@@ -116,7 +116,9 @@ Prepare at least 30 immutable, human-labeled changes:
 
 Summarize:
 
-- Skill versus built-in severe-issue discovery rate and paired core-issue hits;
+- the three-way finding comparison from `quality-review compare`: Skill-only, built-in-only, and shared findings;
+- a one-row-per-finding human judgment using adopted / noise / uncertain;
+- severe-issue discovery rate and paired core-issue hits as supplemental historical metrics only;
 - Skill versus built-in `MANUAL_REVIEW` finding rates, including the rate on normal changes;
 - per-lane report actionability;
 - completion and failure rates;
@@ -165,7 +167,7 @@ python3 pilot/historical_pilot_verify.py \
   --write-summary
 ```
 
-The summary reports evidence completeness, both lanes' metrics, paired misses, and `caught_up_to_builtin_review`. That conclusion is true only when evidence is complete, the Skill misses no severe issue found by built-in review, its severe discovery is not lower, and its normal-change `MANUAL_REVIEW` rate is not higher. It never enables blocking or makes the maintainers' pilot decision.
+The summary reports evidence completeness and both lanes' historical hit-rate metrics as supplemental context. It does not calculate an automatic pass. The primary output is the finding-level three-way comparison plus human judgment; project maintainers make the pilot decision.
 
 These results support the maintainers' decision to start a 2–4 week live report-only trial. V1 does not define an automatic-blocking threshold.
 
@@ -183,3 +185,11 @@ Reference templates:
 
 - `pilot/github-actions-report-only.yml`
 - `pilot/gitlab-report-only.yml`
+
+For a live report-only trial, copy `pilot/live_report_annotation_template.json` once per report, fill one judgment per finding, then summarize a directory of completed annotations:
+
+```bash
+python3 pilot/live_report_summary.py --annotations <directory> --output <summary.json>
+```
+
+The three live judgments are `adopted`, `noise`, and `confirmed_unseen` (a real issue the maintainer did not independently notice). The summary separates single-round and rereviewed zero-finding reports and never changes CI status.

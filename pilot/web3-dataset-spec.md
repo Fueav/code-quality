@@ -1,6 +1,6 @@
 # Web3 历史变更数据集采集规格
 
-用途：为 `historical_pilot`（真实项目 report-only 校验）挑选并标注 3 个真实项目、≥30 个历史变更。目标是判定减重后的 skill 是否**达到内置审查的水平**（`caught_up_to_builtin_review`）。
+用途：为 `historical_pilot`（真实项目 report-only 校验）挑选并标注 3 个真实项目、≥30 个历史变更。冻结标签继续用于历史诊断，但产品相对内置审查的主评价改为发现级三分区对照与人工判读。
 
 > 真实的 `base/target SHA + 核心问题 + 历史证据`必须来自你们真实仓库。commit 标题不是 ground truth；severe 标签必须能指向已知核心问题和历史证据（事故 / 修复 PR / issue）。
 
@@ -97,15 +97,9 @@
 - normal：`label_note` 说明为何是正常变更（有何保护）。
 - 标签一经冻结不可改；后续修复与私有标签不得让审查 Agent 看到。
 
-## 6. 成功判据（跑完自动计算，见 `historical_pilot.py::summarize`）
+## 6. 评价口径
 
-`caught_up_to_builtin_review = true` 需同时满足：
-
-- `builtin_only == 0`：内置审查命中核心问题、而 skill 漏掉的严重变更数为 0。
-- `skill.severe_issue_discovery.found >= builtin.severe_issue_discovery.found`。
-- `skill.manual_review_findings.normal_rate <= builtin.manual_review_findings.normal_rate`（护栏：正常变更误报不高于内置）。
-
-护栏不可去除：skill 是宿主会话薄封装，去掉护栏后"透传内置 + 乱报"即可平凡地追平召回。
+主输出是 Skill-only、built-in-only、shared 三分区，并由维护者逐条选择采纳、噪音或存疑。历史核心问题命中率、paired misses 与 normal 变更 finding rate 继续计算，但只作为附属诊断数据，不再产生自动通过结论，也不自动开启 CI 阻断。
 
 ## 7. 采集完成后的流程
 

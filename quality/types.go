@@ -1,6 +1,6 @@
 package quality
 
-const SkillVersion = "0.1.3"
+const SkillVersion = "0.2.0"
 
 // ReviewRequest is the trusted review baseline produced by the runner.
 type ReviewRequest struct {

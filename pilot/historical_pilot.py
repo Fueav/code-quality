@@ -213,13 +213,6 @@ def summarize(manifest: dict[str, object], records_directory: pathlib.Path) -> d
         else:
             neither += 1
     complete = len(records) == len(changes) and not missing and not errors
-    caught_up = None
-    if complete:
-        caught_up = (
-            builtin_only == 0
-            and skill["severe_issue_discovery"]["found"] >= builtin["severe_issue_discovery"]["found"]
-            and skill["manual_review_findings"]["normal_rate"] <= builtin["manual_review_findings"]["normal_rate"]
-        )
 
     return {
         "schema_version": 1,
@@ -232,9 +225,15 @@ def summarize(manifest: dict[str, object], records_directory: pathlib.Path) -> d
         "missing_records": missing,
         "record_errors": errors,
         "historical_evidence_complete": complete,
+        "primary_evaluation": {
+            "metric": "finding_comparison",
+            "requires_human_judgment": True,
+            "automatic_pass": None,
+            "input_contract": "quality-review compare --product <findings.json> --baseline <findings.json>",
+        },
         "skill": skill,
         "builtin": builtin,
-        "comparison": {
+        "supplemental_ground_truth_metrics": {
             "severe_core_issue_pairs": {
                 "both": both,
                 "skill_only": skill_only,
@@ -242,10 +241,10 @@ def summarize(manifest: dict[str, object], records_directory: pathlib.Path) -> d
                 "neither": neither,
                 "builtin_misses_by_skill": builtin_misses_by_skill,
             },
-            "caught_up_to_builtin_review": caught_up,
-            "criterion": "complete evidence; no severe issue found only by builtin; skill severe discovery is not lower; skill normal MANUAL_REVIEW rate is not higher",
+            "role": "supplemental_only",
+            "automatic_pass": None,
         },
-        "decision": "project maintainers decide live report-only entry; this comparison never enables blocking",
+        "decision": "project maintainers judge the finding comparison; no automatic hit-rate gate enables blocking or trial entry",
     }
 
 

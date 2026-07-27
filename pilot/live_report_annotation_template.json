@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "report_id": "<stable-report-id>",
+  "project": "<repository-or-project>",
+  "review_rounds": "<1|2>",
+  "finding_judgment_options": [
+    "adopted",
+    "noise",
+    "confirmed_unseen"
+  ],
+  "findings": [
+    {
+      "finding_id": "<finding-id>",
+      "dimension": "<D1|D2|D3|D4>",
+      "code_locations": [
+        {
+          "path": "<relative/path>",
+          "line": 1
+        }
+      ],
+      "description": "<finding-description>",
+      "judgment": "<adopted|noise|confirmed_unseen>",
+      "note": "<maintainer-note>"
+    }
+  ]
+}

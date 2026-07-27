@@ -96,6 +96,84 @@ func TestFinalizeReportOnlyManualFindingUsesOneAgent(t *testing.T) {
 	}
 }
 
+func TestFinalizeZeroFindingsRequiresOneRereview(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	writeJSON(t, prepared.MainReviewPath, integrationEmptyReview())
+
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "REREVIEW_REQUIRED" || !finalized.ReviewRequired || finalized.CompletedReviewRounds != 1 || finalized.MaximumReviewRounds != 2 {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	if finalized.NextReviewPath == "" || finalized.NextReviewPath == prepared.MainReviewPath {
+		t.Fatalf("next review path = %q", finalized.NextReviewPath)
+	}
+	if _, err := os.Lstat(prepared.RepositoryDir); err != nil {
+		t.Fatalf("review worktree must remain available for rereview: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prepared.SessionDir, "output", "review-result.json")); !os.IsNotExist(err) {
+		t.Fatalf("zero-finding first pass must not publish a final report: %v", err)
+	}
+}
+
+func TestFinalizeRereviewFindingIsMergedAndAdjudicated(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	writeJSON(t, prepared.MainReviewPath, integrationEmptyReview())
+	first := finalizeSession(t, prepared.SessionDir)
+	writeJSON(t, first.NextReviewPath, integrationMainReview())
+
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" || finalized.SemanticResult != quality.ResultManualReview || finalized.ReviewRequired || finalized.CompletedReviewRounds != 2 {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
+	if len(result.Findings) != 1 || result.Findings[0].Candidate.ID != "F-001" || result.Execution.RetryCount == nil || *result.Execution.RetryCount != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFinalizeTwoZeroFindingRoundsCompletesWithExplicitEvidence(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	writeJSON(t, prepared.MainReviewPath, integrationEmptyReview())
+	first := finalizeSession(t, prepared.SessionDir)
+	writeJSON(t, first.NextReviewPath, integrationEmptyReview())
+
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" || finalized.SemanticResult != quality.ResultPass || finalized.CompletedReviewRounds != 2 || finalized.ReviewRequired {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
+	if len(result.Findings) != 0 || result.Execution.RetryCount == nil || *result.Execution.RetryCount != 1 || !strings.Contains(strings.Join(result.Adjudication.Reasons, " "), "two review rounds") {
+		t.Fatalf("result = %#v", result)
+	}
+	markdown, err := os.ReadFile(finalized.MarkdownPath)
+	if err != nil || !strings.Contains(string(markdown), "Retries: 1") || !strings.Contains(string(markdown), "two review rounds") {
+		t.Fatalf("markdown = %s, err = %v", markdown, err)
+	}
+}
+
+func TestFinalizeRereviewRequestIsIdempotentAndNeverCreatesThirdRound(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	writeJSON(t, prepared.MainReviewPath, integrationEmptyReview())
+
+	first := finalizeSession(t, prepared.SessionDir)
+	second := finalizeSession(t, prepared.SessionDir)
+	if second.Status != "REREVIEW_REQUIRED" || second.NextReviewPath != first.NextReviewPath || second.CompletedReviewRounds != 1 || second.MaximumReviewRounds != 2 {
+		t.Fatalf("first = %#v, second = %#v", first, second)
+	}
+	writeJSON(t, second.NextReviewPath, integrationEmptyReview())
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" || finalized.CompletedReviewRounds != 2 || finalized.NextReviewPath != "" {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	if matches, err := filepath.Glob(filepath.Join(prepared.SessionDir, "output", "*review*.json")); err != nil || len(matches) != 3 {
+		t.Fatalf("review artifacts = %#v, err = %v", matches, err)
+	}
+}
+
 func TestFinalizeMissingMainReviewProducesIncompleteReport(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	prepared, _ := prepareSession(t, repo, base, target)
@@ -160,6 +238,38 @@ func TestAdjudicateAndRender(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "**Result:** `MANUAL_REVIEW`") {
 		t.Fatalf("rendered report is incomplete:\n%s", stdout.String())
+	}
+}
+
+func TestCompareCommandUsesExternallySuppliedBaseline(t *testing.T) {
+	directory := t.TempDir()
+	productPath := filepath.Join(directory, "product.json")
+	baselinePath := filepath.Join(directory, "baseline.json")
+	writeJSON(t, productPath, evalrunner.FindingSet{
+		SchemaVersion: 1, Source: "code-quality",
+		Findings: []evalrunner.ComparisonFinding{{
+			ID: "P-001", ComparisonKey: "shared", Dimension: "D1",
+			CodeLocations: []quality.CodeLocation{{Path: "app.go", Line: 3}}, Description: "Product description.",
+		}},
+	})
+	writeJSON(t, baselinePath, evalrunner.FindingSet{
+		SchemaVersion: 1, Source: "host-review-export",
+		Findings: []evalrunner.ComparisonFinding{{
+			ID: "B-001", ComparisonKey: "shared", Dimension: "D1",
+			CodeLocations: []quality.CodeLocation{{Path: "app.go", Line: 3}}, Description: "Baseline description.",
+		}},
+	})
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"compare", "--product", productPath, "--baseline", baselinePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("compare exit code = %d, stderr = %s", code, stderr.String())
+	}
+	var report evalrunner.ComparisonReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.BaselineSource != "host-review-export" || len(report.Shared) != 1 || report.Shared[0].Baseline.Description != "Baseline description." {
+		t.Fatalf("report = %#v", report)
 	}
 }
 
@@ -418,6 +528,12 @@ func integrationMainReview() quality.ModelReview {
 		UninspectedScope: []string{}, MissingContext: []string{},
 		InspectedContext: []quality.InspectedContext{{Path: "app.go", Purpose: "Trace the changed entry."}},
 	}
+}
+
+func integrationEmptyReview() quality.ModelReview {
+	review := integrationMainReview()
+	review.Findings = []quality.Finding{}
+	return review
 }
 
 func restoreFixturePermissions(root string) {

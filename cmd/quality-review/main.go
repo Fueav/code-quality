@@ -27,7 +27,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "quality-review: invoke the code-quality Skill from an active Claude Code or Codex session")
-		fmt.Fprintln(stderr, "quality-review: deterministic commands: prepare, finalize, adjudicate, eval, replay, validate, render")
+		fmt.Fprintln(stderr, "quality-review: deterministic commands: prepare, finalize, adjudicate, compare, eval, replay, validate, render")
 		return 2
 	}
 	policy, err := loadPolicy()
@@ -49,6 +49,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runFinalize(args[1:], policy, stdout, stderr)
 	case "adjudicate":
 		return runAdjudicate(args[1:], policy, stdout, stderr)
+	case "compare":
+		return runCompare(args[1:], stdout, stderr)
 	case "eval":
 		return runEval(args[1:], policy, stdout, stderr)
 	case "replay":
@@ -61,6 +63,36 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "quality-review: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+func runCompare(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("compare", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	productPath := flags.String("product", "", "product finding set JSON")
+	baselinePath := flags.String("baseline", "", "externally supplied baseline finding set JSON")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || strings.TrimSpace(*productPath) == "" || strings.TrimSpace(*baselinePath) == "" {
+		fmt.Fprintln(stderr, "usage: quality-review compare --product <findings.json> --baseline <findings.json>")
+		return 2
+	}
+	product, err := decodeFile[evalrunner.FindingSet](*productPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: compare product findings: %v\n", err)
+		return 1
+	}
+	baseline, err := decodeFile[evalrunner.FindingSet](*baselinePath)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: compare baseline findings: %v\n", err)
+		return 1
+	}
+	report, err := evalrunner.CompareFindings(product, baseline)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: compare: %v\n", err)
+		return 1
+	}
+	return encodeJSON(stdout, stderr, report)
 }
 
 func runPrepare(args []string, stdout, stderr io.Writer) int {

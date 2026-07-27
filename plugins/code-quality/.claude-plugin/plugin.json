@@ -1,6 +1,6 @@
 {
   "name": "code-quality",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Runs the V1.1 ordinary report-only code review in the current host session.",
   "author": {
     "name": "Fueav",

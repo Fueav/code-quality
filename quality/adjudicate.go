@@ -65,6 +65,8 @@ func Adjudicate(request ReviewRequest, review ModelReview, policy PolicyManifest
 				fmt.Sprintf("%s requires manual review", finding.Candidate.ID),
 			)
 		}
+	} else if review.Execution.RetryCount != nil && *review.Execution.RetryCount > 0 {
+		result.Adjudication.Reasons = []string{"no material changed-code finding was reported after two review rounds"}
 	} else {
 		result.Adjudication.Reasons = []string{"no material changed-code finding was reported"}
 	}
