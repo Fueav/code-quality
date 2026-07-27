@@ -46,8 +46,12 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 		return writeIncomplete(layout, "", request, policy, quality.Execution{}, "read session metadata: "+err.Error())
 	}
 	metadata, err := quality.DecodeStrict[Metadata](bytes.NewReader(metadataRaw))
-	if err != nil || metadata.SchemaVersion != 1 || (metadata.Host != "claude-code" && metadata.Host != "codex") || metadata.SkillVersion != quality.SkillVersion {
+	if err != nil || metadata.SchemaVersion != 1 || (metadata.Host != "claude-code" && metadata.Host != "codex") {
 		return writeIncomplete(layout, "", request, policy, quality.Execution{}, "session metadata is invalid")
+	}
+	if metadata.SkillVersion != quality.SkillVersion {
+		return writeIncomplete(layout, "", request, policy, quality.Execution{},
+			fmt.Sprintf("quality-review binary version changed between prepare (%q) and finalize (%q); use the same binary version for both steps", metadata.SkillVersion, quality.SkillVersion))
 	}
 	execution := quality.Execution{Host: metadata.Host, SkillVersion: metadata.SkillVersion, AgentCount: 1}
 	mainRaw, err := ReadRegularFile(layout.MainReviewPath, maxReviewBytes)
