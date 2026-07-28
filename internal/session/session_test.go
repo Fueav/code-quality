@@ -53,3 +53,14 @@ func TestMergeReviewsDeduplicatesRootsAndPreservesDistinctIDCollisions(t *testin
 		seenIDs[finding.ID] = struct{}{}
 	}
 }
+
+func TestCleanupCloneCheckoutRejectsPathOutsideSession(t *testing.T) {
+	sessionDir := t.TempDir()
+	outside := t.TempDir()
+	if err := cleanupCheckout("", sessionDir, outside, CheckoutModeClone); err == nil || !strings.Contains(err.Error(), "outside session") {
+		t.Fatalf("cleanup error = %v", err)
+	}
+	if _, err := os.Lstat(outside); err != nil {
+		t.Fatalf("outside path was removed: %v", err)
+	}
+}

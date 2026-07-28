@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -43,6 +44,9 @@ func TestPrepareCreatesCommittedReviewSession(t *testing.T) {
 	if prepared.Status != "READY_FOR_MAIN_REVIEW" || prepared.SessionDir == "" {
 		t.Fatalf("prepared = %#v", prepared)
 	}
+	if prepared.CheckoutMode != reviewsession.CheckoutModeWorktree {
+		t.Fatalf("checkout mode = %q", prepared.CheckoutMode)
+	}
 	contents, err := os.ReadFile(filepath.Join(prepared.RepositoryDir, "app.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +61,55 @@ func TestPrepareCreatesCommittedReviewSession(t *testing.T) {
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			t.Fatalf("trusted artifact %s is invalid: %v", path, err)
+		}
+	}
+}
+
+func TestPrepareFallsBackToSharedCloneWhenGitMetadataIsReadOnly(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	before := snapshotGitMetadata(t, repo)
+	restore := makeGitMetadataReadOnly(t, repo)
+	prepared, stderr := prepareSession(t, repo, base, target)
+	restore()
+	if stderr != "" {
+		t.Fatalf("stderr = %s", stderr)
+	}
+	if prepared.CheckoutMode != reviewsession.CheckoutModeClone {
+		t.Fatalf("checkout mode = %q", prepared.CheckoutMode)
+	}
+	metadata := readJSON[reviewsession.Metadata](t, prepared.MetadataPath)
+	if metadata.CheckoutMode != reviewsession.CheckoutModeClone {
+		t.Fatalf("metadata checkout mode = %q", metadata.CheckoutMode)
+	}
+	if info, err := os.Lstat(filepath.Join(prepared.RepositoryDir, ".git")); err != nil || !info.IsDir() {
+		t.Fatalf("repository is not a shared clone: %v", err)
+	}
+	command := exec.Command("git", "-C", prepared.RepositoryDir, "rev-parse", "HEAD")
+	if output, err := command.Output(); err != nil || strings.TrimSpace(string(output)) != target {
+		t.Fatalf("clone HEAD = %q, err = %v", output, err)
+	}
+	if after := snapshotGitMetadata(t, repo); !reflect.DeepEqual(after, before) {
+		t.Fatalf("main repository metadata changed:\nbefore=%#v\nafter=%#v", before, after)
+	}
+}
+
+func TestFinalizeCloneCheckoutRemovesOnlyRepository(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	restore := makeGitMetadataReadOnly(t, repo)
+	prepared, _ := prepareSession(t, repo, base, target)
+	restore()
+	writeJSON(t, prepared.MainReviewPath, integrationMainReview())
+
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	if _, err := os.Lstat(prepared.RepositoryDir); !os.IsNotExist(err) {
+		t.Fatalf("clone checkout was not removed: %v", err)
+	}
+	for _, path := range []string{prepared.SessionDir, finalized.ResultPath, finalized.MarkdownPath} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("preserved artifact %s is unavailable: %v", path, err)
 		}
 	}
 }
@@ -499,6 +552,50 @@ func cliReviewFixture(t *testing.T) (string, string, string) {
 	git("add", ".")
 	git("commit", "-m", "target")
 	return repo, base, git("rev-parse", "HEAD")
+}
+
+func makeGitMetadataReadOnly(t *testing.T, repo string) func() {
+	t.Helper()
+	gitDir := filepath.Join(repo, ".git")
+	info, err := os.Stat(gitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		if err := os.Chmod(gitDir, info.Mode().Perm()); err != nil {
+			t.Errorf("restore git metadata permissions: %v", err)
+		}
+	}
+	t.Cleanup(restore)
+	if err := os.Chmod(gitDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	return restore
+}
+
+func snapshotGitMetadata(t *testing.T, repo string) []string {
+	t.Helper()
+	root := filepath.Join(repo, ".git")
+	entries := []string{}
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, relative)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return entries
 }
 
 func integrationRequest() quality.ReviewRequest {

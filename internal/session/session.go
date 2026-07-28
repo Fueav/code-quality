@@ -17,6 +17,13 @@ import (
 
 const maxDiffBytes = int64(2 << 20)
 
+type CheckoutMode string
+
+const (
+	CheckoutModeWorktree CheckoutMode = "worktree"
+	CheckoutModeClone    CheckoutMode = "clone"
+)
+
 type Layout struct {
 	SessionDir          string
 	InputDir            string
@@ -38,20 +45,21 @@ type Layout struct {
 }
 
 type Prepared struct {
-	SchemaVersion       int    `json:"schema_version"`
-	Status              string `json:"status"`
-	SessionDir          string `json:"session_dir"`
-	RepositoryDir       string `json:"repository_dir"`
-	EvidenceContextPath string `json:"evidence_context_path"`
-	RequestPath         string `json:"request_path"`
-	DiffPath            string `json:"diff_path"`
-	RubricPath          string `json:"rubric_path"`
-	WorkflowPath        string `json:"workflow_path"`
-	ModelSchemaPath     string `json:"model_schema_path"`
-	ManifestPath        string `json:"manifest_path"`
-	MetadataPath        string `json:"metadata_path"`
-	MainReviewPath      string `json:"main_review_path"`
-	DirtyWorktree       bool   `json:"dirty_worktree"`
+	SchemaVersion       int          `json:"schema_version"`
+	Status              string       `json:"status"`
+	SessionDir          string       `json:"session_dir"`
+	RepositoryDir       string       `json:"repository_dir"`
+	EvidenceContextPath string       `json:"evidence_context_path"`
+	RequestPath         string       `json:"request_path"`
+	DiffPath            string       `json:"diff_path"`
+	RubricPath          string       `json:"rubric_path"`
+	WorkflowPath        string       `json:"workflow_path"`
+	ModelSchemaPath     string       `json:"model_schema_path"`
+	ManifestPath        string       `json:"manifest_path"`
+	MetadataPath        string       `json:"metadata_path"`
+	MainReviewPath      string       `json:"main_review_path"`
+	DirtyWorktree       bool         `json:"dirty_worktree"`
+	CheckoutMode        CheckoutMode `json:"checkout_mode"`
 }
 
 type Options struct {
@@ -63,10 +71,11 @@ type Options struct {
 }
 
 type Metadata struct {
-	SchemaVersion  int    `json:"schema_version"`
-	Host           string `json:"host"`
-	SkillVersion   string `json:"skill_version"`
-	RepositoryRoot string `json:"repository_root"`
+	SchemaVersion  int          `json:"schema_version"`
+	Host           string       `json:"host"`
+	SkillVersion   string       `json:"skill_version"`
+	RepositoryRoot string       `json:"repository_root"`
+	CheckoutMode   CheckoutMode `json:"checkout_mode"`
 }
 
 func Prepare(ctx context.Context, options Options) (Prepared, error) {
@@ -89,9 +98,10 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	}
 	layout := NewLayout(directory)
 	prepared := false
+	checkoutMode := CheckoutModeWorktree
 	defer func() {
 		if !prepared {
-			removeWorktree(options.RepositoryRoot, layout.RepositoryDir)
+			_ = cleanupCheckout(options.RepositoryRoot, layout.SessionDir, layout.RepositoryDir, checkoutMode)
 			_ = cleanupPartialSession(root, directory)
 		}
 	}()
@@ -101,7 +111,8 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
 		return Prepared{}, err
 	}
-	if err := addWorktree(ctx, options.RepositoryRoot, options.Request.TargetCommit, layout.RepositoryDir); err != nil {
+	checkoutMode, err = prepareCheckout(ctx, options.RepositoryRoot, options.Request.TargetCommit, layout)
+	if err != nil {
 		return Prepared{}, err
 	}
 	evidence, err := DiscoverEvidence(options.RepositoryRoot, options.Request.TargetCommit, layout.EvidenceDir)
@@ -114,7 +125,7 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if err := writeJSON(layout.RequestPath, options.Request); err != nil {
 		return Prepared{}, err
 	}
-	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion, RepositoryRoot: options.RepositoryRoot}); err != nil {
+	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion, RepositoryRoot: options.RepositoryRoot, CheckoutMode: checkoutMode}); err != nil {
 		return Prepared{}, err
 	}
 	if err := writeTrustedDiff(ctx, options.RepositoryRoot, options.Request, layout.DiffPath); err != nil {
@@ -145,6 +156,7 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 		MetadataPath:        layout.MetadataPath,
 		MainReviewPath:      layout.MainReviewPath,
 		DirtyWorktree:       options.DirtyWorktree,
+		CheckoutMode:        checkoutMode,
 	}, nil
 }
 
@@ -327,10 +339,73 @@ func addWorktree(ctx context.Context, root, commit, worktreePath string) error {
 	return nil
 }
 
+func prepareCheckout(ctx context.Context, root, commit string, layout Layout) (CheckoutMode, error) {
+	if err := addWorktree(ctx, root, commit, layout.RepositoryDir); err == nil {
+		return CheckoutModeWorktree, nil
+	} else {
+		worktreeErr := err
+		removeWorktree(root, layout.RepositoryDir)
+		if err := removeCloneCheckout(layout.SessionDir, layout.RepositoryDir); err != nil {
+			return CheckoutModeClone, fmt.Errorf("%v; prepare shared-clone fallback: %w", worktreeErr, err)
+		}
+		if err := addSharedClone(ctx, root, commit, layout.RepositoryDir); err != nil {
+			return CheckoutModeClone, fmt.Errorf("%v; prepare shared-clone fallback: %w", worktreeErr, err)
+		}
+		return CheckoutModeClone, nil
+	}
+}
+
+func addSharedClone(ctx context.Context, root, commit, clonePath string) error {
+	var stderr bytes.Buffer
+	command := exec.CommandContext(ctx, "git", "clone", "--shared", "--no-checkout", root, clonePath)
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("clone shared review repository: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	stderr.Reset()
+	command = exec.CommandContext(ctx, "git", "-C", clonePath, "checkout", "--detach", commit)
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("checkout shared review repository: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 // removeWorktree is best-effort cleanup; a leftover worktree can be pruned with
 // `git worktree prune` and does not affect the review result.
 func removeWorktree(root, worktreePath string) {
 	_ = exec.Command("git", "-C", root, "worktree", "remove", "--force", worktreePath).Run()
+}
+
+func cleanupCheckout(root, sessionDir, repositoryDir string, mode CheckoutMode) error {
+	switch mode {
+	case CheckoutModeWorktree:
+		removeWorktree(root, repositoryDir)
+		return nil
+	case CheckoutModeClone:
+		return removeCloneCheckout(sessionDir, repositoryDir)
+	default:
+		return fmt.Errorf("unsupported checkout mode %q", mode)
+	}
+}
+
+func removeCloneCheckout(sessionDir, repositoryDir string) error {
+	sessionAbsolute, err := filepath.Abs(sessionDir)
+	if err != nil {
+		return err
+	}
+	repositoryAbsolute, err := filepath.Abs(repositoryDir)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(sessionAbsolute, repositoryAbsolute)
+	if err != nil {
+		return err
+	}
+	if relative == "." || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return errors.New("refuse to clean clone checkout outside session")
+	}
+	return os.RemoveAll(repositoryAbsolute)
 }
 
 func cleanupPartialSession(root, directory string) error {

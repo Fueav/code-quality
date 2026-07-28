@@ -48,33 +48,33 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 	}
 	metadataRaw, err := ReadRegularFile(layout.MetadataPath, maxReviewBytes)
 	if err != nil {
-		return writeIncomplete(layout, "", request, policy, quality.Execution{}, 0, "read session metadata: "+err.Error())
+		return writeIncomplete(layout, Metadata{}, request, policy, quality.Execution{}, 0, "read session metadata: "+err.Error())
 	}
 	metadata, err := quality.DecodeStrict[Metadata](bytes.NewReader(metadataRaw))
-	if err != nil || metadata.SchemaVersion != 1 || (metadata.Host != "claude-code" && metadata.Host != "codex") {
-		return writeIncomplete(layout, "", request, policy, quality.Execution{}, 0, "session metadata is invalid")
+	if err != nil || metadata.SchemaVersion != 1 || (metadata.Host != "claude-code" && metadata.Host != "codex") || !validCheckoutMode(metadata.CheckoutMode) {
+		return writeIncomplete(layout, Metadata{}, request, policy, quality.Execution{}, 0, "session metadata is invalid")
 	}
 	if metadata.SkillVersion != quality.SkillVersion {
-		return writeIncomplete(layout, "", request, policy, quality.Execution{}, 0,
+		return writeIncomplete(layout, Metadata{}, request, policy, quality.Execution{}, 0,
 			fmt.Sprintf("quality-review binary version changed between prepare (%q) and finalize (%q); use the same binary version for both steps", metadata.SkillVersion, quality.SkillVersion))
 	}
 	execution := quality.Execution{Host: metadata.Host, SkillVersion: metadata.SkillVersion, AgentCount: 1}
 	mainRaw, err := ReadRegularFile(layout.MainReviewPath, maxReviewBytes)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return writeIncomplete(layout, metadata.RepositoryRoot, request, policy, execution, 0, "main review is missing")
+			return writeIncomplete(layout, metadata, request, policy, execution, 0, "main review is missing")
 		}
-		return writeIncomplete(layout, metadata.RepositoryRoot, request, policy, execution, 0, "read main review: "+err.Error())
+		return writeIncomplete(layout, metadata, request, policy, execution, 0, "read main review: "+err.Error())
 	}
 	main, err := quality.DecodeModelReview(bytes.NewReader(mainRaw))
 	if err != nil {
-		return writeIncomplete(layout, metadata.RepositoryRoot, request, policy, execution, 0, "invalid main review: "+err.Error())
+		return writeIncomplete(layout, metadata, request, policy, execution, 0, "invalid main review: "+err.Error())
 	}
 	main.Execution = execution
 	firstResult := quality.Adjudicate(request, main, policy)
 	if firstResult.Adjudication.SemanticResult != quality.ResultPass || len(firstResult.Findings) != 0 {
 		main.Execution.RetryCount = intPointer(0)
-		return writeComplete(layout, metadata.RepositoryRoot, request, main, policy, 1)
+		return writeComplete(layout, metadata, request, main, policy, 1)
 	}
 	rereviewRaw, err := ReadRegularFile(layout.RereviewPath, maxReviewBytes)
 	if errors.Is(err, os.ErrNotExist) {
@@ -85,24 +85,26 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 		}, nil
 	}
 	if err != nil {
-		return writeIncomplete(layout, metadata.RepositoryRoot, request, policy, execution, 1, "read rereview: "+err.Error())
+		return writeIncomplete(layout, metadata, request, policy, execution, 1, "read rereview: "+err.Error())
 	}
 	rereview, err := quality.DecodeModelReview(bytes.NewReader(rereviewRaw))
 	if err != nil {
-		return writeIncomplete(layout, metadata.RepositoryRoot, request, policy, execution, 1, "invalid rereview: "+err.Error())
+		return writeIncomplete(layout, metadata, request, policy, execution, 1, "invalid rereview: "+err.Error())
 	}
 	merged := mergeReviews(main, rereview)
 	merged.Execution = execution
 	merged.Execution.RetryCount = intPointer(1)
-	return writeComplete(layout, metadata.RepositoryRoot, request, merged, policy, 2)
+	return writeComplete(layout, metadata, request, merged, policy, 2)
 }
 
-func writeComplete(layout Layout, repositoryRoot string, request quality.ReviewRequest, review quality.ModelReview, policy quality.PolicyManifest, reviewRounds int) (Finalized, error) {
+func writeComplete(layout Layout, metadata Metadata, request quality.ReviewRequest, review quality.ModelReview, policy quality.PolicyManifest, reviewRounds int) (Finalized, error) {
 	result := quality.Adjudicate(request, review, policy)
 	if err := writeReports(layout, result); err != nil {
 		return Finalized{}, err
 	}
-	cleanupWorktree(repositoryRoot, layout.RepositoryDir)
+	if err := cleanupCheckout(metadata.RepositoryRoot, layout.SessionDir, layout.RepositoryDir, metadata.CheckoutMode); err != nil {
+		return Finalized{}, err
+	}
 	return Finalized{
 		SchemaVersion:         1,
 		Status:                "COMPLETE",
@@ -116,12 +118,16 @@ func writeComplete(layout Layout, repositoryRoot string, request quality.ReviewR
 	}, nil
 }
 
-func writeIncomplete(layout Layout, repositoryRoot string, request quality.ReviewRequest, policy quality.PolicyManifest, execution quality.Execution, completedReviewRounds int, reasons ...string) (Finalized, error) {
+func writeIncomplete(layout Layout, metadata Metadata, request quality.ReviewRequest, policy quality.PolicyManifest, execution quality.Execution, completedReviewRounds int, reasons ...string) (Finalized, error) {
 	result := quality.IncompleteResultWithExecution(request, policy, execution, reasons...)
 	if err := writeReports(layout, result); err != nil {
 		return Finalized{}, err
 	}
-	cleanupWorktree(repositoryRoot, layout.RepositoryDir)
+	if validCheckoutMode(metadata.CheckoutMode) {
+		if err := cleanupCheckout(metadata.RepositoryRoot, layout.SessionDir, layout.RepositoryDir, metadata.CheckoutMode); err != nil {
+			return Finalized{}, err
+		}
+	}
 	return Finalized{
 		SchemaVersion:         1,
 		Status:                "INCOMPLETE",
@@ -231,11 +237,8 @@ func intPointer(value int) *int {
 	return &value
 }
 
-func cleanupWorktree(repositoryRoot, worktreePath string) {
-	if strings.TrimSpace(repositoryRoot) == "" {
-		return
-	}
-	removeWorktree(repositoryRoot, worktreePath)
+func validCheckoutMode(mode CheckoutMode) bool {
+	return mode == CheckoutModeWorktree || mode == CheckoutModeClone
 }
 
 func writeReports(layout Layout, result quality.ReviewResult) error {
