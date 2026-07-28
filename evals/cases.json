@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "1.1.1",
+  "policy_version": "1.2.0",
   "severe_repetitions": 3,
   "cases": [
     {"id":"DES-001-positive","rule_id":"DES-001","dimension":"D1","kind":"positive","title":"Two growing collections are nested on every scheduled run","fixture":{"language":"go","before":"for _, changed := range changedIDs { process(changed) }","after":"for _, account := range allAccounts { for _, event := range allEvents { match(account, event) } }","facts":["The hourly production job reads 200000 accounts and 800000 events.","No index or bound exists and the previous incremental path completed within the schedule."]},"expected":{"semantic_result":"MANUAL_REVIEW","finding_count":1,"severity":"S3","trigger_confidence":"T3","evidence_level":"E2","verifier_result":"confirmed"}},

@@ -79,7 +79,7 @@ func ValidatePolicy(policy PolicyManifest) []string {
 			errors = append(errors, prefix+".dimension is invalid")
 		}
 		if expectedDimension, ok := requiredRules[rule.ID]; !ok || expectedDimension != rule.Dimension {
-			errors = append(errors, prefix+" does not match the V1.1 rule contract")
+			errors = append(errors, prefix+" does not match the V1.2 rule contract")
 		}
 		if _, ok := validRuleStatus[rule.Status]; !ok {
 			errors = append(errors, prefix+".status is invalid")

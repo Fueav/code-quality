@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "policy_version": "1.1.1",
-  "rubric": "policy/v1.1/rubric.md",
+  "policy_version": "1.2.0",
+  "rubric": "policy/v1.2/rubric.md",
   "agent_limit": 2,
   "rules": [
     {"id": "DES-001", "dimension": "D1", "status": "report_only"},

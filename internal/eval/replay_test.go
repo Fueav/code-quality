@@ -26,7 +26,7 @@ func TestReplayReportOnlySmokeDoesNotRequireHumanConfirmationOrExactRule(t *test
 	}
 	policy := testPolicy()
 	record := ReplayRecord{
-		SchemaVersion: 1, PolicyVersion: "1.1.1", CaseID: "DES-003-positive", Host: "claude-code", RunNumber: 1,
+		SchemaVersion: 1, PolicyVersion: "1.2.0", CaseID: "DES-003-positive", Host: "claude-code", RunNumber: 1,
 		Observed: Observed{
 			SemanticResult: quality.ResultManualReview, RuleIDs: []string{"DES-004"},
 			Severity: stringPointer("S3"), TriggerConfidence: stringPointer("T3"), EvidenceLevel: stringPointer("E2"),
@@ -76,7 +76,7 @@ func TestReplayReportOnlySmokeCompletesWithOnePendingRunPerCase(t *testing.T) {
 		}
 		records = append(records, ReplayRecord{
 			SchemaVersion: 1,
-			PolicyVersion: "1.1.1",
+			PolicyVersion: "1.2.0",
 			CaseID:        item.ID,
 			Host:          "codex",
 			RunNumber:     1,
@@ -147,7 +147,7 @@ func TestReplayRejectsDuplicateIdentityAndAgentOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := ReplayRecord{
-		SchemaVersion: 1, PolicyVersion: "1.1.1", CaseID: "DES-003-positive", Host: "codex", RunNumber: 1,
+		SchemaVersion: 1, PolicyVersion: "1.2.0", CaseID: "DES-003-positive", Host: "codex", RunNumber: 1,
 		Observed: Observed{
 			SemanticResult: quality.ResultBlock, RuleIDs: []string{"DES-003"},
 			Severity: stringPointer("S3"), TriggerConfidence: stringPointer("T3"), EvidenceLevel: stringPointer("E2"),
@@ -167,7 +167,7 @@ func TestReplayHumanReviewUsesThreeStates(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := ReplayRecord{
-		SchemaVersion: 1, PolicyVersion: "1.1.1", CaseID: "DES-003-counterexample", Host: "claude-code", RunNumber: 1,
+		SchemaVersion: 1, PolicyVersion: "1.2.0", CaseID: "DES-003-counterexample", Host: "claude-code", RunNumber: 1,
 		Observed: Observed{SemanticResult: quality.ResultPass, RuleIDs: []string{}, AgentCount: 1},
 	}
 	for name, review := range map[string]HumanReview{
@@ -193,7 +193,7 @@ func TestReplayRejectsInvalidExecutionAndAxesWithoutCountingMetrics(t *testing.T
 	}
 	metric := 1
 	record := ReplayRecord{
-		SchemaVersion: 1, PolicyVersion: "1.1.1", CaseID: "DES-003-positive", Host: "codex", RunNumber: 1,
+		SchemaVersion: 1, PolicyVersion: "1.2.0", CaseID: "DES-003-positive", Host: "codex", RunNumber: 1,
 		Observed: Observed{
 			SemanticResult: quality.ResultBlock, RuleIDs: []string{"DES-003"},
 			Severity: stringPointer("S4"), TriggerConfidence: stringPointer("T3"), EvidenceLevel: stringPointer("E2"),
@@ -224,7 +224,7 @@ func TestLoadReplayRecordsRejectsSymlink(t *testing.T) {
 
 func replayResult(verdict, ruleID string, agents, verifiers int) quality.ReviewResult {
 	result := quality.ReviewResult{
-		SchemaVersion: 1, PolicyVersion: "1.1.1",
+		SchemaVersion: 1, PolicyVersion: "1.2.0",
 		Execution:    quality.Execution{Host: "claude-code", SkillVersion: quality.SkillVersion, AgentCount: agents, VerifierCount: verifiers},
 		Adjudication: quality.Adjudication{SemanticResult: verdict, RolloutMode: "report_only", CIAction: "publish_report", Reasons: []string{"fixture"}},
 		Findings:     []quality.AdjudicatedFinding{},

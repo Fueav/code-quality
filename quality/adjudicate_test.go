@@ -255,11 +255,11 @@ func TestValidateResultAllowsIncompleteBeforeExecutionStarts(t *testing.T) {
 	}
 }
 
-func TestPolicyMustMatchExactV11RuleContract(t *testing.T) {
+func TestPolicyMustMatchExactV12RuleContract(t *testing.T) {
 	policy := validPolicy()
 	policy.Rules[0].ID = "NEW-001"
-	if errors := ValidatePolicy(policy); !contains(errors, "does not match the V1.1 rule contract") {
-		t.Fatalf("errors = %#v, want V1.1 rule error", errors)
+	if errors := ValidatePolicy(policy); !contains(errors, "does not match the V1.2 rule contract") {
+		t.Fatalf("errors = %#v, want V1.2 rule error", errors)
 	}
 }
 
@@ -343,8 +343,8 @@ func validPolicy() PolicyManifest {
 	}
 	return PolicyManifest{
 		SchemaVersion: 1,
-		PolicyVersion: "1.1.1",
-		Rubric:        "policy/v1.1/rubric.md",
+		PolicyVersion: "1.2.0",
+		Rubric:        "policy/v1.2/rubric.md",
 		AgentLimit:    2,
 		Rules:         rules,
 	}

@@ -2,7 +2,7 @@
 
 版本：V1.1  
 日期：2026-07-15  
-状态：历史同步稿；当前权威规则见 `policy/v1.1/rubric.md`，当前运行架构见 `2026-07-21-code-quality-v1-implementation-design.md`
+状态：历史同步稿；当前权威规则见 `policy/v1.2/rubric.md`，当前运行架构见 `2026-07-21-code-quality-v1-implementation-design.md`
 配套总方案：[公司 AI 代码检查方案](2026-07-14-company-ai-code-review-overview.html)
 
 > V1.1 继续只定义第一阶段必须拦住的严重低级错误，并把首次实战暴露出的判定、报告和资源约束变成可执行合同。本稿仍处于团队评审与试点阶段，不是固定的公司终版标准。

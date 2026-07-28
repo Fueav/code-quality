@@ -9,7 +9,7 @@ import (
 	"github.com/Fueav/code-quality/quality"
 )
 
-func TestEmbeddedPolicyMatchesV11Contract(t *testing.T) {
+func TestEmbeddedPolicyMatchesV12Contract(t *testing.T) {
 	raw, err := PolicyManifest()
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +21,7 @@ func TestEmbeddedPolicyMatchesV11Contract(t *testing.T) {
 	if errors := quality.ValidatePolicy(policy); len(errors) > 0 {
 		t.Fatalf("embedded policy is invalid: %#v", errors)
 	}
-	if policy.PolicyVersion != "1.1.1" || len(policy.Rules) != 20 || policy.AgentLimit != 2 {
+	if policy.PolicyVersion != "1.2.0" || policy.Rubric != "policy/v1.2/rubric.md" || len(policy.Rules) != 20 || policy.AgentLimit != 2 {
 		t.Fatalf("embedded policy contract drifted: %#v", policy)
 	}
 }
@@ -81,8 +81,8 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 			t.Fatal("Codex output schema uses an unsupported draft declaration")
 		}
 	}
-	if lens, err := ReviewLens(); err != nil || !strings.Contains(string(lens), "最多 3 个最高影响的独立根因") {
-		t.Fatalf("embedded review lens unavailable: %v", err)
+	if lens, err := ReviewLens(); err != nil || !strings.Contains(string(lens), "不设固定数量上限") || strings.Contains(string(lens), "最多 3") {
+		t.Fatalf("embedded review lens contract drifted: %v", err)
 	}
 }
 
@@ -110,12 +110,12 @@ func TestEmbeddedWorkflowUsesOrdinarySingleAgentReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	workflow := string(raw)
-	for _, expected := range []string{"ordinary diff-first review", "Each finding needs only", "Do not start a subagent"} {
+	for _, expected := range []string{"ordinary diff-first review", "Each finding needs only", "Do not start a subagent", "no fixed limit"} {
 		if !strings.Contains(workflow, expected) {
 			t.Fatalf("embedded workflow is missing %q", expected)
 		}
 	}
-	for _, retired := range []string{"Optional batch verifier", "Start exactly one read-only subagent", "Review all four V1.1 dimensions"} {
+	for _, retired := range []string{"Optional batch verifier", "Start exactly one read-only subagent", "at most the three"} {
 		if strings.Contains(workflow, retired) {
 			t.Fatalf("embedded workflow retains retired guidance %q", retired)
 		}

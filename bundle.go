@@ -2,7 +2,7 @@ package bundle
 
 import "embed"
 
-//go:embed policy/manifest.json policy/v1.1/*.md schemas/*.json
+//go:embed policy/manifest.json policy/v1.2/*.md schemas/*.json
 var files embed.FS
 
 func PolicyManifest() ([]byte, error) {
@@ -10,15 +10,15 @@ func PolicyManifest() ([]byte, error) {
 }
 
 func Rubric() ([]byte, error) {
-	return files.ReadFile("policy/v1.1/rubric.md")
+	return files.ReadFile("policy/v1.2/rubric.md")
 }
 
 func ReviewLens() ([]byte, error) {
-	return files.ReadFile("policy/v1.1/review-lens.md")
+	return files.ReadFile("policy/v1.2/review-lens.md")
 }
 
 func Workflow() ([]byte, error) {
-	return files.ReadFile("policy/v1.1/workflow.md")
+	return files.ReadFile("policy/v1.2/workflow.md")
 }
 
 func Schema(name string) ([]byte, error) {

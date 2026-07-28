@@ -248,7 +248,7 @@ func adjudicateCase(item Case, policy quality.PolicyManifest) quality.ReviewResu
 			ID:               "F-001",
 			RuleID:           item.RuleID,
 			CodeLocations:    []quality.CodeLocation{{Path: "app.go", Line: 3}},
-			ProductionImpact: "The case-specific V1.1 production-floor impact occurs.",
+			ProductionImpact: "The case-specific V1.2 production-floor impact occurs.",
 			MinimalFix:       "Restore the protected behavior described by the fixture.",
 		}}
 	}

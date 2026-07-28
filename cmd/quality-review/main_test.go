@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,6 +147,21 @@ func TestFinalizeReportOnlyManualFindingUsesOneAgent(t *testing.T) {
 	}
 	if !strings.Contains(string(markdown), "Tokens: unavailable input / unavailable output") {
 		t.Fatalf("markdown = %s", markdown)
+	}
+}
+
+func TestFinalizePreservesFiveIndependentFindings(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	writeJSON(t, prepared.MainReviewPath, integrationReviewWithFiveFindings())
+
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
+	if len(result.Findings) != 5 {
+		t.Fatalf("findings = %#v", result.Findings)
 	}
 }
 
@@ -630,6 +646,22 @@ func integrationMainReview() quality.ModelReview {
 func integrationEmptyReview() quality.ModelReview {
 	review := integrationMainReview()
 	review.Findings = []quality.Finding{}
+	return review
+}
+
+func integrationReviewWithFiveFindings() quality.ModelReview {
+	review := integrationEmptyReview()
+	review.ActivatedRuleFamilies = []string{"D1", "D2", "D3", "D4"}
+	review.InactiveRuleFamilies = []quality.InactiveRuleFamily{}
+	for index, ruleID := range []string{"DES-003", "COR-001", "COR-003", "REL-002", "SEC-001"} {
+		review.Findings = append(review.Findings, quality.Finding{
+			ID:               fmt.Sprintf("F-%03d", index+1),
+			RuleID:           ruleID,
+			CodeLocations:    []quality.CodeLocation{{Path: "app.go", Line: index + 1}},
+			ProductionImpact: "A distinct production failure occurs.",
+			MinimalFix:       "Fix this independent root cause.",
+		})
+	}
 	return review
 }
 

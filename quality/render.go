@@ -26,7 +26,7 @@ func RenderMarkdown(result ReviewResult) string {
 	fmt.Fprintln(&output, "## Findings")
 	fmt.Fprintln(&output)
 	if len(result.Findings) == 0 {
-		fmt.Fprintln(&output, "No reportable V1.1 finding.")
+		fmt.Fprintln(&output, "No reportable V1.2 finding.")
 	} else {
 		findings := append([]AdjudicatedFinding(nil), result.Findings...)
 		sort.Slice(findings, func(i, j int) bool {

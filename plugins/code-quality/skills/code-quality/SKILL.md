@@ -1,6 +1,6 @@
 ---
 name: code-quality
-summary: Run an ordinary report-only review focused on V1.1 production-floor defects.
+summary: Run an ordinary report-only review focused on V1.2 production-floor defects.
 description: Use when asked to review a committed change for material correctness, data, reliability, security, or compatibility defects under the V1 report-only policy.
 ---
 
