@@ -62,6 +62,7 @@ func TestPluginSkillRequiresApprovalAndPreservesFinalReports(t *testing.T) {
 		"Do not run `prepare` until the user approves",
 		"Never delete the session directory",
 		"session-local shared clone",
+		"rereview_scope",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("Skill is missing %q", required)

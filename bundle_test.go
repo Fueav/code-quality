@@ -110,7 +110,7 @@ func TestEmbeddedWorkflowUsesOrdinarySingleAgentReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	workflow := string(raw)
-	for _, expected := range []string{"ordinary diff-first review", "Each finding needs only", "Do not start a subagent", "no fixed limit"} {
+	for _, expected := range []string{"ordinary diff-first review", "Each finding needs only", "Do not start a subagent", "no fixed limit", "rereview_scope"} {
 		if !strings.Contains(workflow, expected) {
 			t.Fatalf("embedded workflow is missing %q", expected)
 		}

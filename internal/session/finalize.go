@@ -18,19 +18,20 @@ type FinalizeOptions struct {
 }
 
 type Finalized struct {
-	SchemaVersion         int    `json:"schema_version"`
-	Status                string `json:"status"`
-	SessionDir            string `json:"session_dir"`
-	RepositoryDir         string `json:"repository_dir,omitempty"`
-	DiffPath              string `json:"diff_path,omitempty"`
-	RubricPath            string `json:"rubric_path,omitempty"`
-	ResultPath            string `json:"result_path,omitempty"`
-	MarkdownPath          string `json:"markdown_path,omitempty"`
-	SemanticResult        string `json:"semantic_result,omitempty"`
-	ReviewRequired        bool   `json:"review_required"`
-	CompletedReviewRounds int    `json:"completed_review_rounds"`
-	MaximumReviewRounds   int    `json:"maximum_review_rounds"`
-	NextReviewPath        string `json:"next_review_path,omitempty"`
+	SchemaVersion         int      `json:"schema_version"`
+	Status                string   `json:"status"`
+	SessionDir            string   `json:"session_dir"`
+	RepositoryDir         string   `json:"repository_dir,omitempty"`
+	DiffPath              string   `json:"diff_path,omitempty"`
+	RubricPath            string   `json:"rubric_path,omitempty"`
+	ResultPath            string   `json:"result_path,omitempty"`
+	MarkdownPath          string   `json:"markdown_path,omitempty"`
+	SemanticResult        string   `json:"semantic_result,omitempty"`
+	ReviewRequired        bool     `json:"review_required"`
+	CompletedReviewRounds int      `json:"completed_review_rounds"`
+	MaximumReviewRounds   int      `json:"maximum_review_rounds"`
+	NextReviewPath        string   `json:"next_review_path,omitempty"`
+	RereviewScope         []string `json:"rereview_scope,omitempty"`
 }
 
 func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized, error) {
@@ -72,7 +73,12 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 	}
 	main.Execution = execution
 	firstResult := quality.Adjudicate(request, main, policy)
-	if firstResult.Adjudication.SemanticResult != quality.ResultPass || len(firstResult.Findings) != 0 {
+	if firstResult.Adjudication.SemanticResult == quality.ResultIncomplete {
+		main.Execution.RetryCount = intPointer(0)
+		return writeComplete(layout, metadata, request, main, policy, 1)
+	}
+	rereviewScope := dimensionsWithoutFindings(firstResult.Findings, policy)
+	if len(rereviewScope) == 0 {
 		main.Execution.RetryCount = intPointer(0)
 		return writeComplete(layout, metadata, request, main, policy, 1)
 	}
@@ -82,6 +88,7 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 			SchemaVersion: 1, Status: "REREVIEW_REQUIRED", SessionDir: layout.SessionDir,
 			RepositoryDir: layout.RepositoryDir, DiffPath: layout.DiffPath, RubricPath: layout.RubricPath,
 			ReviewRequired: true, CompletedReviewRounds: 1, MaximumReviewRounds: 2, NextReviewPath: layout.RereviewPath,
+			RereviewScope: rereviewScope,
 		}, nil
 	}
 	if err != nil {
@@ -151,6 +158,26 @@ func mergeReviews(first, second quality.ModelReview) quality.ModelReview {
 		InspectedContext:      mergeInspectedContext(second.InspectedContext, first.InspectedContext),
 	}
 	return merged
+}
+
+func dimensionsWithoutFindings(findings []quality.AdjudicatedFinding, policy quality.PolicyManifest) []string {
+	dimensionByRule := make(map[string]string, len(policy.Rules))
+	for _, rule := range policy.Rules {
+		dimensionByRule[rule.ID] = rule.Dimension
+	}
+	active := map[string]struct{}{}
+	for _, finding := range findings {
+		if dimension := dimensionByRule[finding.Candidate.RuleID]; dimension != "" {
+			active[dimension] = struct{}{}
+		}
+	}
+	scope := []string{}
+	for _, dimension := range []string{"D1", "D2", "D3", "D4"} {
+		if _, found := active[dimension]; !found {
+			scope = append(scope, dimension)
+		}
+	}
+	return scope
 }
 
 func mergeFindings(groups ...[]quality.Finding) []quality.Finding {

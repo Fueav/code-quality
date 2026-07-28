@@ -99,7 +99,7 @@ func TestFinalizeCloneCheckoutRemovesOnlyRepository(t *testing.T) {
 	restore := makeGitMetadataReadOnly(t, repo)
 	prepared, _ := prepareSession(t, repo, base, target)
 	restore()
-	writeJSON(t, prepared.MainReviewPath, integrationMainReview())
+	writeJSON(t, prepared.MainReviewPath, integrationReviewWithFiveFindings())
 
 	finalized := finalizeSession(t, prepared.SessionDir)
 	if finalized.Status != "COMPLETE" {
@@ -118,7 +118,7 @@ func TestFinalizeCloneCheckoutRemovesOnlyRepository(t *testing.T) {
 func TestFinalizeReportOnlyManualFindingUsesOneAgent(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	prepared, _ := prepareSession(t, repo, base, target)
-	review := integrationMainReview()
+	review := integrationReviewWithFiveFindings()
 	writeJSON(t, prepared.MainReviewPath, review)
 
 	finalized := finalizeSession(t, prepared.SessionDir)
@@ -174,6 +174,9 @@ func TestFinalizeZeroFindingsRequiresOneRereview(t *testing.T) {
 	if finalized.Status != "REREVIEW_REQUIRED" || !finalized.ReviewRequired || finalized.CompletedReviewRounds != 1 || finalized.MaximumReviewRounds != 2 {
 		t.Fatalf("finalized = %#v", finalized)
 	}
+	if !reflect.DeepEqual(finalized.RereviewScope, []string{"D1", "D2", "D3", "D4"}) {
+		t.Fatalf("rereview scope = %#v", finalized.RereviewScope)
+	}
 	if finalized.NextReviewPath == "" || finalized.NextReviewPath == prepared.MainReviewPath {
 		t.Fatalf("next review path = %q", finalized.NextReviewPath)
 	}
@@ -182,6 +185,42 @@ func TestFinalizeZeroFindingsRequiresOneRereview(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(prepared.SessionDir, "output", "review-result.json")); !os.IsNotExist(err) {
 		t.Fatalf("zero-finding first pass must not publish a final report: %v", err)
+	}
+}
+
+func TestFinalizeRereviewsOnlyDimensionsWithoutFirstRoundFindings(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	writeJSON(t, prepared.MainReviewPath, integrationReviewForRules("COR-001"))
+
+	first := finalizeSession(t, prepared.SessionDir)
+	if first.Status != "REREVIEW_REQUIRED" || !reflect.DeepEqual(first.RereviewScope, []string{"D1", "D3", "D4"}) {
+		t.Fatalf("first finalize = %#v", first)
+	}
+	writeJSON(t, first.NextReviewPath, integrationReviewForRules("REL-002"))
+
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" || finalized.CompletedReviewRounds != 2 {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
+	if len(result.Findings) != 2 || result.Execution.RetryCount == nil || *result.Execution.RetryCount != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFinalizeFourDimensionsCompleteWithoutRereview(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	writeJSON(t, prepared.MainReviewPath, integrationReviewWithFiveFindings())
+
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" || finalized.CompletedReviewRounds != 1 || finalized.ReviewRequired {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
+	if result.Execution.RetryCount == nil || *result.Execution.RetryCount != 0 {
+		t.Fatalf("execution = %#v", result.Execution)
 	}
 }
 
@@ -650,10 +689,18 @@ func integrationEmptyReview() quality.ModelReview {
 }
 
 func integrationReviewWithFiveFindings() quality.ModelReview {
+	return integrationReviewForRules("DES-003", "COR-001", "COR-003", "REL-002", "SEC-001")
+}
+
+func integrationReviewForRules(ruleIDs ...string) quality.ModelReview {
 	review := integrationEmptyReview()
-	review.ActivatedRuleFamilies = []string{"D1", "D2", "D3", "D4"}
-	review.InactiveRuleFamilies = []quality.InactiveRuleFamily{}
-	for index, ruleID := range []string{"DES-003", "COR-001", "COR-003", "REL-002", "SEC-001"} {
+	dimensions := map[string]string{
+		"DES-003": "D1", "COR-001": "D2", "COR-003": "D2", "REL-002": "D3", "SEC-001": "D4",
+	}
+	active := map[string]bool{}
+	review.Findings = []quality.Finding{}
+	for index, ruleID := range ruleIDs {
+		active[dimensions[ruleID]] = true
 		review.Findings = append(review.Findings, quality.Finding{
 			ID:               fmt.Sprintf("F-%03d", index+1),
 			RuleID:           ruleID,
@@ -661,6 +708,15 @@ func integrationReviewWithFiveFindings() quality.ModelReview {
 			ProductionImpact: "A distinct production failure occurs.",
 			MinimalFix:       "Fix this independent root cause.",
 		})
+	}
+	review.ActivatedRuleFamilies = []string{}
+	review.InactiveRuleFamilies = []quality.InactiveRuleFamily{}
+	for _, dimension := range []string{"D1", "D2", "D3", "D4"} {
+		if active[dimension] {
+			review.ActivatedRuleFamilies = append(review.ActivatedRuleFamilies, dimension)
+		} else {
+			review.InactiveRuleFamilies = append(review.InactiveRuleFamilies, quality.InactiveRuleFamily{ID: dimension, Reason: "No first-round finding in this dimension."})
+		}
 	}
 	return review
 }
