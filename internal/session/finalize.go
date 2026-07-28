@@ -32,6 +32,7 @@ type Finalized struct {
 	MaximumReviewRounds   int      `json:"maximum_review_rounds"`
 	NextReviewPath        string   `json:"next_review_path,omitempty"`
 	RereviewScope         []string `json:"rereview_scope,omitempty"`
+	ValidationErrors      []string `json:"validation_errors,omitempty"`
 }
 
 func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized, error) {
@@ -69,14 +70,13 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 	}
 	main, err := quality.DecodeModelReview(bytes.NewReader(mainRaw))
 	if err != nil {
-		return writeIncomplete(layout, metadata, request, policy, execution, 0, "invalid main review: "+err.Error())
+		return handleInvalidReview(layout, metadata, request, policy, execution, 0, layout.MainReviewPath, "invalid main review: "+err.Error())
 	}
 	main.Execution = execution
-	firstResult := quality.Adjudicate(request, main, policy)
-	if firstResult.Adjudication.SemanticResult == quality.ResultIncomplete {
-		main.Execution.RetryCount = intPointer(0)
-		return writeComplete(layout, metadata, request, main, policy, 1)
+	if validationErrors := quality.ValidateModelReviewStructure(main, policy); len(validationErrors) > 0 {
+		return handleInvalidReview(layout, metadata, request, policy, execution, 0, layout.MainReviewPath, validationErrors...)
 	}
+	firstResult := quality.Adjudicate(request, main, policy)
 	rereviewScope := dimensionsWithoutFindings(firstResult.Findings, policy)
 	if len(rereviewScope) == 0 {
 		main.Execution.RetryCount = intPointer(0)
@@ -96,12 +96,59 @@ func Finalize(options FinalizeOptions, policy quality.PolicyManifest) (Finalized
 	}
 	rereview, err := quality.DecodeModelReview(bytes.NewReader(rereviewRaw))
 	if err != nil {
-		return writeIncomplete(layout, metadata, request, policy, execution, 1, "invalid rereview: "+err.Error())
+		return handleInvalidReview(layout, metadata, request, policy, execution, 1, layout.RereviewPath, "invalid rereview: "+err.Error())
+	}
+	rereview.Execution = execution
+	if validationErrors := quality.ValidateModelReviewStructure(rereview, policy); len(validationErrors) > 0 {
+		return handleInvalidReview(layout, metadata, request, policy, execution, 1, layout.RereviewPath, validationErrors...)
 	}
 	merged := mergeReviews(main, rereview)
 	merged.Execution = execution
 	merged.Execution.RetryCount = intPointer(1)
 	return writeComplete(layout, metadata, request, merged, policy, 2)
+}
+
+func handleInvalidReview(layout Layout, metadata Metadata, request quality.ReviewRequest, policy quality.PolicyManifest, execution quality.Execution, completedReviewRounds int, reviewPath string, validationErrors ...string) (Finalized, error) {
+	validationErrors = append([]string{}, validationErrors...)
+	if len(validationErrors) == 0 {
+		validationErrors = []string{"review validation failed"}
+	}
+	sort.Strings(validationErrors)
+	firstRepair, err := reserveReviewRepair(layout.ReviewInvalidPath)
+	if err != nil {
+		return Finalized{}, err
+	}
+	if !firstRepair {
+		reasons := append([]string{"review remained invalid after one repair"}, validationErrors...)
+		return writeIncomplete(layout, metadata, request, policy, execution, completedReviewRounds, reasons...)
+	}
+	return Finalized{
+		SchemaVersion:         1,
+		Status:                "REVIEW_INVALID",
+		SessionDir:            layout.SessionDir,
+		RepositoryDir:         layout.RepositoryDir,
+		DiffPath:              layout.DiffPath,
+		RubricPath:            layout.RubricPath,
+		ReviewRequired:        true,
+		CompletedReviewRounds: completedReviewRounds,
+		MaximumReviewRounds:   2,
+		NextReviewPath:        reviewPath,
+		ValidationErrors:      validationErrors,
+	}, nil
+}
+
+func reserveReviewRepair(path string) (bool, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("record review repair attempt: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return false, fmt.Errorf("record review repair attempt: %w", err)
+	}
+	return true, nil
 }
 
 func writeComplete(layout Layout, metadata Metadata, request quality.ReviewRequest, review quality.ModelReview, policy quality.PolicyManifest, reviewRounds int) (Finalized, error) {

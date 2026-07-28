@@ -40,6 +40,7 @@ type Layout struct {
 	MetadataPath        string
 	MainReviewPath      string
 	RereviewPath        string
+	ReviewInvalidPath   string
 	ResultPath          string
 	MarkdownPath        string
 }
@@ -186,6 +187,7 @@ func NewLayout(directory string) Layout {
 		MetadataPath:        filepath.Join(input, "session-metadata.json"),
 		MainReviewPath:      filepath.Join(output, "main-review.json"),
 		RereviewPath:        filepath.Join(output, "rereview.json"),
+		ReviewInvalidPath:   filepath.Join(output, ".review-invalid-attempted"),
 		ResultPath:          filepath.Join(output, "review-result.json"),
 		MarkdownPath:        filepath.Join(output, "review-result.md"),
 	}

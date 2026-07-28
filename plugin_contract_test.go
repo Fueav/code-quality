@@ -63,6 +63,8 @@ func TestPluginSkillRequiresApprovalAndPreservesFinalReports(t *testing.T) {
 		"Never delete the session directory",
 		"session-local shared clone",
 		"rereview_scope",
+		"REVIEW_INVALID",
+		"validation_errors",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("Skill is missing %q", required)
