@@ -48,6 +48,9 @@ func TestPrepareCreatesCommittedReviewSession(t *testing.T) {
 	if prepared.CheckoutMode != reviewsession.CheckoutModeWorktree {
 		t.Fatalf("checkout mode = %q", prepared.CheckoutMode)
 	}
+	if prepared.EvidencePresent {
+		t.Fatal("fixture without Harness artifacts reported evidence_present=true")
+	}
 	contents, err := os.ReadFile(filepath.Join(prepared.RepositoryDir, "app.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +65,32 @@ func TestPrepareCreatesCommittedReviewSession(t *testing.T) {
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			t.Fatalf("trusted artifact %s is invalid: %v", path, err)
+		}
+	}
+}
+
+func TestPrepareTrustedDiffUsesSixContextLines(t *testing.T) {
+	repo, base, target := cliWideDiffFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	trusted, err := os.ReadFile(prepared.DiffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wide, err := exec.Command("git", "-C", repo, "diff", "--no-ext-diff", "--unified=40", base, target, "--").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trusted)*2 >= len(wide) {
+		t.Fatalf("trusted diff was not significantly reduced: unified6=%d unified40=%d", len(trusted), len(wide))
+	}
+	for _, expected := range []string{"line-044", "changed-050", "line-056"} {
+		if !strings.Contains(string(trusted), expected) {
+			t.Fatalf("trusted diff is missing %q:\n%s", expected, trusted)
+		}
+	}
+	for _, excluded := range []string{"line-043", "line-057"} {
+		if strings.Contains(string(trusted), "\n "+excluded+"\n") {
+			t.Fatalf("trusted diff contains more than six context lines around %q:\n%s", excluded, trusted)
 		}
 	}
 }
@@ -602,6 +631,43 @@ func cliReviewFixture(t *testing.T) (string, string, string) {
 	git("commit", "-m", "base")
 	base := git("rev-parse", "HEAD")
 	if err := os.WriteFile(filepath.Join(repo, "app.go"), []byte("package app\n\nfunc Run() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "target")
+	return repo, base, git("rev-parse", "HEAD")
+}
+
+func cliWideDiffFixture(t *testing.T) (string, string, string) {
+	t.Helper()
+	repo := t.TempDir()
+	git := func(arguments ...string) string {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", repo}, arguments...)...)
+		command.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Quality Test", "GIT_AUTHOR_EMAIL=quality@example.test",
+			"GIT_COMMITTER_NAME=Quality Test", "GIT_COMMITTER_EMAIL=quality@example.test",
+		)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", arguments, err, output)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	git("init", "-b", "main")
+	var source strings.Builder
+	for line := 1; line <= 100; line++ {
+		fmt.Fprintf(&source, "line-%03d\n", line)
+	}
+	path := filepath.Join(repo, "wide.txt")
+	if err := os.WriteFile(path, []byte(source.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "base")
+	base := git("rev-parse", "HEAD")
+	updated := strings.Replace(source.String(), "line-050", "changed-050", 1)
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	git("add", ".")

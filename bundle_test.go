@@ -121,3 +121,24 @@ func TestEmbeddedWorkflowUsesOrdinarySingleAgentReview(t *testing.T) {
 		}
 	}
 }
+
+func TestEmbeddedWorkflowMinimalReviewExampleDecodes(t *testing.T) {
+	raw, err := Workflow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "Minimal valid output: `"
+	workflow := string(raw)
+	start := strings.Index(workflow, prefix)
+	if start < 0 {
+		t.Fatal("workflow is missing its minimal valid output example")
+	}
+	example := workflow[start+len(prefix):]
+	end := strings.Index(example, "`")
+	if end < 0 {
+		t.Fatal("workflow minimal valid output example is not terminated")
+	}
+	if _, err := quality.DecodeModelReview(strings.NewReader(example[:end])); err != nil {
+		t.Fatalf("workflow minimal valid output does not decode: %v", err)
+	}
+}

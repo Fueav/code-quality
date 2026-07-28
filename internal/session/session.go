@@ -60,6 +60,7 @@ type Prepared struct {
 	MainReviewPath      string       `json:"main_review_path"`
 	DirtyWorktree       bool         `json:"dirty_worktree"`
 	CheckoutMode        CheckoutMode `json:"checkout_mode"`
+	EvidencePresent     bool         `json:"evidence_present"`
 }
 
 type Options struct {
@@ -122,6 +123,7 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if err := encodeEvidenceContext(layout.EvidenceContextPath, evidence); err != nil {
 		return Prepared{}, err
 	}
+	evidencePresent := len(evidence.Sources) > 0 || len(evidence.Rejected) > 0
 	if err := writeJSON(layout.RequestPath, options.Request); err != nil {
 		return Prepared{}, err
 	}
@@ -157,6 +159,7 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 		MainReviewPath:      layout.MainReviewPath,
 		DirtyWorktree:       options.DirtyWorktree,
 		CheckoutMode:        checkoutMode,
+		EvidencePresent:     evidencePresent,
 	}, nil
 }
 
@@ -293,7 +296,7 @@ func writeTrustedDiff(ctx context.Context, root string, request quality.ReviewRe
 		return err
 	}
 	err = writeGitOutputLimited(ctx, root, file, maxDiffBytes,
-		"diff", "--no-ext-diff", "--unified=40", request.BaseCommit, request.TargetCommit, "--",
+		"diff", "--no-ext-diff", "--unified=6", request.BaseCommit, request.TargetCommit, "--",
 	)
 	closeErr := file.Close()
 	if err != nil {
