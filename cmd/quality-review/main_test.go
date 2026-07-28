@@ -327,19 +327,105 @@ func TestFinalizeMissingMainReviewProducesIncompleteReport(t *testing.T) {
 	}
 }
 
-func TestMalformedMainReviewProducesIncompleteReport(t *testing.T) {
+func TestInvalidMainReviewCanBeRepairedOnce(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	invalid := integrationReviewWithFiveFindings()
+	invalid.InspectedContext = append(invalid.InspectedContext, quality.InspectedContext{Path: "", Purpose: "broken field"})
+	writeJSON(t, prepared.MainReviewPath, invalid)
+
+	first := finalizeSession(t, prepared.SessionDir)
+	if first.Status != "REVIEW_INVALID" || !first.ReviewRequired || first.NextReviewPath != prepared.MainReviewPath || first.CompletedReviewRounds != 0 {
+		t.Fatalf("first finalize = %#v", first)
+	}
+	if len(first.ValidationErrors) == 0 || !strings.Contains(strings.Join(first.ValidationErrors, " "), "inspected_context") {
+		t.Fatalf("validation errors = %#v", first.ValidationErrors)
+	}
+	if _, err := os.Lstat(prepared.RepositoryDir); err != nil {
+		t.Fatalf("review checkout must remain available for repair: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prepared.SessionDir, "output", "review-result.json")); !os.IsNotExist(err) {
+		t.Fatalf("invalid review must not publish a final result: %v", err)
+	}
+
+	writeJSONReplacing(t, prepared.MainReviewPath, integrationReviewWithFiveFindings())
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" || finalized.SemanticResult != quality.ResultManualReview {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+	if _, err := os.Lstat(prepared.RepositoryDir); !os.IsNotExist(err) {
+		t.Fatalf("repaired review checkout was not removed: %v", err)
+	}
+}
+
+func TestMalformedMainReviewCanBeRepairedOnce(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	prepared, _ := prepareSession(t, repo, base, target)
 	if err := os.WriteFile(prepared.MainReviewPath, []byte(`{"unknown":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
+	first := finalizeSession(t, prepared.SessionDir)
+	if first.Status != "REVIEW_INVALID" || first.NextReviewPath != prepared.MainReviewPath || len(first.ValidationErrors) == 0 {
+		t.Fatalf("first finalize = %#v", first)
+	}
+	writeJSONReplacing(t, first.NextReviewPath, integrationReviewWithFiveFindings())
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" || finalized.SemanticResult != quality.ResultManualReview {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+}
+
+func TestInvalidRereviewCanBeRepairedOnce(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	writeJSON(t, prepared.MainReviewPath, integrationEmptyReview())
+	first := finalizeSession(t, prepared.SessionDir)
+	if first.Status != "REREVIEW_REQUIRED" {
+		t.Fatalf("first finalize = %#v", first)
+	}
+	invalid := integrationEmptyReview()
+	invalid.InspectedContext = []quality.InspectedContext{{Path: "", Purpose: "broken field"}}
+	writeJSON(t, first.NextReviewPath, invalid)
+
+	second := finalizeSession(t, prepared.SessionDir)
+	if second.Status != "REVIEW_INVALID" || !second.ReviewRequired || second.NextReviewPath != first.NextReviewPath || second.CompletedReviewRounds != 1 {
+		t.Fatalf("second finalize = %#v", second)
+	}
+	writeJSONReplacing(t, second.NextReviewPath, integrationEmptyReview())
+
+	finalized := finalizeSession(t, prepared.SessionDir)
+	if finalized.Status != "COMPLETE" || finalized.SemanticResult != quality.ResultPass || finalized.CompletedReviewRounds != 2 {
+		t.Fatalf("finalized = %#v", finalized)
+	}
+}
+
+func TestSecondInvalidReviewProducesValidIncompleteReport(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	prepared, _ := prepareSession(t, repo, base, target)
+	invalid := integrationEmptyReview()
+	invalid.InspectedContext = []quality.InspectedContext{{Path: "", Purpose: "broken field"}}
+	writeJSON(t, prepared.MainReviewPath, invalid)
+
+	first := finalizeSession(t, prepared.SessionDir)
+	if first.Status != "REVIEW_INVALID" {
+		t.Fatalf("first finalize = %#v", first)
+	}
 	finalized := finalizeSession(t, prepared.SessionDir)
 	if finalized.Status != "INCOMPLETE" || finalized.SemanticResult != quality.ResultIncomplete {
 		t.Fatalf("finalized = %#v", finalized)
 	}
+	if _, err := os.Lstat(prepared.RepositoryDir); !os.IsNotExist(err) {
+		t.Fatalf("terminal incomplete checkout was not removed: %v", err)
+	}
 	result := readJSON[quality.ReviewResult](t, finalized.ResultPath)
-	if len(result.Adjudication.Reasons) == 0 || result.Execution.AgentCount != 1 || result.Execution.Host != "claude-code" || result.Execution.SkillVersion != quality.SkillVersion {
+	if len(result.Adjudication.Reasons) == 0 || len(result.InspectedContext) != 0 || len(result.Findings) != 0 {
 		t.Fatalf("result = %#v", result)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"validate", finalized.ResultPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("validate exit code = %d, stderr = %s", code, stderr.String())
 	}
 }
 
@@ -605,6 +691,14 @@ func finalizeSession(t *testing.T, directory string) reviewsession.Finalized {
 		t.Fatal(err)
 	}
 	return finalized
+}
+
+func writeJSONReplacing(t *testing.T, path string, value any) {
+	t.Helper()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	writeJSON(t, path, value)
 }
 
 func cliReviewFixture(t *testing.T) (string, string, string) {
