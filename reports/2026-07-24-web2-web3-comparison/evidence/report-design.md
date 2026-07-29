@@ -17,4 +17,3 @@
 - Source: `case_scores_sql` over `run_scores` in `scoring.sqlite`.
 
 Latency remains a metric card because two lane medians do not justify a separate chart. The six-row comparison stays a table because its main value is exact case-to-case mapping and qualitative differences.
-

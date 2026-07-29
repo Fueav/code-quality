@@ -15,7 +15,7 @@ Report-only 代码质量审查组件。在 Claude Code / Codex 会话里对一�
 # 最新版
 curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
 # 指定版本
-curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.2.0
+curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.3.1
 ```
 
 确认：`quality-review version`
@@ -24,10 +24,10 @@ curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/instal
 
 ```sh
 # Codex
-codex plugin marketplace add Fueav/code-quality --ref v0.2.0 && codex plugin add code-quality@fueav-code-quality
+codex plugin marketplace add Fueav/code-quality --ref v0.3.1 && codex plugin add code-quality@fueav-code-quality
 
 # Claude Code
-claude plugin marketplace add Fueav/code-quality@v0.2.0 && claude plugin install code-quality@fueav-code-quality
+claude plugin marketplace add Fueav/code-quality@v0.3.1 && claude plugin install code-quality@fueav-code-quality
 ```
 
 仓库根目录同时提供 Codex 的 `.agents/plugins/marketplace.json` 与 Claude Code 的 `.claude-plugin/marketplace.json`，两端共用 `plugins/code-quality/` 的同一份 Skill。
@@ -53,8 +53,9 @@ claude plugin marketplace add Fueav/code-quality@v0.2.0 && claude plugin install
 ## 发布（维护者）
 
 ```sh
-make test
-git tag vX.Y.Z && git push origin vX.Y.Z
+make release-check VERSION=vX.Y.Z VERIFY_COMPARE_REF=vPREVIOUS
+git tag -a vX.Y.Z -m "vX.Y.Z"
 make dist VERSION=vX.Y.Z    # 交叉编译到 dist/ + checksums.txt + install.sh
+git push origin main vX.Y.Z
 gh release create vX.Y.Z dist/* --title vX.Y.Z --notes "…"
 ```

@@ -1,7 +1,7 @@
 # Code Quality Review
 
-**Result:** `MANUAL_REVIEW`  
-**Rollout:** `report_only`  
+**Result:** `MANUAL_REVIEW`<br>
+**Rollout:** `report_only`<br>
 **Policy:** `1.1.1`
 
 ## Baseline

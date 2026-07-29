@@ -1,25 +1,37 @@
 BIN := quality-review
 PKG := ./cmd/quality-review
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERIFY_COMPARE_REF ?= $(shell git describe --tags --abbrev=0 HEAD^ 2>/dev/null)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PLATFORMS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
 LIVE_DATA_ROOT ?= $(HOME)/AiProject/code-quality-live
 LIVE_WATCH_CRON ?= 17 2 * * *
 LIVE_ADJUDICATE_CRON ?= 43 3 * * 1
 
-.PHONY: build test live-test mining-test live-install live-uninstall dist clean
+.PHONY: build test live-test mining-test release-check live-install live-uninstall dist clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
 
 test:
 	go test ./...
+	$(MAKE) live-test
+	$(MAKE) mining-test
 
 live-test:
 	python3 -m unittest discover -s pilot/live -p 'test_*.py' -v
 
 mining-test:
 	python3 -m unittest discover -s pilot/mining/tests -p 'test_*.py' -v
+
+release-check: export CODE_QUALITY_RELEASE_TAG := $(VERSION)
+release-check: test
+	go vet ./...
+	@unformatted="$$(git ls-files '*.go' | xargs gofmt -l)"; \
+		if [ -n "$$unformatted" ]; then echo "gofmt required:"; echo "$$unformatted"; exit 1; fi
+	git diff --check
+	git diff --cached --check
+	@if [ -n "$(VERIFY_COMPARE_REF)" ]; then git diff --check "$(VERIFY_COMPARE_REF)..HEAD"; fi
 
 live-install:
 	CODE_QUALITY_LIVE_ROOT="$(LIVE_DATA_ROOT)" \
@@ -33,7 +45,7 @@ live-uninstall:
 
 # Cross-compile every release binary into dist/, write checksums, and stage
 # the installer as a release asset. Run: make dist VERSION=vX.Y.Z
-dist:
+dist: release-check
 	rm -rf dist && mkdir -p dist
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \

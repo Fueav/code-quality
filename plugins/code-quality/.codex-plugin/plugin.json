@@ -1,7 +1,7 @@
 {
   "name": "code-quality",
-  "version": "0.2.0",
-  "description": "Runs the V1.1 ordinary report-only code review in the current host session.",
+  "version": "0.3.1",
+  "description": "Runs the V1.2 ordinary report-only code review in the current host session.",
   "author": {
     "name": "Fueav",
     "url": "https://github.com/Fueav"
@@ -16,7 +16,7 @@
   "interface": {
     "displayName": "Code Quality",
     "shortDescription": "Run a focused ordinary code review",
-    "longDescription": "Review a trusted committed Git increment for material V1.1 production-floor defects and deterministically publish a report-only result.",
+    "longDescription": "Review a trusted committed Git increment for material V1.2 production-floor defects and deterministically publish a report-only result.",
     "developerName": "Fueav",
     "category": "Developer Tools",
     "capabilities": [
@@ -25,7 +25,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Run the V1.1 ordinary report-only code review for this committed change."
+      "Run the V1.2 ordinary report-only code review for this committed change."
     ]
   }
 }

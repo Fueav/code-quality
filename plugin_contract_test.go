@@ -90,6 +90,53 @@ func TestPluginDescriptorsMatchRuntimeVersion(t *testing.T) {
 	}
 }
 
+func TestReleaseTagMatchesRuntimeVersion(t *testing.T) {
+	tag := strings.TrimSpace(os.Getenv("CODE_QUALITY_RELEASE_TAG"))
+	if tag == "" {
+		return
+	}
+	if tag != "v"+quality.SkillVersion {
+		t.Fatalf("release tag = %q, want v%s", tag, quality.SkillVersion)
+	}
+}
+
+func TestPluginDescriptorsDescribeCurrentPolicy(t *testing.T) {
+	for _, path := range []string{
+		"plugins/code-quality/.claude-plugin/plugin.json",
+		"plugins/code-quality/.codex-plugin/plugin.json",
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		descriptor := string(raw)
+		if strings.Contains(descriptor, "V1.1") || !strings.Contains(descriptor, "V1.2") {
+			t.Errorf("%s does not consistently describe V1.2", path)
+		}
+	}
+}
+
+func TestMakefileReleaseGateCoversShippedComponents(t *testing.T) {
+	raw, err := os.ReadFile("Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	makefile := string(raw)
+	for _, required := range []string{
+		"release-check:",
+		"CODE_QUALITY_RELEASE_TAG",
+		"go vet ./...",
+		"$(MAKE) live-test",
+		"$(MAKE) mining-test",
+		"git diff --check",
+		"dist: release-check",
+	} {
+		if !strings.Contains(makefile, required) {
+			t.Errorf("Makefile release gate is missing %q", required)
+		}
+	}
+}
+
 func TestReadmeProvidesCopyPastePluginInstallCommands(t *testing.T) {
 	raw, err := os.ReadFile("README.md")
 	if err != nil {

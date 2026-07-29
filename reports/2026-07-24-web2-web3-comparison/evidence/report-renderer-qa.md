@@ -17,4 +17,3 @@ The canonical verifier then passed:
 - narrow viewport: 390 px
 - external network calls: none
 - browser or console errors: none
-
