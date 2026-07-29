@@ -1,0 +1,20 @@
+{
+  "name": "code-quality-v011-experiment",
+  "interface": {
+    "displayName": "Code Quality v0.1.1 Experiment"
+  },
+  "plugins": [
+    {
+      "name": "code-quality",
+      "source": {
+        "source": "local",
+        "path": "./plugins/code-quality"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

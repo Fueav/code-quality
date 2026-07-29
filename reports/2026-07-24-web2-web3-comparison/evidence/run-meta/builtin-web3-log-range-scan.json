@@ -1,0 +1,8 @@
+{
+  "lane": "builtin",
+  "case_id": "web3-log-range-scan",
+  "started_at": "2026-07-24T08:27:03Z",
+  "ended_at": "2026-07-24T08:27:36Z",
+  "duration_seconds": 33,
+  "exit_code": 0
+}

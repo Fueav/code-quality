@@ -1,0 +1,8 @@
+{
+  "lane": "builtin",
+  "case_id": "web2-release-statistics",
+  "started_at": "2026-07-24T08:26:44Z",
+  "ended_at": "2026-07-24T08:27:03Z",
+  "duration_seconds": 19,
+  "exit_code": 0
+}

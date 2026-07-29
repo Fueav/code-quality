@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.1.1",
+  "request": {
+    "repository": "web2-query-count-filter",
+    "target_branch": "main",
+    "base_commit": "b047242d12f8558816c20162c3607584f1452764",
+    "target_commit": "3776e7708851cfd4218a7a5e0f54c2b75ced4b59",
+    "diff_selection_reason": "User requested review of committed delta HEAD^..HEAD only",
+    "changed_files": [
+      "modules/gitrepo/commit.go"
+    ],
+    "affected_entries": []
+  },
+  "activated_rule_families": [
+    "D2"
+  ],
+  "inactive_rule_families": [],
+  "findings": [
+    {
+      "candidate": {
+        "id": "CQ-001",
+        "rule_id": "COR-001",
+        "code_locations": [
+          {
+            "path": "modules/gitrepo/commit.go",
+            "line": 35
+          }
+        ],
+        "production_impact": "The public GET /repos/{owner}/{repo}/commits API still passes its validated since/until values to both list queries, but this changed count command no longer passes them to git rev-list. Any time-filtered request therefore returns a filtered body with the count, Link pagination, X-Total, and X-PageCount for the unfiltered history. With path set, a path that has commits only outside the requested interval can also bypass the intended zero-match check and return 200 with an empty list instead of the previous 404. This breaks the documented date-filter contract and makes clients paginate against nonexistent results.",
+        "minimal_fix": "Restore adding --since and --until to CommitsCount when the respective option is non-empty, so its rev-list predicate matches the list queries. Add coverage for time-filtered counts, including the path case."
+      },
+      "final_verdict": "MANUAL_REVIEW"
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "skill_version": "0.1.1",
+    "agent_count": 1,
+    "verifier_count": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "duration_ms": null,
+    "retry_count": null
+  },
+  "uninspected_scope": [],
+  "missing_context": [],
+  "inspected_context": [
+    {
+      "path": "modules/gitrepo/commit.go",
+      "purpose": "Reviewed the changed count-command construction and retained time-filter option fields."
+    },
+    {
+      "path": "routers/api/v1/repo/commits.go",
+      "purpose": "Verified API contract, propagation of since/until to the count helper, filtered list operations, and use of the count in response pagination and path zero-match handling."
+    },
+    {
+      "path": "modules/git/commit.go",
+      "purpose": "Verified the non-path list operation forwards time filters."
+    },
+    {
+      "path": "modules/git/repo_commit.go",
+      "purpose": "Verified the path list operation applies --since and --until."
+    },
+    {
+      "path": "modules/gitrepo/commit_test.go",
+      "purpose": "Checked existing count-helper coverage."
+    }
+  ],
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "CQ-001 requires manual review"
+    ]
+  }
+}

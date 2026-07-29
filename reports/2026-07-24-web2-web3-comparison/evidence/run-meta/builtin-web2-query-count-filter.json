@@ -1,0 +1,9 @@
+{
+  "lane": "builtin",
+  "case_id": "web2-query-count-filter",
+  "started_at": "2026-07-24T08:40:49Z",
+  "ended_at": "2026-07-24T08:41:27Z",
+  "duration_seconds": 38,
+  "exit_code": 0,
+  "corrected_fixture": true
+}

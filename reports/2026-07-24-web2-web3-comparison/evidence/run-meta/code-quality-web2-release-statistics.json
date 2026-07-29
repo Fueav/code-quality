@@ -1,0 +1,8 @@
+{
+  "lane": "code-quality",
+  "case_id": "web2-release-statistics",
+  "started_at": "2026-07-24T08:33:57Z",
+  "ended_at": "2026-07-24T08:35:33Z",
+  "duration_seconds": 96,
+  "exit_code": 0
+}

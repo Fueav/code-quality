@@ -1,0 +1,114 @@
+[
+ {
+  "target": "01cdc343",
+  "rule": "SEC-001",
+  "difficulty": 1,
+  "product": "hit",
+  "builtin": "hit"
+ },
+ {
+  "target": "efb374a4",
+  "rule": "SEC-001",
+  "difficulty": 1,
+  "product": "hit",
+  "builtin": "hit_broad"
+ },
+ {
+  "target": "b7f64515",
+  "rule": "SEC-003",
+  "difficulty": 2,
+  "product": "hit",
+  "builtin": "hit"
+ },
+ {
+  "target": "b7f64515",
+  "rule": "REL-005",
+  "difficulty": 2,
+  "product": "miss",
+  "builtin": "miss"
+ },
+ {
+  "target": "d2040212",
+  "rule": "SEC-003",
+  "difficulty": 2,
+  "product": "miss",
+  "builtin": "miss"
+ },
+ {
+  "target": "da79c064",
+  "rule": "CHG-001",
+  "difficulty": 2,
+  "product": "hit",
+  "builtin": "hit"
+ },
+ {
+  "target": "d28dd36f",
+  "rule": "COR-001",
+  "difficulty": 2,
+  "product": "miss",
+  "builtin": "miss"
+ },
+ {
+  "target": "d28dd36f",
+  "rule": "CHG-001-bearer",
+  "difficulty": 2,
+  "product": "hit",
+  "builtin": "hit"
+ },
+ {
+  "target": "2e87ffc1",
+  "rule": "COR-001",
+  "difficulty": 3,
+  "product": "miss",
+  "builtin": "hit"
+ },
+ {
+  "target": "781ee3be",
+  "rule": "COR-001",
+  "difficulty": 3,
+  "product": "miss",
+  "builtin": "hit"
+ },
+ {
+  "target": "b21dbb39",
+  "rule": "SEC-001",
+  "difficulty": 3,
+  "product": "miss",
+  "builtin": "hit_broad"
+ },
+ {
+  "target": "fd679bef",
+  "rule": "SEC-001",
+  "difficulty": 3,
+  "product": "hit",
+  "builtin": "miss"
+ },
+ {
+  "target": "e23f25e1",
+  "rule": "REL-005",
+  "difficulty": 4,
+  "product": "miss",
+  "builtin": "miss"
+ },
+ {
+  "target": "8f85af1e",
+  "rule": "COR-001",
+  "difficulty": 4,
+  "product": "miss",
+  "builtin": "miss"
+ },
+ {
+  "target": "d28dd36f",
+  "rule": "CHG-001-internal-route",
+  "difficulty": 4,
+  "product": "miss",
+  "builtin": "miss"
+ },
+ {
+  "target": "6349a866",
+  "rule": "COR-001",
+  "difficulty": 4,
+  "product": "miss",
+  "builtin": "miss"
+ }
+]

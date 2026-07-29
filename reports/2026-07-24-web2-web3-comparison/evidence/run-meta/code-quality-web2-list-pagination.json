@@ -1,0 +1,9 @@
+{
+  "lane": "code-quality",
+  "case_id": "web2-list-pagination",
+  "started_at": "2026-07-24T08:41:40Z",
+  "ended_at": "2026-07-24T08:43:03Z",
+  "duration_seconds": 83,
+  "exit_code": 0,
+  "corrected_fixture": true
+}

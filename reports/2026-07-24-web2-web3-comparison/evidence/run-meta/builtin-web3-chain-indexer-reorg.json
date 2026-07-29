@@ -1,0 +1,8 @@
+{
+  "lane": "builtin",
+  "case_id": "web3-chain-indexer-reorg",
+  "started_at": "2026-07-24T08:27:17Z",
+  "ended_at": "2026-07-24T08:28:45Z",
+  "duration_seconds": 88,
+  "exit_code": 0
+}

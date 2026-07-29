@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.1.1",
+  "request": {
+    "repository": "web3-preblock-event-index",
+    "target_branch": "main",
+    "base_commit": "9ce3b20b593e6e247a6d69ccd6ba87a0a21465ff",
+    "target_commit": "f4e9ae21bfebba2ec56ab50b8a05f309549f69d2",
+    "diff_selection_reason": "用户指定：仅审查当前仓库 HEAD 相对 HEAD^ 的已提交增量",
+    "changed_files": [
+      "baseapp/baseapp.go"
+    ],
+    "affected_entries": []
+  },
+  "activated_rule_families": [
+    "D4"
+  ],
+  "inactive_rule_families": [],
+  "findings": [
+    {
+      "candidate": {
+        "id": "CQ-001",
+        "rule_id": "CHG-001",
+        "code_locations": [
+          {
+            "path": "baseapp/baseapp.go",
+            "line": 672
+          }
+        ],
+        "production_impact": "A configured application whose PreBlocker emits events will now return those events without setting any attribute's Index flag. The FinalizeBlock response appends them unchanged, so neither the configured event keys nor the default 'index all' behavior reaches CometBFT. Pre-block events consequently disappear from event-index queries, breaking existing consumers that search for upgrade or other PreBlocker-produced events.",
+        "minimal_fix": "Restore sdk.MarkEventsToIndex(events, app.indexEvents) after collecting the PreBlocker events (and add a test that asserts the Index flags for both the default and configured index sets)."
+      },
+      "final_verdict": "MANUAL_REVIEW"
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "skill_version": "0.1.1",
+    "agent_count": 1,
+    "verifier_count": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "duration_ms": null,
+    "retry_count": null
+  },
+  "uninspected_scope": [],
+  "missing_context": [],
+  "inspected_context": [
+    {
+      "path": "baseapp/baseapp.go",
+      "purpose": "Reviewed the changed preBlock event path and the documented indexEvents contract."
+    },
+    {
+      "path": "baseapp/abci.go",
+      "purpose": "Verified pre-block events are appended unchanged to ResponseFinalizeBlock.Events."
+    },
+    {
+      "path": "baseapp/abci_test.go",
+      "purpose": "Verified PreBlocker events are emitted and returned by FinalizeBlock."
+    },
+    {
+      "path": "types/events.go",
+      "purpose": "Verified MarkEventsToIndex is the code that sets ABCI attribute Index flags."
+    },
+    {
+      "path": "baseapp/options.go",
+      "purpose": "Verified callers configure event indexing through SetIndexEvents."
+    }
+  ],
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "CQ-001 requires manual review"
+    ]
+  }
+}

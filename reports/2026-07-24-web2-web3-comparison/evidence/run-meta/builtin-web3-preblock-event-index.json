@@ -1,0 +1,8 @@
+{
+  "lane": "builtin",
+  "case_id": "web3-preblock-event-index",
+  "started_at": "2026-07-24T08:27:20Z",
+  "ended_at": "2026-07-24T08:27:56Z",
+  "duration_seconds": 36,
+  "exit_code": 0
+}

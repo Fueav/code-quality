@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.1.1",
+  "request": {
+    "repository": "web2-list-pagination",
+    "target_branch": "main",
+    "base_commit": "dd137ef93923b4c7683d3bc5fdccc4ffb2d12c61",
+    "target_commit": "b2efd341bd8594ce46563ad23b335e3263899e4c",
+    "diff_selection_reason": "Review committed increment HEAD relative to HEAD^ as requested",
+    "changed_files": [
+      "models/actions/runner.go"
+    ],
+    "affected_entries": []
+  },
+  "activated_rule_families": [
+    "D2"
+  ],
+  "inactive_rule_families": [],
+  "findings": [
+    {
+      "candidate": {
+        "id": "CQ-001",
+        "rule_id": "COR-003",
+        "code_locations": [
+          {
+            "path": "models/actions/runner.go",
+            "line": 256
+          }
+        ],
+        "production_impact": "The runner list API accepts page/limit and the settings UI uses page-based LIMIT/OFFSET queries. With the default/online/offline ordering, any runners sharing last_online (and with the alphabetical modes, sharing name) now have no unique secondary key. SQL may return those tied rows in a different order on consecutive page requests, so a user paging through a sufficiently large runner list can receive a runner twice while another runner is skipped. This affects all scopes that call the shared runner listing endpoint and the web settings list.",
+        "minimal_fix": "Restore a unique, deterministic secondary key for each non-ID sort, e.g. append `id ASC` to the last_online and name orderings (including the default), so each page boundary has a stable total order."
+      },
+      "final_verdict": "MANUAL_REVIEW"
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "skill_version": "0.1.1",
+    "agent_count": 1,
+    "verifier_count": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "duration_ms": null,
+    "retry_count": null
+  },
+  "uninspected_scope": [],
+  "missing_context": [],
+  "inspected_context": [
+    {
+      "path": "models/actions/runner.go",
+      "purpose": "Reviewed the changed runner ordering implementation and sortable fields."
+    },
+    {
+      "path": "models/db/list.go",
+      "purpose": "Verified that FindAndCount applies LIMIT/OFFSET and ToOrders to the runner query."
+    },
+    {
+      "path": "routers/api/v1/shared/runners.go",
+      "purpose": "Verified the shared runner API list endpoint uses FindAndCount with request pagination."
+    },
+    {
+      "path": "routers/api/v1/utils/page.go",
+      "purpose": "Verified page and limit request parameters become database list options."
+    },
+    {
+      "path": "routers/web/shared/actions/runners.go",
+      "purpose": "Verified the web runner settings page uses page-based FindAndCount queries."
+    }
+  ],
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "CQ-001 requires manual review"
+    ]
+  }
+}

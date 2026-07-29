@@ -1,0 +1,195 @@
+[
+ {
+  "repo": "agent_marketplace",
+  "introducing_commit": "01cdc343a7265c3a876f110ad227bdf0fb61176c",
+  "defects": [
+   {
+    "fix_commit": "61eff0746bd6f9bd33dd105f84d155d8da8ff6e8",
+    "rule_id": "SEC-001",
+    "difficulty": 1,
+    "defect": "主缺陷是公网认证绕过：无 JWT 的外部调用者只要向精确的 GET /agents/{address}/ai-context 或 POST /agents/{address}/ai-compute 路由提供格式合法但可自行伪造的 X-Marketplace-User-ID 和 X-Marketplace-Wallet，OptionalTrustedMarketplaceIdentity 就会把它们转换为可信身份。攻击者因此可冒充任意用户/钱包，读取该钱包的个性化 AI 上下文，并绕过 POST ai-compute 原本要求的 Marketplace JWT；引入提交自身的测试明确期望这种无 token 请求返回 200。修复后公网 GET 保持匿名或使用真实 JWT，公网 POST 无 JWT 返回 401，内部 Header 身份仅限网络隔离的 8081。该提交还修复了两个独立真实问题：链上可控 HTTPS 元数据 URI 可通过默认 HTTP client 访问私网、代理或重定向目标的 SSRF，以及非法 Profile 地址被规范化后仍进入数据库查询而未按接口契约返回 400。"
+   },
+   {
+    "fix_commit": "bfa3b1e0a2a71a3667e29d2c299c61c6abd61db6",
+    "rule_id": "SEC-001",
+    "difficulty": 1,
+    "defect": "修复前 DockerHost 公网 Marketplace 路由把调用者提供的 X-Marketplace-User-ID 和 X-Marketplace-Wallet 直接当作可信身份，不要求 Marketplace JWT 或服务凭证。任意公网调用者只需构造格式合法的 marketplace:user:<正整数> 和任意 EVM 钱包地址，即可在 AI Context/Compute 路由中冒充该身份，读取或计算钱包范围数据。原部署守卫还允许跨服务可信流量使用公网 CHAT_SERVER_BASE_URL，且不验证内部 8081 路径，使安全代码无法在保持 Chat 功能的同时可靠上线。生产影响是身份/授权绕过和钱包范围数据越权；若仅部署公网 Header 拒绝逻辑而未切换内部路径，则 Chat 反向查询会失败。"
+   }
+  ],
+  "max_difficulty": 1
+ },
+ {
+  "repo": "agent_marketplace",
+  "introducing_commit": "8f85af1e794819c928e3c6e1e1cfb08da3f1666c",
+  "defects": [
+   {
+    "fix_commit": "54cc65fedf5ccd43aab401186948108beb36acb8",
+    "rule_id": "COR-001",
+    "difficulty": 4,
+    "defect": "8f85af1 只为 Chat Server 新增了端口 8081 的私网 AI listener，并明确不把该端口注册为 DockerHost Web 服务；但 DockerHost 的 Chat Server 与 Marketplace 是分离部署，只能通过 Marketplace 公共域名访问 8080。触发状态是 Chat Server 携带 X-Marketplace-User-ID 和 X-Marketplace-Wallet 调用公共 AI 路由：GET /ai-context 不会采用这些 Header，因而丢失钱包作用域 user_context；POST /ai-compute 仍要求 Marketplace JWT，直接返回 401。结果是 DockerHost Chat 无法可靠取得用户持仓、PnL 等钱包上下文或调用参数化计算，导致相关 AI 工具调用失败或回答降级；不涉及数据损坏。"
+   }
+  ],
+  "max_difficulty": 4
+ },
+ {
+  "repo": "agent_marketplace",
+  "introducing_commit": "b7f645158052c8fb0da4df7d67cdca649db39be1",
+  "defects": [
+   {
+    "fix_commit": "a72e5e5f85b6b96f03b205761dc16e8cc7dc987d",
+    "rule_id": "SEC-003",
+    "difficulty": 2,
+    "defect": "旧版工作流审计在显式使用 --dockerhost-status 时，会捕获 envctl branch-space status 的 stdout，经有限的黑名单正则脱敏后写入 JSON 或文本输出。该正则只覆盖 URL 凭据及 token/password/secret/authorization 赋值，API_KEY、其他环境变量、非标准凭据格式或任意敏感状态内容均可原样逸出。触发条件是 envctl 成功且 stdout 含未被正则覆盖的敏感值；结果会把凭据或环境信息暴露到终端以及任何收集审计输出的日志或自动化记录中。"
+   },
+   {
+    "fix_commit": "ec9d399a51d77e7eaa13774e853bea610d68f13f",
+    "rule_id": "REL-005",
+    "difficulty": 2,
+    "defect": "使用 --dockerhost-status 时，旧实现只检查 envctl 进程退出码；只要状态查询本身返回 0，即使输出包含 Build: failed、status=stopped、health=unhealthy，或构建仍在运行、输出未知或不完整，也会报告 completed=true、status=ok。a72e5e5 后 stdout 还被完全丢弃，调用方无法看到相反证据。这会让操作者或审计消费者把失败构建或不健康的 DockerHost 环境误判为正常，延误部署故障处置；工具本身是只读、建议性的，不会直接改变服务状态。"
+   }
+  ],
+  "max_difficulty": 2
+ },
+ {
+  "repo": "agent_marketplace",
+  "introducing_commit": "d2040212177f048deb2646e2d8a523e4c3b8aa35",
+  "defects": [
+   {
+    "fix_commit": "a01b2efb7d05bcb738f085d408b715ae9ecccfbe",
+    "rule_id": "SEC-003",
+    "difficulty": 2,
+    "defect": "prepareMarketplaceProxyRequest 克隆了客户端请求的 Trailer，却只从普通 Header 删除 Authorization。因此，Ballot 普通/公开/可选身份路由、Consumer 路由等非 delegated 代理请求只要携带 Authorization trailer，该认证材料就会随 ReverseProxy 请求进入内部上游。生产影响是破坏“普通子模块不得接收调用方 Authorization”的认证边界，将 Bearer token 或其他认证凭据不当暴露给 Ballot/Consumer，并形成下游凭据混淆或授权绕过的输入通道。"
+   }
+  ],
+  "max_difficulty": 2
+ },
+ {
+  "repo": "agent_marketplace",
+  "introducing_commit": "d28dd36fa469ca6c3194ceacb178be793f3ce828",
+  "defects": [
+   {
+    "fix_commit": "4e7ece4689e53be561c671fbde63d3de08099039",
+    "rule_id": "COR-001",
+    "difficulty": 2,
+    "defect": "认证用户访问 Chat 路由且配置了非空 `CHAT_SERVER_USER_PREFIX` 时，`chatUserID` 会把用户 9 生成为 `marketplace:dev:user:9` 或 `marketplace:prod:user:9`，而公共契约要求 `marketplace:user:9`。该错误 ID 会写入 `chat_conversations`/`chat_runs` 的用户映射，并经 `X-Marketplace-User-ID` 和 `proxy_payload.marketplace_identity.user_id` 转发给 Chat Server。仓库的 dev、beta、prod 配置均会触发，导致稳定账户身份按环境分裂、既有规范身份下的会话或运行映射查询失败（继续会话可返回 403，详情/运行查询可返回 404），同时向上游传递违反契约的账户上下文。"
+   },
+   {
+    "fix_commit": "8f85af1e794819c928e3c6e1e1cfb08da3f1666c",
+    "rule_id": "CHG-001",
+    "difficulty": 4,
+    "defect": "有效 Marketplace 私聊创建后，Chat Server 会反向调用 Marketplace 获取 Agent 动态和钱包级 AI 上下文，但修复前只有公网 8080 路由。Chat Server 携带可信身份 Header、但没有浏览器 Marketplace JWT 时，POST ai-compute 被 JWT 中间件返回 401；GET ai-context 虽可匿名访问，却忽略可信 Header，因而丢失当前用户的钱包身份。生产结果是私聊工具无法取得用户持仓、状态、PnL 等钱包级上下文，计算调用直接失败，回答可能缺失关键动态信息或退化为不可用结果。"
+   },
+   {
+    "fix_commit": "da79c0641a4c3d6b88a6b25973fb9f2e42f2d8c8",
+    "rule_id": "CHG-001",
+    "difficulty": 2,
+    "defect": "错误行为：全局 JWT 中间件只接受严格以“Bearer ”开头的 Authorization 值。触发输入：携带有效 Marketplace JWT，但认证方案使用合法的大小写变体（如“bearer”），或方案与令牌间有重复空白。结果是认证失败并返回 HTTP 401，所有受保护 Marketplace 路由均无法访问。生产影响是兼容该 HTTP Bearer 语法的现有客户端被错误拒绝。"
+   }
+  ],
+  "max_difficulty": 4
+ },
+ {
+  "repo": "agent_marketplace",
+  "introducing_commit": "da79c0641a4c3d6b88a6b25973fb9f2e42f2d8c8",
+  "defects": [
+   {
+    "fix_commit": "19def8a5b54d932447c779e1ffd76c03ebb050dd",
+    "rule_id": "CHG-001",
+    "difficulty": 2,
+    "defect": "有效 JWT 用户调用任一 Chat 创建、会话、运行或流接口时，只要部署配置了环境前缀（仓库模板分别配置 `marketplace:dev`、`marketplace:beta`、`marketplace:prod`），旧代码就会生成 `marketplace:<environment>:user:<id>`，而不是协议规定的稳定身份 `marketplace:user:<id>`。该错误值同时用于本地 `chat_conversations`/`chat_runs` 所有权查询与写入、限流键、上游 `X-Marketplace-User-ID` 和可信 payload。已有 canonical 映射时，配置前缀版本会查询不到原会话或运行，向用户返回 403/404；新数据也会按环境或配置值割裂身份，配置变更后形成不可访问的历史映射，并破坏跨服务稳定账号映射。"
+   }
+  ],
+  "max_difficulty": 2
+ },
+ {
+  "repo": "agent_marketplace",
+  "introducing_commit": "e23f25e14ae0c7f347dc2611a74133c5655691bf",
+  "defects": [
+   {
+    "fix_commit": "b33eee40f9ddc272a9c23f282c16e5ac6abce464",
+    "rule_id": "REL-005",
+    "difficulty": 4,
+    "defect": "旧脚本只校验本地环境变量和 JWT 文件，随后以 exec 运行 envctl branch-space deploy；只要 envctl 进程退出成功，脚本就结束，完全不确认远端是否实际运行目标提交、应用是否健康、一次性配置是否正确生效以及代理链是否产生正确客户端身份。触发状态是部署命令返回成功但远端仍为旧提交、尚未健康，或 DockerHost 生效配置与提交的输入不一致。此时部署会被误报成功：错误 CORS、JWT 或上游地址可造成浏览器、认证或代理功能不可用；错误 TRUSTED_PROXIES 会把不同调用者折叠到 loopback/bridge 共享限流桶，造成跨用户 429。该提交修复的是部署工具的真实静默失败语义，material=true。"
+   }
+  ],
+  "max_difficulty": 4
+ },
+ {
+  "repo": "agent_marketplace",
+  "introducing_commit": "efb374a4c832a08e82c14ac5503a0d2416baaab5",
+  "defects": [
+   {
+    "fix_commit": "3999d01f6df03ff9d4f18d39c2aa4ac27e80dbde",
+    "rule_id": "SEC-001",
+    "difficulty": 1,
+    "defect": "错误行为：文档功能启用时，`marketplaceAuthMode` 把 `GET /docs` 和 `GET /openapi.yaml` 分类为 `AuthPublic`，JWT 中间件因此完全跳过认证，匿名请求分别获得 Swagger UI 和原始 OpenAPI 规范。触发状态是 `server.expose_docs=true`（引入提交中的 `config/config.yaml` 即为 true）并发送不带有效 Marketplace JWT 的上述 GET 请求；关闭文档功能时路由不存在。生产影响是未登录访问者可绕过既有访问控制读取完整接口/Schema 等运营文档、枚举后端攻击面；这些路径还不属于正常 `/api/v1` 限流范围。"
+   }
+  ],
+  "max_difficulty": 1
+ },
+ {
+  "repo": "general-agent-ai",
+  "introducing_commit": "2e87ffc1c9cb361fc0ecaadd707d3a0dbc6bfd1a",
+  "defects": [
+   {
+    "fix_commit": "b8182d6a67bcc31db0218af084e21e2c673eb59b",
+    "rule_id": "COR-001",
+    "difficulty": 3,
+    "defect": "原工具把 queries 声明为 list[dict[str, Any]]，生成的模型可见 JSON Schema 中 queries.items 只是允许任意属性的 object，没有支持的 metric、window/time_range 嵌套结构、取值范围或必填条件；normalize_compute_queries 也只检查 metric 非空，其他字段未经语义校验便发送给 Marketplace。触发状态是当前 Agent 和可信 viewer context 均存在，用户询问 24 小时成交量、share price 变化、报告搜索等动态指标，模型需要自行构造 compute 请求。模型可能缺少必需 window/query、使用错误窗口或越界 limit，Marketplace 随后返回 invalid_request/invalid_window；既有单次调用预算又会阻止模型纠正，导致用户拿不到本应可计算的指标，并可能看到内部格式修正叙述。该路径影响真实 Ask this Agent 计算请求，属于实质生产缺陷。"
+   }
+  ],
+  "max_difficulty": 3
+ },
+ {
+  "repo": "general-agent-ai",
+  "introducing_commit": "6349a866212bbbd890975a1a0e1fecccaeb4f9dc",
+  "defects": [
+   {
+    "fix_commit": "fd679bef3456f77102e2854cd90a3ba2922c35f2",
+    "rule_id": "COR-001",
+    "difficulty": 4,
+    "defect": "修复前，POST /chat 即使携带合法的 X-Marketplace-User-ID、X-Marketplace-Wallet 以及匹配的保留 proxy_payload，身份也只用于入口鉴权和资源归属，没有传递到 Marketplace Agent 工具；MarketplaceAIClient 始终只发送 Accept 头。触发钱包维度的 marketplace_agent_context 或任意 marketplace_agent_compute 调用时，上游无法识别 viewer，导致上下文退化为匿名、缺少 user_position/shares 等钱包数据，或 compute 被拒绝并返回 unavailable。realtime 与 batch/Celery 路径均受影响，生产用户会得到不完整或失败的 Agent 数据回答；未发现资金写入影响。"
+   }
+  ],
+  "max_difficulty": 4
+ },
+ {
+  "repo": "general-agent-ai",
+  "introducing_commit": "781ee3be73500cdfde29833a4b99262b693c8a3c",
+  "defects": [
+   {
+    "fix_commit": "778e0e3ead6a4930f575d0650a9d8afd9e7b5b96",
+    "rule_id": "COR-001",
+    "difficulty": 3,
+    "defect": "该提交修复两个真实生产缺陷。其一，上一版输出 guardrail 把模型产生的所有 token 收集到 token_chunks，直到模型完全生成并通过整答检查后才发送 TOKEN；任何正常但生成较慢的流式回答都会触发，导致 SSE/WebSocket 在生成期间没有增量内容，TTFT 退化为完整生成耗时，前端表现为长时间无响应，违反实时流契约。其二，create_app() 在自定义鉴权中间件之前注册 CORS；由于 Starlette 后注册者先执行，CORS 实际位于鉴权层内侧。浏览器对跨域 POST /chat 发出的无应用凭证 OPTIONS 预检会先被 AuthMiddleware 返回 401，鉴权或限流错误也没有 CORS 响应头，导致生产跨域前端无法调用聊天接口并只能看到泛化的 CORS 错误。"
+   }
+  ],
+  "max_difficulty": 3
+ },
+ {
+  "repo": "general-agent-ai",
+  "introducing_commit": "b21dbb39746df4bf230eaa77fea3ee69d8e910a1",
+  "defects": [
+   {
+    "fix_commit": "9011cbc623400343e564a5432a8a217b2ad0d4e8",
+    "rule_id": "SEC-001",
+    "difficulty": 3,
+    "defect": "修复前，MARKETPLACE_IDENTITY_MODE 未配置时默认为 legacy-compatible。请求只要不携带 Marketplace 专用头，就能把 /chat、/runs/*、/stream/* 的 user_uuid，WebSocket 查询参数，或任意 Bearer/X-API-Key 文本直接解析为 owner_id。该自声明值随后用于会话、运行、流、幂等键和限流的所有权判断；在直接可达且沿用默认配置的部署中，攻击者可声明一个已知的钱包地址，冒充该钱包读取会话消息、运行状态和事件流，或在其名下创建、续写资源，造成跨租户授权绕过和数据泄露。"
+   }
+  ],
+  "max_difficulty": 3
+ },
+ {
+  "repo": "general-agent-ai",
+  "introducing_commit": "fd679bef3456f77102e2854cd90a3ba2922c35f2",
+  "defects": [
+   {
+    "fix_commit": "e015a75cf0829b392f62a5a98e83615c063dc00c",
+    "rule_id": "SEC-001",
+    "difficulty": 3,
+    "defect": "fd679be 引入可信 Marketplace viewer context 后，MarketplaceAIClient 会向 Marketplace 请求附带用户 ID、钱包、run、conversation、trace 等可信身份头，但既有配置在 MARKETPLACE_AI_BASE_URL 缺失时仍自动选择公开 dev 域名。触发状态是生产部署遗漏该环境变量并执行 Agent context/compute 工具；请求不会失败关闭，而会携带可信身份通过公开入口发送。由于该设计没有服务令牌，调用方可信性完全依赖私网可达性，因此公开 fallback 破坏认证与租户隔离边界，使钱包作用域请求落到可被外部伪造同类头的公开路径，并可能造成越权数据访问。"
+   }
+  ],
+  "max_difficulty": 3
+ }
+]

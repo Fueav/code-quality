@@ -1,0 +1,294 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "code-quality v0.1.1：Web2 / Web3 代码审查对照实验",
+    "description": "Six paired GitHub defect replays comparing Codex built-in review with the code-quality v0.1.1 report-only workflow.",
+    "generatedAt": "2026-07-24T09:05:00Z",
+    "cards": [
+      {
+        "id": "builtin_core_hit",
+        "description": "6 个定向严重缺陷回放中的核心问题命中率。",
+        "dataset": "summary",
+        "sourceId": "summary_sql",
+        "metrics": [
+          {"label": "Codex 内置核心命中率", "field": "builtin_core_hit_rate", "format": "percent"}
+        ]
+      },
+      {
+        "id": "code_quality_core_hit",
+        "description": "同一模型与代码增量下，code-quality 的核心问题命中率。",
+        "dataset": "summary",
+        "sourceId": "summary_sql",
+        "metrics": [
+          {"label": "code-quality 核心命中率", "field": "code_quality_core_hit_rate", "format": "percent"}
+        ]
+      },
+      {
+        "id": "report_quality",
+        "description": "位置、影响、修复和证据四项合计，满分 8。",
+        "dataset": "summary",
+        "sourceId": "summary_sql",
+        "metrics": [
+          {"label": "code-quality 平均报告质量", "field": "code_quality_quality_mean", "format": "number", "unit": "/8"},
+          {"label": "Codex 内置", "field": "builtin_quality_mean", "format": "number", "unit": "/8"}
+        ]
+      },
+      {
+        "id": "latency",
+        "description": "单次审查墙钟时间的中位数；两条 lane 均为单次 paired run。",
+        "dataset": "summary",
+        "sourceId": "summary_sql",
+        "metrics": [
+          {"label": "code-quality P50", "field": "code_quality_p50_seconds", "format": "number", "unit": "秒"},
+          {"label": "Codex 内置 P50", "field": "builtin_p50_seconds", "format": "number", "unit": "秒"}
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "quality_by_case",
+        "title": "逐案例报告质量评分",
+        "subtitle": "6 个 paired replay；位置、影响、修复、证据四项合计，满分 8",
+        "type": "bar",
+        "dataset": "case_quality",
+        "sourceId": "case_scores_sql",
+        "encodings": {
+          "x": {"field": "case_label", "type": "nominal", "label": "案例"},
+          "y": {"field": "quality_score", "type": "quantitative", "label": "质量评分"},
+          "color": {"field": "lane", "type": "nominal", "label": "审查 lane"}
+        },
+        "yAxisTitle": "质量评分（满分 8）",
+        "valueFormat": "number",
+        "layout": "content"
+      }
+    ],
+    "tables": [
+      {
+        "id": "case_results",
+        "title": "六个案例的配对结果",
+        "subtitle": "Web2 三例、Web3 三例；核心命中、质量分与主要差异",
+        "dataset": "case_results",
+        "sourceId": "case_results_sql",
+        "defaultSort": {"field": "case", "direction": "asc"},
+        "density": "compact",
+        "layout": "content",
+        "columns": [
+          {"field": "case", "label": "案例", "type": "text"},
+          {"field": "domain", "label": "领域", "type": "text"},
+          {"field": "builtin_quality", "label": "内置质量分", "format": "number"},
+          {"field": "code_quality_quality", "label": "code-quality 质量分", "format": "number"},
+          {"field": "difference", "label": "主要差异", "type": "text"}
+        ]
+      }
+    ],
+    "sources": [
+      {"id": "summary_sql", "label": "聚合指标 SQL", "path": "evidence/scoring.sqlite"},
+      {"id": "case_scores_sql", "label": "逐案例评分 SQL", "path": "evidence/scoring.sqlite"},
+      {"id": "case_results_sql", "label": "配对结果 SQL", "path": "evidence/scoring.sqlite"},
+      {"id": "scoring", "label": "冻结评分与配对结果", "path": "scores.json"},
+      {"id": "operational", "label": "发布版使用链路实测", "path": "operational-findings.md"},
+      {"id": "release_v011", "label": "code-quality v0.1.1 Release", "path": "https://github.com/Fueav/code-quality/releases/tag/v0.1.1"},
+      {"id": "gitea_38313", "label": "Gitea PR #38313", "path": "https://github.com/go-gitea/gitea/pull/38313"},
+      {"id": "gitea_38204", "label": "Gitea PR #38204", "path": "https://github.com/go-gitea/gitea/pull/38204"},
+      {"id": "gitea_36285", "label": "Gitea PR #36285", "path": "https://github.com/go-gitea/gitea/pull/36285"},
+      {"id": "geth_17284", "label": "go-ethereum PR #17284", "path": "https://github.com/ethereum/go-ethereum/pull/17284"},
+      {"id": "geth_19748", "label": "go-ethereum PR #19748", "path": "https://github.com/ethereum/go-ethereum/pull/19748"},
+      {"id": "cosmos_25642", "label": "Cosmos SDK PR #25642", "path": "https://github.com/cosmos/cosmos-sdk/pull/25642"}
+    ],
+    "blocks": [
+      {"id": "title", "type": "markdown", "body": "# code-quality v0.1.1：Web2 / Web3 代码审查对照实验"},
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "scoring",
+        "body": "## 核心召回追平，差异主要在报告契约、复杂场景覆盖与运行成本\n\n**本轮 6 个定向真实缺陷回放中，两条 lane 都命中 6/6 核心问题，Web2 与 Web3 均为 3/3。** code-quality 把每例统一收敛为一个有规则 ID、生产影响、代码位置、最小修复和检查范围的正式报告，平均质量分 **8.00/8**，高于内置审查的 **7.67/8**。\n\n**内置审查仍有两个清晰优势：** P50 为 **36 秒**，code-quality 为 **86.5 秒**；在最复杂的 chain-indexer reorg 例中，内置审查除核心 stale-section 问题外，还单独抓到 section 边界的 off-by-one，而 code-quality 漏掉该次级缺陷。\n\n因此可下的结论是：**v0.1.1 在这 6 个目标缺陷上达到 Codex 内置审查的核心检出水平，并提供更稳定的可审计交付；尚不能据此宣称全面优于内置审查。**"
+      },
+      {"id": "headline_metrics", "type": "metric-strip", "cardIds": ["builtin_core_hit", "code_quality_core_hit", "report_quality", "latency"]},
+      {
+        "id": "quality_takeaway",
+        "type": "markdown",
+        "sourceId": "scoring",
+        "body": "## code-quality 的增量主要来自报告完整度，而不是本轮召回差\n\n两条 lane 在每个案例都定位到正确改动与生产后果；差别集中在修复建议是否写成可直接执行的最小方案。内置审查在查询计数和 release 统计两例中给出了准确诊断，但修复表述较隐含，因此各少 1 分；code-quality 六例都明确给出与历史修复等价的最小动作。下图按同一预注册量表展示逐例评分。"
+      },
+      {"id": "quality_chart", "type": "chart", "chartId": "quality_by_case", "layout": "content"},
+      {
+        "id": "case_detail_intro",
+        "type": "markdown",
+        "sourceId": "scoring",
+        "body": "## 六个案例全部命中，但复杂 reorg 例显示内置审查的覆盖更宽\n\nWeb2 的列表分页、日期过滤计数、release 统计，以及 Web3 的日志扫块范围、链索引 reorg、PreBlock 事件索引，均被两条 lane 命中。内置审查共报告 8 条有效 finding，code-quality 报告 6 条；差额全部来自 reorg 例的拆分与额外边界问题，不是误报。"
+      },
+      {"id": "case_table", "type": "table", "tableId": "case_results", "layout": "content"},
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "body": "## 样本、指标与比较边界\n\n- **样本：** 3 个 Web2、3 个 Web3 已合并 GitHub 修复；只抽取生产代码补丁。\n- **回放：** 在修复后的源码树上反向应用生产补丁，构造匿名 candidate commit；fix 专属测试、CHANGELOG、PR 标题和 issue 不进入审查仓库。\n- **核心命中：** 报告必须指出已知根因，并连接到正确生产影响。\n- **质量分：** 位置、影响、最小修复、证据各 0–2 分，满分 8。\n- **可执行：** 维护者可据报告直接确认问题并着手修复。\n- **对照：** Codex CLI 0.145.0、`gpt-5.6-terra`、`high` reasoning；builtin 使用官方 `codex exec review --commit HEAD`，另一 lane 用自然语言触发 code-quality v0.1.1。"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "## 盲评与稳健性处理\n\n1. 先冻结 GitHub 修复、生产文件、ground truth 与评分量表。\n2. 每个匿名仓库只含 baseline 与 candidate 两个提交，不保留远端或真实提交信息。\n3. 先完成并固化全部内置输出，再运行 plugin，避免 `.code-quality` 产物污染内置 lane。\n4. 初次两个 Gitea 样本残留 fix 回归测试，且两条 lane 都引用了测试名；这些输出被判无效并完整排除，移除测试后重跑。\n5. 所有有效输出冻结后才按 ground truth 评分；复杂 reorg 的 component coverage 作为事后诊断，不改变预注册 core-hit 结论。"
+      },
+      {
+        "id": "operational_result",
+        "type": "markdown",
+        "sourceId": "operational",
+        "body": "## 效果已过关，但 Codex 两步使用链路仍有三个发布阻点\n\n**CLI 安装成功，plugin 内容与 v0.1.1 tag 一致；但默认体验尚未真正做到两步即用。** 第一，仓库缺少 Codex marketplace manifest，Codex CLI 不能直接把 GitHub repo 识别为 marketplace；本轮只补了索引 wrapper，未改 plugin。第二，`workspace-write` 下 6/6 run 都因不能创建 `.git/worktrees` 而在 `prepare` 失败，只有给一次性 fixture 放开 Git 元数据写权限后才 6/6 跑通。第三，一次 Agent 在 finalize 后误清理正式产物，说明 skill 需要明确要求保留 `.code-quality` 输出。\n\n另外，正式报告中的 token、duration、retry 仍为 null；Codex 内置 review 的 JSONL 又把 token 全部报为 0，因此本轮不能做公平成本比较。"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## 结论限制\n\n- 这是 6 个定向严重缺陷 replay，没有正常变更，不能估计真实 PR 分布下的误报率。\n- 逆向修复补丁隔离了根因，但通常比自然演化中的原始引入提交更小、更容易审查。\n- 每条 lane 每例只运行一次，没有随机重复，差异不具统计显著性。\n- 两条 lane 共用同一宿主模型；比较的是 workflow/policy 引导，不是两个独立模型。\n- chain-indexer 例包含多个相关修复组件；core-hit 与事后 component coverage 必须分开解释。\n- 安装与 sandbox 结论只适用于本机 Codex CLI 0.145.0 + code-quality v0.1.1，不外推到 Claude Code 或未来版本。"
+      },
+      {
+        "id": "recommendations",
+        "type": "markdown",
+        "body": "## 建议：先修两步安装与产物保留，再扩到带正常样本的重复试验\n\n1. **补齐 Codex marketplace manifest 与一条可复制安装命令**，用全新 `CODEX_HOME` 做 release smoke。\n2. **消除 `.git/worktrees` 权限依赖或明确最小权限**，确保标准 workspace-write 会话可以完成 prepare/finalize。\n3. **在 skill 中禁止 finalize 后清理 session**，并把 token、duration、retry 从宿主运行回填到正式报告。\n4. **扩展为至少 30 个真实变更**：Web2/Web3 各含 severe 与外观相似的 normal，对每例做多次 paired run，报告召回、正常变更 finding rate、P50/P95、组件覆盖与成本。\n5. **保留复杂 Web3 专项集**：reorg、区间边界、重复事件、确认深度、索引恢复，避免总体命中率掩盖次级缺陷漏检。"
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## 后续需要回答的问题\n\n- 在不暴露 ground truth 的 15+15 severe/normal 历史样本上，code-quality 的正常变更 finding rate 是否不高于内置审查？\n- 多次重复后，复杂 Web3 组件级召回是否稳定，还是本轮 reorg 差异来自单次随机性？\n- 修复 worktree 权限与安装入口后，真实用户从“帮我审下这个改动”到正式报告的成功率、时延和失败原因分布如何？"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-24T09:05:00Z",
+    "status": "ready",
+    "datasets": {
+      "summary": [
+        {
+          "builtin_core_hit_rate": 1.0,
+          "code_quality_core_hit_rate": 1.0,
+          "builtin_quality_mean": 7.67,
+          "code_quality_quality_mean": 8.0,
+          "builtin_p50_seconds": 36,
+          "code_quality_p50_seconds": 86.5
+        }
+      ],
+      "case_quality": [
+        {"case_label": "W2 列表分页", "lane": "Codex 内置", "quality_score": 8, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W2 列表分页", "lane": "code-quality", "quality_score": 8, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W2 过滤计数", "lane": "Codex 内置", "quality_score": 7, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W2 过滤计数", "lane": "code-quality", "quality_score": 8, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W2 release 统计", "lane": "Codex 内置", "quality_score": 7, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W2 release 统计", "lane": "code-quality", "quality_score": 8, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W3 日志扫块范围", "lane": "Codex 内置", "quality_score": 8, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W3 日志扫块范围", "lane": "code-quality", "quality_score": 8, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W3 chain reorg", "lane": "Codex 内置", "quality_score": 8, "core_hit": 1, "finding_count": 3},
+        {"case_label": "W3 chain reorg", "lane": "code-quality", "quality_score": 8, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W3 PreBlock 索引", "lane": "Codex 内置", "quality_score": 8, "core_hit": 1, "finding_count": 1},
+        {"case_label": "W3 PreBlock 索引", "lane": "code-quality", "quality_score": 8, "core_hit": 1, "finding_count": 1}
+      ],
+      "case_results": [
+        {"order": 1, "case": "Runner 列表分页稳定性", "domain": "Web2", "builtin_core": "命中", "code_quality_core": "命中", "builtin_quality": 8, "code_quality_quality": 8, "difference": "结论等价；code-quality 固定输出检查范围与规则 ID"},
+        {"order": 2, "case": "Commit 日期过滤计数", "domain": "Web2", "builtin_core": "命中", "code_quality_core": "命中", "builtin_quality": 7, "code_quality_quality": 8, "difference": "code-quality 明确写出恢复 --since/--until 的最小修复"},
+        {"order": 3, "case": "Release 同步统计串位", "domain": "Web2", "builtin_core": "命中", "code_quality_core": "命中", "builtin_quality": 7, "code_quality_quality": 8, "difference": "code-quality 明确给出 inserts/deletes/updates 对应关系"},
+        {"order": 4, "case": "eth_getLogs 扫块区间", "domain": "Web3", "builtin_core": "命中", "code_quality_core": "命中", "builtin_quality": 8, "code_quality_quality": 8, "difference": "结论与修复等价"},
+        {"order": 5, "case": "Chain indexer reorg 恢复", "domain": "Web3", "builtin_core": "命中", "code_quality_core": "命中", "builtin_quality": 8, "code_quality_quality": 8, "difference": "内置额外命中 section 边界 off-by-one；code-quality 漏掉"},
+        {"order": 6, "case": "PreBlock 事件索引", "domain": "Web3", "builtin_core": "命中", "code_quality_core": "命中", "builtin_quality": 8, "code_quality_quality": 8, "difference": "结论与修复等价"}
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "summary_sql",
+      "label": "聚合指标 SQL",
+      "path": "evidence/scoring.sqlite",
+      "query": {
+        "engine": "sqlite",
+        "sql": "WITH lane_summary AS (SELECT lane, AVG(core_hit * 1.0) AS core_hit_rate, AVG(quality_score) AS quality_mean FROM run_scores GROUP BY lane), duration_ranked AS (SELECT lane, seconds, ROW_NUMBER() OVER (PARTITION BY lane ORDER BY seconds) AS rn FROM durations), duration_p50 AS (SELECT lane, AVG(seconds) AS p50_seconds FROM duration_ranked WHERE rn IN (3, 4) GROUP BY lane) SELECT MAX(CASE WHEN lane_summary.lane = 'Codex 内置' THEN lane_summary.core_hit_rate END) AS builtin_core_hit_rate, MAX(CASE WHEN lane_summary.lane = 'code-quality' THEN lane_summary.core_hit_rate END) AS code_quality_core_hit_rate, ROUND(MAX(CASE WHEN lane_summary.lane = 'Codex 内置' THEN lane_summary.quality_mean END), 2) AS builtin_quality_mean, ROUND(MAX(CASE WHEN lane_summary.lane = 'code-quality' THEN lane_summary.quality_mean END), 2) AS code_quality_quality_mean, MAX(CASE WHEN duration_p50.lane = 'Codex 内置' THEN duration_p50.p50_seconds END) AS builtin_p50_seconds, MAX(CASE WHEN duration_p50.lane = 'code-quality' THEN duration_p50.p50_seconds END) AS code_quality_p50_seconds FROM lane_summary JOIN duration_p50 USING (lane);",
+        "description": "Compute paired core-hit rate, mean report quality, and median wall time by lane.",
+        "executed_at": "2026-07-24T09:05:00Z",
+        "tables_used": ["run_scores", "durations"],
+        "language": "sql"
+      }
+    },
+    {
+      "id": "case_scores_sql",
+      "label": "逐案例评分 SQL",
+      "path": "evidence/scoring.sqlite",
+      "query": {
+        "engine": "sqlite",
+        "sql": "SELECT case_label, lane, quality_score, core_hit, finding_count FROM run_scores ORDER BY case_order, lane_order;",
+        "description": "Return the case-level quality scores used by the grouped bar chart.",
+        "executed_at": "2026-07-24T09:05:00Z",
+        "tables_used": ["run_scores"],
+        "language": "sql"
+      }
+    },
+    {
+      "id": "case_results_sql",
+      "label": "配对结果 SQL",
+      "path": "evidence/scoring.sqlite",
+      "query": {
+        "engine": "sqlite",
+        "sql": "SELECT case_order AS 'order', case_name AS 'case', domain, CASE WHEN MAX(CASE WHEN lane = 'Codex 内置' THEN core_hit END) = 1 THEN '命中' ELSE '未命中' END AS builtin_core, CASE WHEN MAX(CASE WHEN lane = 'code-quality' THEN core_hit END) = 1 THEN '命中' ELSE '未命中' END AS code_quality_core, MAX(CASE WHEN lane = 'Codex 内置' THEN quality_score END) AS builtin_quality, MAX(CASE WHEN lane = 'code-quality' THEN quality_score END) AS code_quality_quality, MAX(difference) AS difference FROM run_scores GROUP BY case_order, case_name, domain ORDER BY case_order;",
+        "description": "Pivot paired lane outcomes into the six-row comparison table.",
+        "executed_at": "2026-07-24T09:05:00Z",
+        "tables_used": ["run_scores"],
+        "language": "sql"
+      }
+    },
+    {
+      "id": "scoring",
+      "label": "冻结评分与配对结果",
+      "path": "scores.json"
+    },
+    {
+      "id": "operational",
+      "label": "发布版使用链路实测",
+      "path": "operational-findings.md"
+    },
+    {
+      "id": "release_v011",
+      "label": "code-quality v0.1.1 Release",
+      "path": "https://github.com/Fueav/code-quality/releases/tag/v0.1.1",
+      "query": {"engine": "github", "url": "https://github.com/Fueav/code-quality/releases/tag/v0.1.1", "description": "Published release and downloadable CLI assets.", "executed_at": "2026-07-24T06:55:52Z", "language": "markdown"}
+    },
+    {
+      "id": "gitea_38313",
+      "label": "Gitea PR #38313",
+      "path": "https://github.com/go-gitea/gitea/pull/38313",
+      "query": {"engine": "github", "url": "https://github.com/go-gitea/gitea/pull/38313", "description": "Deterministic runner list pagination fix and root-cause evidence.", "executed_at": "2026-07-24T08:20:00Z", "language": "markdown"}
+    },
+    {
+      "id": "gitea_38204",
+      "label": "Gitea PR #38204",
+      "path": "https://github.com/go-gitea/gitea/pull/38204",
+      "query": {"engine": "github", "url": "https://github.com/go-gitea/gitea/pull/38204", "description": "Commit count since/until filter fix and issue evidence.", "executed_at": "2026-07-24T08:20:00Z", "language": "markdown"}
+    },
+    {
+      "id": "gitea_36285",
+      "label": "Gitea PR #36285",
+      "path": "https://github.com/go-gitea/gitea/pull/36285",
+      "query": {"engine": "github", "url": "https://github.com/go-gitea/gitea/pull/36285", "description": "Release synchronization statistics mapping fix.", "executed_at": "2026-07-24T08:20:00Z", "language": "markdown"}
+    },
+    {
+      "id": "geth_17284",
+      "label": "go-ethereum PR #17284",
+      "path": "https://github.com/ethereum/go-ethereum/pull/17284",
+      "query": {"engine": "github", "url": "https://github.com/ethereum/go-ethereum/pull/17284", "description": "Log filter block range assignment fix.", "executed_at": "2026-07-24T08:20:00Z", "language": "markdown"}
+    },
+    {
+      "id": "geth_19748",
+      "label": "go-ethereum PR #19748",
+      "path": "https://github.com/ethereum/go-ethereum/pull/19748",
+      "query": {"engine": "github", "url": "https://github.com/ethereum/go-ethereum/pull/19748", "description": "Chain indexer reorg recovery fix and linked production issues.", "executed_at": "2026-07-24T08:20:00Z", "language": "markdown"}
+    },
+    {
+      "id": "cosmos_25642",
+      "label": "Cosmos SDK PR #25642",
+      "path": "https://github.com/cosmos/cosmos-sdk/pull/25642",
+      "query": {"engine": "github", "url": "https://github.com/cosmos/cosmos-sdk/pull/25642", "description": "PreBlock event indexing fix and issue evidence.", "executed_at": "2026-07-24T08:20:00Z", "language": "markdown"}
+    }
+  ],
+  "package_info": {
+    "root": ".",
+    "manifestPath": "artifact.json",
+    "snapshotPath": "artifact.json",
+    "sourceKind": "paired-code-review-experiment"
+  }
+}

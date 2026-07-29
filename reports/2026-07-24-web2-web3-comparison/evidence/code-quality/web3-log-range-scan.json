@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.1.1",
+  "request": {
+    "repository": "web3-log-range-scan",
+    "target_branch": "main",
+    "base_commit": "2508ea56f66b704e81b650478a99da3811ff9a6c",
+    "target_commit": "c567aece9975de22d507209064d2dd22aa312b95",
+    "diff_selection_reason": "User requested review of committed delta HEAD relative to HEAD^ only.",
+    "changed_files": [
+      "eth/filters/api.go"
+    ],
+    "affected_entries": []
+  },
+  "activated_rule_families": [
+    "D2",
+    "D3"
+  ],
+  "inactive_rule_families": [],
+  "findings": [
+    {
+      "candidate": {
+        "id": "COR-003-1",
+        "rule_id": "COR-003",
+        "code_locations": [
+          {
+            "path": "eth/filters/api.go",
+            "line": 337
+          },
+          {
+            "path": "eth/filters/api.go",
+            "line": 340
+          }
+        ],
+        "production_impact": "When either bound is supplied, its value is never assigned: both locals start at 0, so `eth_getLogs` with `fromBlock` and/or `toBlock` queries block 0 or an unintended range instead of the caller's requested range. For example, a request for blocks 100 through 200 becomes 0 through 0; a request from 100 to the default latest scans from genesis through the head, which can return unrelated logs and create an unnecessarily large, synchronous historical scan.",
+        "minimal_fix": "Initialize begin and end to rpc.LatestBlockNumber.Int64(), then assign crit.FromBlock.Int64() and crit.ToBlock.Int64() when their respective fields are non-nil (as the prior implementation did). Add GetLogs coverage for explicit lower-only, upper-only, and both-bound ranges."
+      },
+      "final_verdict": "MANUAL_REVIEW"
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "skill_version": "0.1.1",
+    "agent_count": 1,
+    "verifier_count": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "duration_ms": null,
+    "retry_count": null
+  },
+  "uninspected_scope": [],
+  "missing_context": [],
+  "inspected_context": [
+    {
+      "path": "eth/filters/api.go",
+      "purpose": "Reviewed the changed GetLogs range-bound conversion and the analogous GetFilterLogs implementation."
+    },
+    {
+      "path": "eth/filters/filter.go",
+      "purpose": "Traced how zero and latest sentinel bounds drive indexed and unindexed log scans."
+    },
+    {
+      "path": "eth/filters/filter_system_test.go",
+      "purpose": "Checked existing filter criteria and expected range semantics."
+    },
+    {
+      "path": "eth/filters/api_test.go",
+      "purpose": "Checked criteria JSON decoding coverage."
+    }
+  ],
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "COR-003-1 requires manual review"
+    ]
+  }
+}

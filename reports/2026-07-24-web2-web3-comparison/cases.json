@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "experiment": "code-quality-v0.1.1-web2-web3-paired-replay",
+  "cases": [
+    {
+      "id": "web2-list-pagination",
+      "domain": "Web2",
+      "scenario": "列表分页",
+      "source_repo": "go-gitea/gitea",
+      "source_local_repo": "/Users/chris/AiProject/pilot-repos/gitea",
+      "fix_commit": "d4c4142123a6690394b3d53066cda00edff37676",
+      "production_paths": ["models/actions/runner.go"],
+      "ground_truth": "对非唯一的 last_online/name 排序移除唯一 id tiebreaker，使 LIMIT/OFFSET 多页查询在并列值下重复或漏掉 runner。",
+      "sources": [
+        "https://github.com/go-gitea/gitea/pull/38313",
+        "https://github.com/go-gitea/gitea/commit/d4c4142123a6690394b3d53066cda00edff37676"
+      ]
+    },
+    {
+      "id": "web2-query-count-filter",
+      "domain": "Web2",
+      "scenario": "查询过滤与计数",
+      "source_repo": "go-gitea/gitea",
+      "source_local_repo": "/Users/chris/AiProject/pilot-repos/gitea",
+      "fix_commit": "4812e354866a066dcb899af667b0fad5fa094065",
+      "production_paths": ["modules/gitrepo/commit.go"],
+      "ground_truth": "从 CommitsCount 删除 since/until 到 git rev-list --count 的透传，导致响应列表按日期过滤而 X-Total/X-Total-Count 仍返回全仓库提交数。",
+      "sources": [
+        "https://github.com/go-gitea/gitea/issues/35886",
+        "https://github.com/go-gitea/gitea/pull/38204",
+        "https://github.com/go-gitea/gitea/commit/4812e354866a066dcb899af667b0fad5fa094065"
+      ]
+    },
+    {
+      "id": "web2-release-statistics",
+      "domain": "Web2",
+      "scenario": "数据统计",
+      "source_repo": "go-gitea/gitea",
+      "source_local_repo": "/Users/chris/AiProject/pilot-repos/gitea",
+      "fix_commit": "af95cbc0de519434c7f3649e7ce3e807e88247c8",
+      "production_paths": ["modules/repository/repo.go"],
+      "ground_truth": "把 inserts/deletes/updates 三类集合错误映射为 added/deleted/updated，导致同步 release 后仓库统计分别串位。",
+      "sources": [
+        "https://github.com/go-gitea/gitea/pull/36285",
+        "https://github.com/go-gitea/gitea/commit/af95cbc0de519434c7f3649e7ce3e807e88247c8"
+      ]
+    },
+    {
+      "id": "web3-log-range-scan",
+      "domain": "Web3",
+      "scenario": "日志扫块区间",
+      "source_repo": "ethereum/go-ethereum",
+      "source_local_repo": "/Users/chris/AiProject/pilot-repos/go-ethereum",
+      "fix_commit": "c4a1d4fecf5efcf5095c667b7b311061173799b4",
+      "production_paths": ["eth/filters/api.go"],
+      "ground_truth": "恢复错误的 nil 判断：仅在 FromBlock/ToBlock 为空时赋 latest，非空显式区间反而保留零值，导致 eth_getLogs 扫错块区间。",
+      "sources": [
+        "https://github.com/ethereum/go-ethereum/pull/17284",
+        "https://github.com/ethereum/go-ethereum/commit/c4a1d4fecf5efcf5095c667b7b311061173799b4"
+      ]
+    },
+    {
+      "id": "web3-chain-indexer-reorg",
+      "domain": "Web3",
+      "scenario": "reorg 后链索引恢复",
+      "source_repo": "ethereum/go-ethereum",
+      "source_local_repo": "/Users/chris/AiProject/pilot-repos/go-ethereum",
+      "fix_commit": "32273df0eafbbd829b7e6b6758730a5bb0ab59cb",
+      "production_paths": ["core/chain_indexer.go"],
+      "ground_truth": "移除 stored section head 的 canonical 校验与回滚，并恢复错误 reorg 边界，使罕见重组后索引器反复以陈旧 lastHead 处理 section，永久报 chain reorged during section processing。",
+      "sources": [
+        "https://github.com/ethereum/go-ethereum/issues/15169",
+        "https://github.com/ethereum/go-ethereum/pull/19748",
+        "https://github.com/ethereum/go-ethereum/commit/32273df0eafbbd829b7e6b6758730a5bb0ab59cb"
+      ]
+    },
+    {
+      "id": "web3-preblock-event-index",
+      "domain": "Web3",
+      "scenario": "PreBlock 事件索引",
+      "source_repo": "cosmos/cosmos-sdk",
+      "source_local_repo": "/Users/chris/AiProject/pilot-repos/cosmos-sdk",
+      "fix_commit": "0e1f43c8f18f80a42f4af4e1ca224bf0d3e64123",
+      "production_paths": ["baseapp/baseapp.go"],
+      "ground_truth": "删除 preBlock 返回事件上的 MarkEventsToIndex，使 PreBlocker 事件不遵循 app.toml 的索引配置，与 begin/deliver/end block 不一致，索引查询漏事件。",
+      "sources": [
+        "https://github.com/cosmos/cosmos-sdk/issues/25640",
+        "https://github.com/cosmos/cosmos-sdk/pull/25642",
+        "https://github.com/cosmos/cosmos-sdk/commit/0e1f43c8f18f80a42f4af4e1ca224bf0d3e64123"
+      ]
+    }
+  ]
+}

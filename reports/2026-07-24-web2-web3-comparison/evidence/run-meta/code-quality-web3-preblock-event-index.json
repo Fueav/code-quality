@@ -1,0 +1,8 @@
+{
+  "lane": "code-quality",
+  "case_id": "web3-preblock-event-index",
+  "started_at": "2026-07-24T08:35:34Z",
+  "ended_at": "2026-07-24T08:37:04Z",
+  "duration_seconds": 90,
+  "exit_code": 0
+}

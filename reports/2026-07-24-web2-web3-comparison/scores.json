@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "rubric_max_quality_score": 8,
+  "scored_cases": 6,
+  "invalidated_runs_excluded": [
+    "web2-list-pagination initial builtin and code-quality outputs: fix-specific regression test remained visible",
+    "web2-query-count-filter initial builtin and code-quality outputs: fix-specific regression test remained visible",
+    "all six workspace-write code-quality attempts: prepare could not create .git/worktrees and no formal report was produced"
+  ],
+  "scores": [
+    {
+      "case_id": "web2-list-pagination",
+      "domain": "Web2",
+      "builtin": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1},
+      "code_quality": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1}
+    },
+    {
+      "case_id": "web2-query-count-filter",
+      "domain": "Web2",
+      "builtin": {"core_hit": 1, "location": 2, "impact": 2, "fix": 1, "evidence": 2, "quality_score": 7, "finding_count": 1, "false_positive_count": 0, "actionable": 1},
+      "code_quality": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1}
+    },
+    {
+      "case_id": "web2-release-statistics",
+      "domain": "Web2",
+      "builtin": {"core_hit": 1, "location": 2, "impact": 2, "fix": 1, "evidence": 2, "quality_score": 7, "finding_count": 1, "false_positive_count": 0, "actionable": 1},
+      "code_quality": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1}
+    },
+    {
+      "case_id": "web3-log-range-scan",
+      "domain": "Web3",
+      "builtin": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1},
+      "code_quality": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1}
+    },
+    {
+      "case_id": "web3-chain-indexer-reorg",
+      "domain": "Web3",
+      "builtin": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 3, "false_positive_count": 0, "actionable": 1},
+      "code_quality": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1},
+      "post_hoc_component_coverage": {
+        "known_components": 3,
+        "builtin_hits": 3,
+        "code_quality_hits": 2,
+        "note": "Both hit the stale canonical section root cause. Builtin additionally separated the update path, stale Sections exposure, and section-boundary off-by-one; code-quality covered the first two in one finding and missed the boundary calculation."
+      }
+    },
+    {
+      "case_id": "web3-preblock-event-index",
+      "domain": "Web3",
+      "builtin": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1},
+      "code_quality": {"core_hit": 1, "location": 2, "impact": 2, "fix": 2, "evidence": 2, "quality_score": 8, "finding_count": 1, "false_positive_count": 0, "actionable": 1}
+    }
+  ],
+  "summary": {
+    "builtin": {
+      "core_hits": 6,
+      "core_hit_rate": 1.0,
+      "web2_hits": 3,
+      "web3_hits": 3,
+      "quality_score_total": 46,
+      "quality_score_mean": 7.67,
+      "finding_count": 8,
+      "false_positive_count": 0,
+      "actionable": 6,
+      "duration_seconds_p50": 36,
+      "duration_seconds_p95_nearest_rank": 88,
+      "token_usage": "unavailable: Codex review JSONL reported zero tokens for every run"
+    },
+    "code_quality": {
+      "core_hits": 6,
+      "core_hit_rate": 1.0,
+      "web2_hits": 3,
+      "web3_hits": 3,
+      "quality_score_total": 48,
+      "quality_score_mean": 8.0,
+      "finding_count": 6,
+      "false_positive_count": 0,
+      "actionable": 6,
+      "duration_seconds_p50": 86.5,
+      "duration_seconds_p95_nearest_rank": 152,
+      "input_tokens": 2233786,
+      "cached_input_tokens": 2039040,
+      "output_tokens": 22518,
+      "reasoning_output_tokens": 8449
+    },
+    "paired_conclusion": "Both lanes found the known core issue in all six targeted replays. code-quality produced a more uniform evidence/fix contract and slightly higher rubric score; builtin was about 2.4x faster at P50 and surfaced one additional known boundary defect in the complex reorg case."
+  }
+}

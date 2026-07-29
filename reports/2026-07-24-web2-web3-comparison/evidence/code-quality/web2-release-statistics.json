@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.1.1",
+  "request": {
+    "repository": "web2-release-statistics",
+    "target_branch": "main",
+    "base_commit": "f8c4921a5fcb1f148bf2b08865d28694aa00a4ee",
+    "target_commit": "cdf5c2cc692a8a60e3eb28c85dd799e540540f7e",
+    "diff_selection_reason": "User requested review of current repository HEAD relative to HEAD^",
+    "changed_files": [
+      "modules/repository/repo.go"
+    ],
+    "affected_entries": []
+  },
+  "activated_rule_families": [
+    "D2"
+  ],
+  "inactive_rule_families": [],
+  "findings": [
+    {
+      "candidate": {
+        "id": "CQ-001",
+        "rule_id": "COR-003",
+        "code_locations": [
+          {
+            "path": "modules/repository/repo.go",
+            "line": 236
+          }
+        ],
+        "production_impact": "For any pull-mirror sync where the numbers of inserts, deletes, and updates differ, the trace record at line 243 reports each operation under the wrong label. For example, a sync that only adds tags is reported as updates. This gives operators and log-derived sync auditing incorrect release-change counts when diagnosing or monitoring mirror synchronization.",
+        "minimal_fix": "Assign the counters in the same order as calcSync returns them: added = len(inserts), deleted = len(deletes), and updated = len(updates)."
+      },
+      "final_verdict": "MANUAL_REVIEW"
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "skill_version": "0.1.1",
+    "agent_count": 1,
+    "verifier_count": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "duration_ms": null,
+    "retry_count": null
+  },
+  "uninspected_scope": [],
+  "missing_context": [],
+  "inspected_context": [
+    {
+      "path": "modules/repository/repo.go",
+      "purpose": "Reviewed the changed synchronization logic, count assignment, and emitted trace record."
+    },
+    {
+      "path": "modules/repository/repo_test.go",
+      "purpose": "Reviewed calcSync behavior and its existing unit-level expectations."
+    }
+  ],
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "CQ-001 requires manual review"
+    ]
+  }
+}
