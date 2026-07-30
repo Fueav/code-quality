@@ -247,7 +247,7 @@ func buildReviewPrompt(options Options, directions []quality.ReviewDirection) st
 	for _, direction := range directions {
 		fmt.Fprintf(&prompt, "- %s\n", direction.Prompt)
 	}
-	prompt.WriteString("Report actionable defects outside these hints too. Only report problems introduced or worsened by this change. If there are no actionable defects, make the first nonblank line exactly `No findings.` Do not modify files.\n")
+	prompt.WriteString("Report actionable defects outside these hints too. Only report problems introduced or worsened by this change. Do not modify files.\n")
 	return prompt.String()
 }
 
@@ -319,7 +319,16 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 		}
 	}
 	if heading < 0 {
-		return nativeEnvelope{}, errors.New("native review contains neither an explicit no-findings result nor a review comment section")
+		for _, line := range lines[first:] {
+			_, recognized, err := parseNativeFindingHeader(line)
+			if err != nil {
+				return nativeEnvelope{}, err
+			}
+			if recognized {
+				return nativeEnvelope{}, errors.New("native finding appears without a review comment section")
+			}
+		}
+		return nativeEnvelope{Findings: []nativeFinding{}}, nil
 	}
 
 	findings := []nativeFinding{}

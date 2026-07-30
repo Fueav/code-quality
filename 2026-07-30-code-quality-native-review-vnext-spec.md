@@ -18,7 +18,7 @@ The model-facing flow is deliberately small:
 ## Prompt boundary
 
 - Native Codex review owns semantic discovery. The wrapper does not ask the model to activate rules, prove checklist coverage, enumerate inactive dimensions, or perform a zero-finding rereview.
-- Risk directions are deterministic hints, not review boundaries. At least one and at most three are supplied; the prompt explicitly permits findings outside them and requires the first nonblank line to be exactly `No findings.` when none exist.
+- Risk directions are deterministic hints, not review boundaries. At least one and at most three are supplied; the prompt explicitly permits findings outside them.
 - The 20-item V1.2 rubric is not injected into either model call. It remains the versioned offline evaluation rubric and may inform the deterministic direction catalog.
 - A user goal supplies change intent or an extra review concern. It cannot change read-only execution or the deterministic adaptation contract.
 
@@ -31,7 +31,7 @@ The model-facing flow is deliberately small:
 
 ## Candidate and failure semantics
 
-- The adapter accepts either an explicit first-line `No findings.` result or the native `Review comment:` entries (`[P0]` through `[P3]`, title, absolute path, line range, and indented body). Empty, contradictory, or unrecognized text is malformed and cannot produce `PASS`.
+- A successful nonempty native response without a `Review comment:` section means zero candidates; explicit first-line `No findings.` remains accepted. A present candidate section must use native entries (`[P0]` through `[P3]`, title, absolute path, line range, and indented body). Empty, contradictory, or orphan candidate text is malformed and cannot produce `PASS`.
 - A reportable candidate must have non-empty title/body, priority 0-3, an absolute path inside the isolated checkout that maps to a changed file, and a positive ordered line range. Confidence is absent because native review does not emit it.
 - Invalid individual candidates are excluded and recorded. If the native response contained candidates but none can be normalized, the result is `INCOMPLETE`, not `PASS`.
 - Candidate-verifier input carries an explicit zero-based index for every candidate. The verifier must copy that exact index; missing, duplicate, or out-of-range decisions fail open.
@@ -45,7 +45,7 @@ The model-facing flow is deliberately small:
 - Direction selection is deterministic, bounded to one through three, and explicitly non-exhaustive in the prompt.
 - Zero candidates cause exactly one model call.
 - Existing candidates cause at most one verifier call; verifier failure preserves them.
-- Native finding text, explicit `No findings.`, multiple findings, and ambiguous text have deterministic parser tests.
+- Native zero-candidate prose, explicit `No findings.`, single and multiple findings, and orphan candidate text have deterministic parser tests.
 - Paths outside the checkout or outside changed files cannot enter the final report.
 - The default plugin path calls `run-codex` and contains no rereview or 20-rule execution loop.
 - `gofmt`, `go vet ./...`, `go test ./...`, and `git diff --check` pass.

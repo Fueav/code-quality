@@ -51,10 +51,13 @@ func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
 			t.Fatalf("custom target is combined with %s: %q", forbidden, args)
 		}
 	}
-	for _, required := range []string{request.BaseCommit, request.TargetCommit, "protect settlement correctness", "hints only", "outside these hints", "first nonblank line exactly `No findings.`"} {
+	for _, required := range []string{request.BaseCommit, request.TargetCommit, "protect settlement correctness", "hints only", "outside these hints"} {
 		if !strings.Contains(invocation.Stdin, required) {
 			t.Fatalf("prompt is missing %q:\n%s", required, invocation.Stdin)
 		}
+	}
+	if strings.Contains(invocation.Stdin, "first nonblank line exactly") {
+		t.Fatalf("prompt imposes a private zero-candidate marker:\n%s", invocation.Stdin)
 	}
 }
 
@@ -130,20 +133,48 @@ Overall assessment: the change needs both fixes before release.
 	}
 }
 
-func TestReadNativeOutputRejectsAmbiguousText(t *testing.T) {
+func TestReadNativeOutputAcceptsNativeZeroCandidateNarrative(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "native-review.txt")
-	if err := os.WriteFile(path, []byte("The change looks reasonable overall.\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("The derived timeout context preserves parent cancellation, earlier deadlines, and request-scoped values while enforcing the approved two-second limit.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readNativeOutput(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestReadNativeOutputRejectsOrphanFindingHeader(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "native-review.txt")
+	if err := os.WriteFile(path, []byte("- [P1] Preserve cancellation — /private/tmp/review/client.go:17-18\n  The new context drops caller cancellation.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := readNativeOutput(path); err == nil {
-		t.Fatal("ambiguous native output was accepted")
+		t.Fatal("orphan native finding header was accepted as zero candidates")
+	}
+}
+
+func TestNativeOutputRejectsEmptyResults(t *testing.T) {
+	for name, input := range map[string]string{
+		"empty output":            "\n\t\n",
+		"empty candidate section": "Review comment:\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseNativeReviewText(input); err == nil {
+				t.Fatal("invalid native output was accepted as zero candidates")
+			}
+		})
 	}
 }
 
 func TestZeroFindingsSkipsVerifier(t *testing.T) {
 	prepared, request := nativeFixture(t)
-	executor := &scriptedExecutor{outputs: []string{"No findings.\n"}}
+	executor := &scriptedExecutor{outputs: []string{"The target preserves cancellation and enforces the approved timeout.\n"}}
 
 	result, err := Run(context.Background(), Options{
 		Prepared: prepared, Request: request, Goal: "review the change",
