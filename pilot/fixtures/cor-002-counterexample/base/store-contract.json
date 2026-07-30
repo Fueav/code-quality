@@ -1,0 +1,5 @@
+{
+  "approved": true,
+  "insert_unique_conflict": "ErrDuplicate",
+  "schema_authority": "schema.sql"
+}

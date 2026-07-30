@@ -12,8 +12,12 @@ func TestAtomicOutboxAndIdempotentDelivery(t *testing.T) {
 		t.Fatal("order and outbox were not committed together")
 	}
 	provider := &Provider{deliveries: map[string]int{}}
-	DeliverOutbox(provider, event)
-	DeliverOutbox(provider, event)
+	ReconcileOutbox(database, provider)
+	if len(database.outbox) != 0 {
+		t.Fatal("reconciler did not remove the delivered event")
+	}
+	database.outbox[event.ID] = event // Simulate retry after delivery but before acknowledgement.
+	ReconcileOutbox(database, provider)
 	if provider.deliveries[event.ID] != 1 {
 		t.Fatal("redelivery produced a duplicate effect")
 	}

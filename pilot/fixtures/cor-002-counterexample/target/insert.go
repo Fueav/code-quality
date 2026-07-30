@@ -3,7 +3,6 @@ package records
 import "errors"
 
 var ErrDuplicate = errors.New("duplicate")
-var ErrUniqueConstraint = errors.New("unique constraint")
 
 type Store interface {
 	Exists(value string) bool
@@ -12,7 +11,7 @@ type Store interface {
 
 func InsertUnique(store Store, value string) error {
 	err := store.Insert(value)
-	if errors.Is(err, ErrUniqueConstraint) {
+	if errors.Is(err, ErrDuplicate) {
 		return nil
 	}
 	return err

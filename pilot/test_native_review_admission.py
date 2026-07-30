@@ -65,6 +65,27 @@ class NativeReviewAdmissionTest(unittest.TestCase):
         self.assertIn('identity.Role != "editor"', sec_001_target)
         self.assertIn("LookupForTenant(identity.TenantID, resourceID)", sec_001_target)
 
+        cor_002_target = (
+            SOURCE_ROOT / "pilot" / "fixtures" / "cor-002-counterexample" / "target" / "insert.go"
+        ).read_text(encoding="utf-8")
+        self.assertIn("errors.Is(err, ErrDuplicate)", cor_002_target)
+
+        for case_id, contract in (
+            ("cor-002-counterexample", "store-contract.json"),
+            ("cor-004-counterexample", "outbox-contract.json"),
+        ):
+            fixture = SOURCE_ROOT / "pilot" / "fixtures" / case_id
+            self.assertEqual(
+                (fixture / "base" / contract).read_bytes(),
+                (fixture / "target" / contract).read_bytes(),
+            )
+
+        cor_004_target = (
+            SOURCE_ROOT / "pilot" / "fixtures" / "cor-004-counterexample" / "target" / "place.go"
+        ).read_text(encoding="utf-8")
+        self.assertIn("func ReconcileOutbox", cor_004_target)
+        self.assertIn("delete(database.outbox, id)", cor_004_target)
+
 
 if __name__ == "__main__":
     unittest.main()

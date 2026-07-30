@@ -67,6 +67,14 @@ func (provider *Provider) Deliver(event Event) {
 	provider.deliveries[event.ID] = 1
 }
 
-func DeliverOutbox(provider *Provider, event Event) {
-	provider.Deliver(event)
+func ReconcileOutbox(database *Database, provider *Provider) {
+	database.mu.Lock()
+	events := cloneEvents(database.outbox)
+	database.mu.Unlock()
+	for id, event := range events {
+		provider.Deliver(event)
+		database.mu.Lock()
+		delete(database.outbox, id)
+		database.mu.Unlock()
+	}
 }
