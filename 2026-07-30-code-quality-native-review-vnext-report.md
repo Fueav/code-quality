@@ -17,7 +17,7 @@ The historical V1.2 rule activation, inactive-dimension explanation, zero-findin
 | Zero findings stop after one call | Verifier branch is entered only for normalized candidates | `TestZeroFindingsSkipsVerifier` and end-to-end CLI test |
 | Candidate-only falsification | Second call returns only indexed keep/reject decisions; original findings are filtered deterministically | `TestVerifierCanOnlyFilterExistingCandidates` |
 | Verifier failure is fail-open | Process, shape, or decision-contract failure keeps every valid native candidate | Verifier failure and missing-field tests |
-| Deterministic output boundary | Strict native-text parsing, absolute-path containment, changed-file mapping, and line/priority validation | Native adapter, result validator, ambiguous-text rejection, and out-of-checkout test |
+| Deterministic output boundary | Native zero-candidate assessment handling, strict candidate-section parsing, absolute-path containment, changed-file mapping, and line/priority validation | Native adapter, result validator, orphan-candidate rejection, and out-of-checkout test |
 | No old runtime prompt artifacts | Native sessions materialize only scope plus the candidate-verifier schema | End-to-end CLI test and active-path forbidden-field scan |
 | Report-only | Final semantic states are `PASS`, `MANUAL_REVIEW`, or `INCOMPLETE`; CI action remains `publish_report` | `ValidateNativeResult` tests |
 
@@ -28,8 +28,8 @@ The historical V1.2 rule activation, inactive-dimension explanation, zero-findin
 - Static checks: `go vet ./...` and `git diff --check` passed.
 - Auxiliary suites: all live-watch/live-adjudication and historical-mining Python tests passed.
 - Prompt discipline: the shipped Skill became two lines shorter and contains no rereview or rule-activation loop.
-- CLI feasibility: a bounded four-call live smoke used local `codex-cli 0.145.0`, `gpt-5.6-sol`, and `high` reasoning. It proved that native review returns review-agent text rather than schema JSON, so the adapter now consumes that real contract. See `reports/2026-07-30-native-review-live-smoke/report.md`.
+- CLI feasibility: bounded live smokes used local `codex-cli 0.145.0`, `gpt-5.6-sol`, and `high` reasoning. They proved that findings use a `Review comment:` section while zero-candidate results are nonempty assessment prose; the final contract-backed negative v5 reached `PASS` with one call. See `reports/2026-07-30-native-review-negative-v5-smoke/report.md`.
 
 ## Intentionally not performed
 
-No large frozen-sample A/B run, release tag, push, or deployment was performed. The minimal live smoke exhausted its predeclared four-call ceiling and found that the proposed negative fixture was not actually negative; no extra run was added after that finding.
+No large frozen-sample A/B run, release tag, push, or deployment was performed. Each follow-up smoke had its own frozen two-call ceiling; the final v5 used one call and no verifier.

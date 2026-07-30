@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "freeze_commit": "c762b570b9dbedf16e996a964bcd7c76be81f89c",
+  "maximum_total_model_calls": 2,
+  "actual_total_model_calls": 1,
+  "call_ceiling_respected": true,
+  "overall_acceptance_passed": true,
+  "case": {
+    "id": "REL-002-counterexample",
+    "final_semantic_result": "PASS",
+    "final_finding_count": 0,
+    "verifier_status": "not_needed",
+    "expected_pass_matched": true,
+    "evidence_result": "evidence/REL-002-counterexample/sessions/review-1781695336/output/review-result.json",
+    "native_review_sha256": "fd78d5d8721fd0bd0fe6530f38cb9081787212595a35e3a5e8328dd8e60e4920",
+    "review_result_sha256": "2a9587729d0347668af0f2ed78dae92fa8ad5e349e5ab5eaf9a2b3df3a98fc83"
+  },
+  "contract_assessment": {
+    "status": "qualified",
+    "reason": "The approved timeout contract was visible in both revisions, the concrete change goal was supplied, native review returned a successful nonempty zero-candidate assessment, and the adapter produced PASS without a verifier."
+  },
+  "next_step": "Use the repaired fixtures and native-output contract to audit the frozen evaluation inventory before any larger A/B run."
+}
