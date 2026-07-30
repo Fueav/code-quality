@@ -1,6 +1,7 @@
 {
   "approved": true,
   "direct_ingress": false,
-  "gateway_claim": "signed tenant identity",
+  "authorization": "signed editor role plus tenant ownership",
+  "gateway_claim": "signed tenant identity and editor role",
   "network": "private service reachable only from gateway"
 }

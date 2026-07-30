@@ -2,14 +2,16 @@ package records
 
 import "errors"
 
+var ErrDuplicate = errors.New("duplicate")
 var ErrUniqueConstraint = errors.New("unique constraint")
 
-type Transaction interface {
+type Store interface {
+	Exists(value string) bool
 	Insert(value string) error
 }
 
-func Insert(transaction Transaction, value string) error {
-	err := transaction.Insert(value)
+func InsertUnique(store Store, value string) error {
+	err := store.Insert(value)
 	if errors.Is(err, ErrUniqueConstraint) {
 		return nil
 	}

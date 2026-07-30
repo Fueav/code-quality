@@ -4,7 +4,7 @@ const maxConfigurationEntries = 20
 
 type Entry struct{ Valid bool }
 
-func ValidateChanged(entries []Entry, _ []int) bool {
+func ValidateChanged(entries []Entry, changed []int) bool {
 	if len(entries) > maxConfigurationEntries {
 		return false
 	}

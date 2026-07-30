@@ -10,6 +10,8 @@ type database struct {
 	argument  any
 }
 
+func (database *database) LookupValidated(string) error { return nil }
+
 func (database *database) Query(statement string, arguments ...any) error {
 	database.statement = statement
 	database.argument = arguments[0]
@@ -19,7 +21,7 @@ func (database *database) Query(statement string, arguments ...any) error {
 func TestInputRemainsBoundValue(t *testing.T) {
 	db := &database{}
 	attack := "x' OR 1=1 --"
-	if err := Handle(db, Request{ID: attack}); err != nil {
+	if err := Handle(db, attack); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(db.statement, attack) || db.argument != attack {

@@ -1,15 +1,15 @@
 package matrix
 
-var fixedRoles = [...]string{"admin", "member", "auditor", "service"}
-var fixedStates = [...]string{"active", "disabled", "pending"}
+var fixedRoles = [...]string{"admin", "member"}
+var fixedStates = [...]string{"active", "disabled"}
 
-func PermissionMatrix() map[string]map[string]bool {
-	result := make(map[string]map[string]bool, len(fixedRoles))
-	for _, role := range fixedRoles {
-		result[role] = make(map[string]bool, len(fixedStates))
-		for _, state := range fixedStates {
-			result[role][state] = role == "admin" || state == "active"
+func IsPermitted(role, state string) bool {
+	for _, candidateRole := range fixedRoles {
+		for _, candidateState := range fixedStates {
+			if role == candidateRole && state == candidateState {
+				return candidateState == "active"
+			}
 		}
 	}
-	return result
+	return false
 }

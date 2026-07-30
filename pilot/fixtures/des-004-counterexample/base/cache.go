@@ -9,6 +9,10 @@ type Authority interface {
 	Current(user string) Snapshot
 }
 
-func Authorize(authority Authority, user string) bool {
+type Cache interface {
+	Get(user string) (Snapshot, bool)
+}
+
+func Authorize(authority Authority, cache Cache, user string) bool {
 	return authority.Current(user).Allowed
 }

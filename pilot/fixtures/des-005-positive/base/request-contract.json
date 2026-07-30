@@ -1,0 +1,9 @@
+{
+  "approved": true,
+  "environment": "production",
+  "entry": "HandleBackfill",
+  "execution": "synchronous public request",
+  "minimum_write_duration_milliseconds": 1,
+  "production_tenant_records": 500000,
+  "request_deadline_seconds": 2
+}
