@@ -51,7 +51,7 @@ func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
 			t.Fatalf("custom target is combined with %s: %q", forbidden, args)
 		}
 	}
-	for _, required := range []string{request.BaseCommit, request.TargetCommit, "protect settlement correctness", "hints only", "outside these hints"} {
+	for _, required := range []string{request.BaseCommit, request.TargetCommit, "protect settlement correctness", "hints only", "outside these hints", "first nonblank line exactly `No findings.`"} {
 		if !strings.Contains(invocation.Stdin, required) {
 			t.Fatalf("prompt is missing %q:\n%s", required, invocation.Stdin)
 		}

@@ -18,7 +18,7 @@ The model-facing flow is deliberately small:
 ## Prompt boundary
 
 - Native Codex review owns semantic discovery. The wrapper does not ask the model to activate rules, prove checklist coverage, enumerate inactive dimensions, or perform a zero-finding rereview.
-- Risk directions are deterministic hints, not review boundaries. At least one and at most three are supplied; the prompt explicitly permits findings outside them.
+- Risk directions are deterministic hints, not review boundaries. At least one and at most three are supplied; the prompt explicitly permits findings outside them and requires the first nonblank line to be exactly `No findings.` when none exist.
 - The 20-item V1.2 rubric is not injected into either model call. It remains the versioned offline evaluation rubric and may inform the deterministic direction catalog.
 - A user goal supplies change intent or an extra review concern. It cannot change read-only execution or the deterministic adaptation contract.
 

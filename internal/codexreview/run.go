@@ -247,7 +247,7 @@ func buildReviewPrompt(options Options, directions []quality.ReviewDirection) st
 	for _, direction := range directions {
 		fmt.Fprintf(&prompt, "- %s\n", direction.Prompt)
 	}
-	prompt.WriteString("Report actionable defects outside these hints too. Only report problems introduced or worsened by this change. Do not modify files.\n")
+	prompt.WriteString("Report actionable defects outside these hints too. Only report problems introduced or worsened by this change. If there are no actionable defects, make the first nonblank line exactly `No findings.` Do not modify files.\n")
 	return prompt.String()
 }
 
