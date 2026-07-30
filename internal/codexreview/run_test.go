@@ -3,6 +3,7 @@ package codexreview
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,7 +46,7 @@ func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
 	if !strings.Contains(args, "exec --sandbox read-only --ignore-user-config --ignore-rules --ephemeral review") {
 		t.Fatalf("native review args = %q", args)
 	}
-	for _, forbidden := range []string{"--base", "--commit", "--uncommitted"} {
+	for _, forbidden := range []string{"--base", "--commit", "--uncommitted", "--output-schema"} {
 		if strings.Contains(args, forbidden) {
 			t.Fatalf("custom target is combined with %s: %q", forbidden, args)
 		}
@@ -57,9 +58,92 @@ func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
 	}
 }
 
+func TestReadNativeOutputParsesNativeReviewText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "native-review.txt")
+	file := "/private/tmp/review/input/repository/client.go"
+	contents := `The refactor discards the request context and prevents cancellation.
+
+Review comment:
+
+- [P0] Propagate the caller context to the downstream call — ` + file + `:24-24
+  When the downstream response never arrives, context.Background is never canceled.
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readNativeOutput(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+	finding := result.Findings[0]
+	if finding.Title != "Propagate the caller context to the downstream call" || finding.Priority != 0 || finding.Body != "When the downstream response never arrives, context.Background is never canceled." {
+		t.Fatalf("finding = %#v", finding)
+	}
+	if finding.CodeLocation.AbsoluteFilePath != file || finding.CodeLocation.LineRange.Start != 24 || finding.CodeLocation.LineRange.End != 24 {
+		t.Fatalf("location = %#v", finding.CodeLocation)
+	}
+}
+
+func TestReadNativeOutputAcceptsExplicitNoFindingsText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "native-review.txt")
+	if err := os.WriteFile(path, []byte("No findings.\n\nThe change preserves the existing deadline behavior.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readNativeOutput(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestReadNativeOutputParsesMultipleFindingsAndTrailingAssessment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "native-review.txt")
+	contents := `Review comment:
+
+- [P1] Preserve cancellation — /private/tmp/review/client.go:17-18
+  The new context drops caller cancellation.
+- [P2] Close the response body — /private/tmp/review/client.go:31
+  The changed success path leaks the response body.
+
+Overall assessment: the change needs both fixes before release.
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readNativeOutput(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 2 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+	if result.Findings[1].CodeLocation.LineRange.Start != 31 || result.Findings[1].CodeLocation.LineRange.End != 31 {
+		t.Fatalf("second location = %#v", result.Findings[1].CodeLocation)
+	}
+}
+
+func TestReadNativeOutputRejectsAmbiguousText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "native-review.txt")
+	if err := os.WriteFile(path, []byte("The change looks reasonable overall.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := readNativeOutput(path); err == nil {
+		t.Fatal("ambiguous native output was accepted")
+	}
+}
+
 func TestZeroFindingsSkipsVerifier(t *testing.T) {
 	prepared, request := nativeFixture(t)
-	executor := &scriptedExecutor{outputs: []string{`{"findings":[]}`}}
+	executor := &scriptedExecutor{outputs: []string{"No findings.\n"}}
 
 	result, err := Run(context.Background(), Options{
 		Prepared: prepared, Request: request, Goal: "review the change",
@@ -80,7 +164,7 @@ func TestVerifierCanOnlyFilterExistingCandidates(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	path := filepath.Join(prepared.RepositoryDir, "app.go")
 	executor := &scriptedExecutor{outputs: []string{
-		`{"findings":[{"title":"timeout is ignored","body":"The new call can wait forever.","priority":1,"confidence_score":0.91,"code_location":{"absolute_file_path":"` + path + `","line_range":{"start":2,"end":2}}}]}`,
+		nativeFindingOutput(path, "timeout is ignored", "The new call can wait forever.", 1),
 		`{"decisions":[{"index":0,"keep":false,"reason":"The target already enforces the timeout."}]}`,
 	}}
 
@@ -97,7 +181,7 @@ func TestVerifierCanOnlyFilterExistingCandidates(t *testing.T) {
 	if len(executor.invocations) != 2 {
 		t.Fatalf("model calls = %d", len(executor.invocations))
 	}
-	for _, required := range []string{"only the numbered candidates", "Do not add", "Do not rewrite"} {
+	for _, required := range []string{"only the indexed candidates", "zero-based", "copy its exact index", `"index":0`, "Do not add", "Do not rewrite"} {
 		if !strings.Contains(executor.invocations[1].Stdin, required) {
 			t.Fatalf("verifier prompt is missing %q:\n%s", required, executor.invocations[1].Stdin)
 		}
@@ -108,7 +192,7 @@ func TestVerifierFailureKeepsNativeCandidates(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	path := filepath.Join(prepared.RepositoryDir, "app.go")
 	executor := &scriptedExecutor{
-		outputs: []string{`{"findings":[{"title":"wrong result","body":"The new branch returns the opposite value.","priority":1,"confidence_score":0.95,"code_location":{"absolute_file_path":"` + path + `","line_range":{"start":2,"end":2}}}]}`},
+		outputs: []string{nativeFindingOutput(path, "wrong result", "The new branch returns the opposite value.", 1)},
 		errors:  []error{nil, errors.New("verifier unavailable")},
 	}
 
@@ -128,7 +212,7 @@ func TestMalformedVerifierDecisionFailsOpen(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	path := filepath.Join(prepared.RepositoryDir, "app.go")
 	executor := &scriptedExecutor{outputs: []string{
-		`{"findings":[{"title":"wrong result","body":"The new branch returns the opposite value.","priority":1,"confidence_score":0.95,"code_location":{"absolute_file_path":"` + path + `","line_range":{"start":2,"end":2}}}]}`,
+		nativeFindingOutput(path, "wrong result", "The new branch returns the opposite value.", 1),
 		`{"decisions":[{"index":0,"reason":"Missing the required keep field."}]}`,
 	}}
 
@@ -147,7 +231,7 @@ func TestMalformedVerifierDecisionFailsOpen(t *testing.T) {
 func TestCandidateOutsideCheckoutCannotProducePass(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	executor := &scriptedExecutor{outputs: []string{
-		`{"findings":[{"title":"wrong result","body":"The new branch returns the opposite value.","priority":1,"confidence_score":0.95,"code_location":{"absolute_file_path":"/tmp/outside.go","line_range":{"start":2,"end":2}}}]}`,
+		nativeFindingOutput("/tmp/outside.go", "wrong result", "The new branch returns the opposite value.", 1),
 	}}
 
 	result, err := Run(context.Background(), Options{
@@ -200,10 +284,9 @@ func nativeFixture(t *testing.T) (reviewsession.Prepared, quality.ReviewRequest)
 	}
 	prepared := reviewsession.Prepared{
 		SessionDir: directory, RepositoryDir: repository, DiffPath: diffPath,
-		NativeReviewSchemaPath: filepath.Join(directory, "native.schema.json"),
-		VerifierSchemaPath:     filepath.Join(directory, "verifier.schema.json"),
-		NativeReviewPath:       filepath.Join(output, "native-review.json"),
-		VerifierOutputPath:     filepath.Join(output, "candidate-verdicts.json"),
+		VerifierSchemaPath: filepath.Join(directory, "verifier.schema.json"),
+		NativeReviewPath:   filepath.Join(output, "native-review.txt"),
+		VerifierOutputPath: filepath.Join(output, "candidate-verdicts.json"),
 	}
 	request := quality.ReviewRequest{
 		Repository: "example/repo", TargetBranch: "main",
@@ -211,6 +294,10 @@ func nativeFixture(t *testing.T) (reviewsession.Prepared, quality.ReviewRequest)
 		DiffSelectionReason: "test", ChangedFiles: []string{"app.go"}, AffectedEntries: []string{},
 	}
 	return prepared, request
+}
+
+func nativeFindingOutput(path, title, body string, priority int) string {
+	return fmt.Sprintf("Review comment:\n\n- [P%d] %s — %s:2-2\n  %s\n", priority, title, path, body)
 }
 
 func directionsKey(directions []quality.ReviewDirection) string {

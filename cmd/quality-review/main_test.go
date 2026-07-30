@@ -56,7 +56,7 @@ for argument in "$@"; do
 done
 test -n "$output"
 cat > "$FAKE_CODEX_PROMPT_PATH"
-printf '%s\n' '{"findings":[]}' > "$output"
+printf '%s\n' 'No findings.' > "$output"
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -100,8 +100,14 @@ printf '%s\n' '{"findings":[]}' > "$output"
 			t.Fatalf("native session contains legacy artifact %s: %v", legacy, err)
 		}
 	}
-	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "native-review.schema.json")); err != nil {
-		t.Fatalf("native schema is unavailable: %v", err)
+	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "native-review.schema.json")); !os.IsNotExist(err) {
+		t.Fatalf("native session still contains an unused main-output schema: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "candidate-verifier.schema.json")); err != nil {
+		t.Fatalf("verifier schema is unavailable: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "output", "native-review.txt")); err != nil {
+		t.Fatalf("native review text is unavailable: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "repository")); !os.IsNotExist(err) {
 		t.Fatalf("isolated checkout was not removed: %v", err)

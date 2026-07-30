@@ -40,12 +40,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["title", "body", "priority", "confidence_score", "code_location"],
+        "required": ["title", "body", "priority", "code_location"],
         "properties": {
           "title": {"type": "string", "minLength": 1},
           "body": {"type": "string", "minLength": 1},
           "priority": {"type": "integer", "minimum": 0, "maximum": 3},
-          "confidence_score": {"type": "number", "minimum": 0, "maximum": 1},
           "code_location": {
             "type": "object",
             "additionalProperties": false,

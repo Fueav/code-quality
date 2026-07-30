@@ -73,25 +73,29 @@ type nativeEnvelope struct {
 }
 
 type nativeFinding struct {
-	Title           string             `json:"title"`
-	Body            string             `json:"body"`
-	Priority        int                `json:"priority"`
-	ConfidenceScore float64            `json:"confidence_score"`
-	CodeLocation    nativeCodeLocation `json:"code_location"`
+	Title        string
+	Body         string
+	Priority     int
+	CodeLocation nativeCodeLocation
 }
 
 type nativeCodeLocation struct {
-	AbsoluteFilePath string          `json:"absolute_file_path"`
-	LineRange        nativeLineRange `json:"line_range"`
+	AbsoluteFilePath string
+	LineRange        nativeLineRange
 }
 
 type nativeLineRange struct {
-	Start int `json:"start"`
-	End   int `json:"end"`
+	Start int
+	End   int
 }
 
 type verifierEnvelope struct {
 	Decisions []verifierDecision `json:"decisions"`
+}
+
+type verifierCandidate struct {
+	Index   int                   `json:"index"`
+	Finding quality.NativeFinding `json:"finding"`
 }
 
 type verifierDecision struct {
@@ -166,13 +170,12 @@ func normalizeOptions(options *Options) error {
 		return fmt.Errorf("review request is invalid: %s", strings.Join(errors, "; "))
 	}
 	for name, value := range map[string]string{
-		"session":              options.Prepared.SessionDir,
-		"repository":           options.Prepared.RepositoryDir,
-		"diff":                 options.Prepared.DiffPath,
-		"native review schema": options.Prepared.NativeReviewSchemaPath,
-		"verifier schema":      options.Prepared.VerifierSchemaPath,
-		"native review output": options.Prepared.NativeReviewPath,
-		"verifier output":      options.Prepared.VerifierOutputPath,
+		"session":           options.Prepared.SessionDir,
+		"repository":        options.Prepared.RepositoryDir,
+		"diff":              options.Prepared.DiffPath,
+		"verifier schema":   options.Prepared.VerifierSchemaPath,
+		"native review log": options.Prepared.NativeReviewPath,
+		"verifier output":   options.Prepared.VerifierOutputPath,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s path is required", name)
@@ -225,7 +228,6 @@ func buildReviewInvocation(options Options, directions []quality.ReviewDirection
 	args := []string{"exec", "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "review"}
 	args = appendModelOptions(args, options)
 	args = append(args,
-		"--output-schema", options.Prepared.NativeReviewSchemaPath,
 		"--output-last-message", options.Prepared.NativeReviewPath,
 		"-",
 	)
@@ -251,7 +253,11 @@ func buildReviewPrompt(options Options, directions []quality.ReviewDirection) st
 
 func buildVerifierInvocation(options Options, findings []quality.NativeFinding) (Invocation, error) {
 	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
-	candidates, err := json.Marshal(findings)
+	indexed := make([]verifierCandidate, len(findings))
+	for index, finding := range findings {
+		indexed[index] = verifierCandidate{Index: index, Finding: finding}
+	}
+	candidates, err := json.Marshal(indexed)
 	if err != nil {
 		return Invocation{}, err
 	}
@@ -263,7 +269,7 @@ func buildVerifierInvocation(options Options, findings []quality.NativeFinding) 
 		"-",
 	)
 	prompt := fmt.Sprintf(
-		"Falsify only the numbered candidates below against committed change %s..%s. Return exactly one decision for every index. Keep a candidate unless the code proves it is not introduced or worsened, is contradicted, or is not actionable. Do not add candidates. Do not rewrite candidates. Do not merge or reprioritize them.\nCandidates:\n%s\n",
+		"Falsify only the indexed candidates below against committed change %s..%s. Each candidate has a zero-based integer index; copy its exact index into the corresponding decision and return exactly one decision per candidate. Keep a candidate unless the code proves it is not introduced or worsened, is contradicted, or is not actionable. Do not add candidates. Do not rewrite candidates. Do not merge or reprioritize them.\nCandidates:\n%s\n",
 		options.Request.BaseCommit, options.Request.TargetCommit, candidates,
 	)
 	return Invocation{
@@ -285,38 +291,158 @@ func readNativeOutput(path string) (nativeEnvelope, error) {
 	if err != nil {
 		return nativeEnvelope{}, err
 	}
-	var shape map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &shape); err != nil {
+	return parseNativeReviewText(string(raw))
+}
+
+func parseNativeReviewText(raw string) (nativeEnvelope, error) {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	lines := strings.Split(raw, "\n")
+	first := firstNonBlankLine(lines)
+	if first < 0 {
+		return nativeEnvelope{}, errors.New("native review output is empty")
+	}
+	if strings.TrimSpace(lines[first]) == "No findings." {
+		for _, line := range lines[first+1:] {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "Review comment:" || strings.HasPrefix(trimmed, "- [P") {
+				return nativeEnvelope{}, errors.New("native review contradicts its no-findings result")
+			}
+		}
+		return nativeEnvelope{Findings: []nativeFinding{}}, nil
+	}
+
+	heading := -1
+	for index := first; index < len(lines); index++ {
+		if strings.TrimSpace(lines[index]) == "Review comment:" {
+			heading = index
+			break
+		}
+	}
+	if heading < 0 {
+		return nativeEnvelope{}, errors.New("native review contains neither an explicit no-findings result nor a review comment section")
+	}
+
+	findings := []nativeFinding{}
+	body := []string{}
+	var current *nativeFinding
+	trailingAssessment := false
+	flush := func() error {
+		if current == nil {
+			return nil
+		}
+		current.Body = strings.TrimSpace(strings.Join(body, "\n"))
+		if current.Body == "" {
+			return fmt.Errorf("native finding %d has no body", len(findings))
+		}
+		findings = append(findings, *current)
+		current = nil
+		body = nil
+		return nil
+	}
+
+	for _, line := range lines[heading+1:] {
+		finding, recognized, err := parseNativeFindingHeader(line)
+		if err != nil {
+			return nativeEnvelope{}, err
+		}
+		if recognized {
+			if trailingAssessment {
+				return nativeEnvelope{}, errors.New("native finding appears after the trailing assessment")
+			}
+			if err := flush(); err != nil {
+				return nativeEnvelope{}, err
+			}
+			current = &finding
+			continue
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if current == nil {
+			return nativeEnvelope{}, fmt.Errorf("unexpected text in native review comment section: %q", strings.TrimSpace(line))
+		}
+		if line[0] == ' ' || line[0] == '\t' {
+			if trailingAssessment {
+				continue
+			}
+			body = append(body, strings.TrimSpace(line))
+			continue
+		}
+		if len(body) == 0 {
+			return nativeEnvelope{}, fmt.Errorf("native finding %d has no body", len(findings))
+		}
+		trailingAssessment = true
+	}
+	if err := flush(); err != nil {
 		return nativeEnvelope{}, err
 	}
-	value, exists := shape["findings"]
-	if !exists || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-		return nativeEnvelope{}, errors.New("findings array is required")
+	if len(findings) == 0 {
+		return nativeEnvelope{}, errors.New("native review comment section contains no findings")
 	}
-	var items []map[string]json.RawMessage
-	if err := json.Unmarshal(value, &items); err != nil {
-		return nativeEnvelope{}, errors.New("findings must be an array of objects")
-	}
-	for index, item := range items {
-		if err := requireRawFields(item, fmt.Sprintf("findings[%d]", index), "title", "body", "priority", "confidence_score", "code_location"); err != nil {
-			return nativeEnvelope{}, err
-		}
-		var location map[string]json.RawMessage
-		if err := json.Unmarshal(item["code_location"], &location); err != nil {
-			return nativeEnvelope{}, fmt.Errorf("findings[%d].code_location must be an object", index)
-		}
-		if err := requireRawFields(location, fmt.Sprintf("findings[%d].code_location", index), "absolute_file_path", "line_range"); err != nil {
-			return nativeEnvelope{}, err
-		}
-		var lineRange map[string]json.RawMessage
-		if err := json.Unmarshal(location["line_range"], &lineRange); err != nil {
-			return nativeEnvelope{}, fmt.Errorf("findings[%d].code_location.line_range must be an object", index)
-		}
-		if err := requireRawFields(lineRange, fmt.Sprintf("findings[%d].code_location.line_range", index), "start", "end"); err != nil {
-			return nativeEnvelope{}, err
+	return nativeEnvelope{Findings: findings}, nil
+}
+
+func firstNonBlankLine(lines []string) int {
+	for index, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			return index
 		}
 	}
-	return quality.DecodeStrict[nativeEnvelope](bytes.NewReader(raw))
+	return -1
+}
+
+func parseNativeFindingHeader(line string) (nativeFinding, bool, error) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "- [P") {
+		return nativeFinding{}, false, nil
+	}
+	if len(trimmed) < 7 || trimmed[5] != ']' || trimmed[6] != ' ' || trimmed[4] < '0' || trimmed[4] > '3' {
+		return nativeFinding{}, true, fmt.Errorf("malformed native finding header: %q", trimmed)
+	}
+	rest := strings.TrimSpace(trimmed[7:])
+	delimiter := strings.LastIndex(rest, " — ")
+	if delimiter < 1 {
+		return nativeFinding{}, true, fmt.Errorf("native finding header has no title/location delimiter: %q", trimmed)
+	}
+	title := strings.TrimSpace(rest[:delimiter])
+	location := strings.TrimSpace(rest[delimiter+len(" — "):])
+	path, start, end, err := parseNativeLocation(location)
+	if err != nil {
+		return nativeFinding{}, true, fmt.Errorf("native finding location %q is invalid: %w", location, err)
+	}
+	if title == "" {
+		return nativeFinding{}, true, errors.New("native finding title is empty")
+	}
+	return nativeFinding{
+		Title:    title,
+		Priority: int(trimmed[4] - '0'),
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: path,
+			LineRange:        nativeLineRange{Start: start, End: end},
+		},
+	}, true, nil
+}
+
+func parseNativeLocation(raw string) (string, int, int, error) {
+	separator := strings.LastIndex(raw, ":")
+	if separator < 1 || separator == len(raw)-1 {
+		return "", 0, 0, errors.New("expected absolute-path:start-end")
+	}
+	path := strings.TrimSpace(raw[:separator])
+	lineRange := strings.TrimSpace(raw[separator+1:])
+	startText, endText, hasEnd := strings.Cut(lineRange, "-")
+	start, err := strconv.Atoi(startText)
+	if err != nil || start < 1 {
+		return "", 0, 0, errors.New("start line must be positive")
+	}
+	end := start
+	if hasEnd {
+		end, err = strconv.Atoi(endText)
+		if err != nil || end < start {
+			return "", 0, 0, errors.New("end line must be at least the start line")
+		}
+	}
+	return path, start, end, nil
 }
 
 func readVerifierOutput(path string, count int) (verifierEnvelope, error) {
@@ -405,7 +531,7 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 		}
 		findings = append(findings, quality.NativeFinding{
 			Title: strings.TrimSpace(candidate.Title), Body: strings.TrimSpace(candidate.Body),
-			Priority: candidate.Priority, ConfidenceScore: candidate.ConfidenceScore,
+			Priority: candidate.Priority,
 			CodeLocation: quality.NativeCodeLocation{
 				Path: relative, StartLine: candidate.CodeLocation.LineRange.Start, EndLine: candidate.CodeLocation.LineRange.End,
 			},
@@ -420,9 +546,6 @@ func validateNativeCandidate(candidate nativeFinding) string {
 	}
 	if candidate.Priority < 0 || candidate.Priority > 3 {
 		return "priority is outside 0-3"
-	}
-	if candidate.ConfidenceScore < 0 || candidate.ConfidenceScore > 1 {
-		return "confidence_score is outside 0-1"
 	}
 	if !filepath.IsAbs(candidate.CodeLocation.AbsoluteFilePath) {
 		return "code location must be absolute"

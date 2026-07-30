@@ -25,57 +25,55 @@ const (
 )
 
 type Layout struct {
-	SessionDir             string
-	InputDir               string
-	RepositoryDir          string
-	EvidenceDir            string
-	OutputDir              string
-	EvidenceContextPath    string
-	RequestPath            string
-	DiffPath               string
-	RubricPath             string
-	WorkflowPath           string
-	ModelSchemaPath        string
-	NativeReviewSchemaPath string
-	VerifierSchemaPath     string
-	ManifestPath           string
-	MetadataPath           string
-	MainReviewPath         string
-	NativeReviewPath       string
-	VerifierOutputPath     string
-	NativeStdoutPath       string
-	NativeStderrPath       string
-	VerifierStdoutPath     string
-	VerifierStderrPath     string
-	RereviewPath           string
-	ReviewInvalidPath      string
-	ResultPath             string
-	MarkdownPath           string
+	SessionDir          string
+	InputDir            string
+	RepositoryDir       string
+	EvidenceDir         string
+	OutputDir           string
+	EvidenceContextPath string
+	RequestPath         string
+	DiffPath            string
+	RubricPath          string
+	WorkflowPath        string
+	ModelSchemaPath     string
+	VerifierSchemaPath  string
+	ManifestPath        string
+	MetadataPath        string
+	MainReviewPath      string
+	NativeReviewPath    string
+	VerifierOutputPath  string
+	NativeStdoutPath    string
+	NativeStderrPath    string
+	VerifierStdoutPath  string
+	VerifierStderrPath  string
+	RereviewPath        string
+	ReviewInvalidPath   string
+	ResultPath          string
+	MarkdownPath        string
 }
 
 type Prepared struct {
-	SchemaVersion          int          `json:"schema_version"`
-	Status                 string       `json:"status"`
-	SessionDir             string       `json:"session_dir"`
-	RepositoryDir          string       `json:"repository_dir"`
-	EvidenceContextPath    string       `json:"evidence_context_path"`
-	RequestPath            string       `json:"request_path"`
-	DiffPath               string       `json:"diff_path"`
-	RubricPath             string       `json:"rubric_path"`
-	WorkflowPath           string       `json:"workflow_path"`
-	ModelSchemaPath        string       `json:"model_schema_path"`
-	NativeReviewSchemaPath string       `json:"native_review_schema_path,omitempty"`
-	VerifierSchemaPath     string       `json:"verifier_schema_path,omitempty"`
-	ManifestPath           string       `json:"manifest_path"`
-	MetadataPath           string       `json:"metadata_path"`
-	MainReviewPath         string       `json:"main_review_path"`
-	NativeReviewPath       string       `json:"native_review_path,omitempty"`
-	VerifierOutputPath     string       `json:"verifier_output_path,omitempty"`
-	ResultPath             string       `json:"result_path,omitempty"`
-	MarkdownPath           string       `json:"markdown_path,omitempty"`
-	DirtyWorktree          bool         `json:"dirty_worktree"`
-	CheckoutMode           CheckoutMode `json:"checkout_mode"`
-	EvidencePresent        bool         `json:"evidence_present"`
+	SchemaVersion       int          `json:"schema_version"`
+	Status              string       `json:"status"`
+	SessionDir          string       `json:"session_dir"`
+	RepositoryDir       string       `json:"repository_dir"`
+	EvidenceContextPath string       `json:"evidence_context_path"`
+	RequestPath         string       `json:"request_path"`
+	DiffPath            string       `json:"diff_path"`
+	RubricPath          string       `json:"rubric_path"`
+	WorkflowPath        string       `json:"workflow_path"`
+	ModelSchemaPath     string       `json:"model_schema_path"`
+	VerifierSchemaPath  string       `json:"verifier_schema_path,omitempty"`
+	ManifestPath        string       `json:"manifest_path"`
+	MetadataPath        string       `json:"metadata_path"`
+	MainReviewPath      string       `json:"main_review_path"`
+	NativeReviewPath    string       `json:"native_review_path,omitempty"`
+	VerifierOutputPath  string       `json:"verifier_output_path,omitempty"`
+	ResultPath          string       `json:"result_path,omitempty"`
+	MarkdownPath        string       `json:"markdown_path,omitempty"`
+	DirtyWorktree       bool         `json:"dirty_worktree"`
+	CheckoutMode        CheckoutMode `json:"checkout_mode"`
+	EvidencePresent     bool         `json:"evidence_present"`
 }
 
 type Options struct {
@@ -168,9 +166,6 @@ func prepare(ctx context.Context, options Options, native bool) (Prepared, error
 		return Prepared{}, err
 	}
 	if native {
-		if err := writeSchema(layout.NativeReviewSchemaPath, "native-review.schema.json"); err != nil {
-			return Prepared{}, err
-		}
 		if err := writeSchema(layout.VerifierSchemaPath, "candidate-verifier.schema.json"); err != nil {
 			return Prepared{}, err
 		}
@@ -213,7 +208,6 @@ func prepare(ctx context.Context, options Options, native bool) (Prepared, error
 		result.WorkflowPath = ""
 		result.ModelSchemaPath = ""
 		result.MainReviewPath = ""
-		result.NativeReviewSchemaPath = layout.NativeReviewSchemaPath
 		result.VerifierSchemaPath = layout.VerifierSchemaPath
 		result.NativeReviewPath = layout.NativeReviewPath
 		result.VerifierOutputPath = layout.VerifierOutputPath
@@ -229,32 +223,31 @@ func NewLayout(directory string) Layout {
 	input := filepath.Join(directory, "input")
 	output := filepath.Join(directory, "output")
 	return Layout{
-		SessionDir:             directory,
-		InputDir:               input,
-		RepositoryDir:          filepath.Join(input, "repository"),
-		EvidenceDir:            filepath.Join(input, "evidence"),
-		OutputDir:              output,
-		EvidenceContextPath:    filepath.Join(input, "evidence-context.json"),
-		RequestPath:            filepath.Join(input, "review-request.json"),
-		DiffPath:               filepath.Join(input, "trusted.diff"),
-		RubricPath:             filepath.Join(input, "rubric.md"),
-		WorkflowPath:           filepath.Join(input, "workflow.md"),
-		ModelSchemaPath:        filepath.Join(input, "model-review.schema.json"),
-		NativeReviewSchemaPath: filepath.Join(input, "native-review.schema.json"),
-		VerifierSchemaPath:     filepath.Join(input, "candidate-verifier.schema.json"),
-		ManifestPath:           filepath.Join(directory, "input-manifest.json"),
-		MetadataPath:           filepath.Join(input, "session-metadata.json"),
-		MainReviewPath:         filepath.Join(output, "main-review.json"),
-		NativeReviewPath:       filepath.Join(output, "native-review.json"),
-		VerifierOutputPath:     filepath.Join(output, "candidate-verdicts.json"),
-		NativeStdoutPath:       filepath.Join(output, "native-review.stdout.log"),
-		NativeStderrPath:       filepath.Join(output, "native-review.stderr.log"),
-		VerifierStdoutPath:     filepath.Join(output, "candidate-verifier.stdout.log"),
-		VerifierStderrPath:     filepath.Join(output, "candidate-verifier.stderr.log"),
-		RereviewPath:           filepath.Join(output, "rereview.json"),
-		ReviewInvalidPath:      filepath.Join(output, ".review-invalid-attempted"),
-		ResultPath:             filepath.Join(output, "review-result.json"),
-		MarkdownPath:           filepath.Join(output, "review-result.md"),
+		SessionDir:          directory,
+		InputDir:            input,
+		RepositoryDir:       filepath.Join(input, "repository"),
+		EvidenceDir:         filepath.Join(input, "evidence"),
+		OutputDir:           output,
+		EvidenceContextPath: filepath.Join(input, "evidence-context.json"),
+		RequestPath:         filepath.Join(input, "review-request.json"),
+		DiffPath:            filepath.Join(input, "trusted.diff"),
+		RubricPath:          filepath.Join(input, "rubric.md"),
+		WorkflowPath:        filepath.Join(input, "workflow.md"),
+		ModelSchemaPath:     filepath.Join(input, "model-review.schema.json"),
+		VerifierSchemaPath:  filepath.Join(input, "candidate-verifier.schema.json"),
+		ManifestPath:        filepath.Join(directory, "input-manifest.json"),
+		MetadataPath:        filepath.Join(input, "session-metadata.json"),
+		MainReviewPath:      filepath.Join(output, "main-review.json"),
+		NativeReviewPath:    filepath.Join(output, "native-review.txt"),
+		VerifierOutputPath:  filepath.Join(output, "candidate-verdicts.json"),
+		NativeStdoutPath:    filepath.Join(output, "native-review.stdout.log"),
+		NativeStderrPath:    filepath.Join(output, "native-review.stderr.log"),
+		VerifierStdoutPath:  filepath.Join(output, "candidate-verifier.stdout.log"),
+		VerifierStderrPath:  filepath.Join(output, "candidate-verifier.stderr.log"),
+		RereviewPath:        filepath.Join(output, "rereview.json"),
+		ReviewInvalidPath:   filepath.Join(output, ".review-invalid-attempted"),
+		ResultPath:          filepath.Join(output, "review-result.json"),
+		MarkdownPath:        filepath.Join(output, "review-result.md"),
 	}
 }
 

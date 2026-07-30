@@ -29,11 +29,10 @@ type NativeCodeLocation struct {
 }
 
 type NativeFinding struct {
-	Title           string             `json:"title"`
-	Body            string             `json:"body"`
-	Priority        int                `json:"priority"`
-	ConfidenceScore float64            `json:"confidence_score"`
-	CodeLocation    NativeCodeLocation `json:"code_location"`
+	Title        string             `json:"title"`
+	Body         string             `json:"body"`
+	Priority     int                `json:"priority"`
+	CodeLocation NativeCodeLocation `json:"code_location"`
 }
 
 type AdapterDrop struct {
@@ -92,7 +91,6 @@ func RenderNativeMarkdown(result NativeReviewResult) string {
 			fmt.Fprintf(&output, "### [P%d] %s\n\n", finding.Priority, finding.Title)
 			fmt.Fprintf(&output, "%s\n\n", finding.Body)
 			fmt.Fprintf(&output, "- Location: `%s:%d-%d`\n", finding.CodeLocation.Path, finding.CodeLocation.StartLine, finding.CodeLocation.EndLine)
-			fmt.Fprintf(&output, "- Confidence: %.2f\n", finding.ConfidenceScore)
 		}
 	}
 	fmt.Fprintln(&output)

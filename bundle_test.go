@@ -72,7 +72,6 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-request.schema.json",
 		"model-review.schema.json",
 		"review-result.schema.json",
-		"native-review.schema.json",
 		"candidate-verifier.schema.json",
 		"review-result-v2.schema.json",
 	} {
@@ -90,7 +89,7 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 }
 
 func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
-	for _, name := range []string{"native-review.schema.json", "candidate-verifier.schema.json", "review-result-v2.schema.json"} {
+	for _, name := range []string{"candidate-verifier.schema.json", "review-result-v2.schema.json"} {
 		raw, err := Schema(name)
 		if err != nil {
 			t.Fatal(err)

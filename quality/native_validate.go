@@ -42,9 +42,6 @@ func ValidateNativeResult(result NativeReviewResult) []string {
 		if finding.Priority < 0 || finding.Priority > 3 {
 			problems = append(problems, prefix+" priority is outside 0-3")
 		}
-		if finding.ConfidenceScore < 0 || finding.ConfidenceScore > 1 {
-			problems = append(problems, prefix+" confidence_score is outside 0-1")
-		}
 		location := finding.CodeLocation
 		if !isCleanRelativePath(location.Path) || location.StartLine < 1 || location.EndLine < location.StartLine {
 			problems = append(problems, prefix+" code_location is invalid")

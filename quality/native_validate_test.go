@@ -35,7 +35,7 @@ func validNativeResult() NativeReviewResult {
 		},
 		ReviewGoal: "review", Directions: []ReviewDirection{{ID: "correctness", Prompt: "Trace behavior."}},
 		Findings: []NativeFinding{{
-			Title: "wrong value", Body: "The new branch returns the wrong value.", Priority: 1, ConfidenceScore: 0.9,
+			Title: "wrong value", Body: "The new branch returns the wrong value.", Priority: 1,
 			CodeLocation: NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
 		}},
 		Execution: NativeExecution{
