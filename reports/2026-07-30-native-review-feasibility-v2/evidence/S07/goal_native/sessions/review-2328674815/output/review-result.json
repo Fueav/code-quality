@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "82785a3633c2cf527a6fe8487ea8dd7637c5f2af",
+    "target_commit": "ca760895d10e0c88aa23d781f72ff4db79d70d0b",
+    "diff_selection_reason": "frozen_goal_feasibility_v2",
+    "changed_files": [
+      "route-contract.json",
+      "update.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Simplify public resource updates while preserving authenticated tenant isolation.",
+  "directions": [
+    {
+      "id": "security-boundaries",
+      "prompt": "Check trust boundaries, authorization, validation, and secret handling around the changed behavior."
+    },
+    {
+      "id": "contracts-rollout",
+      "prompt": "Check whether changed interfaces, schemas, configuration, migrations, and rollout order remain compatible."
+    },
+    {
+      "id": "data-business-correctness",
+      "prompt": "Trace value, state, identity, ordering, and precision changes through their real business effects."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Preserve tenant filtering when updating resources",
+      "body": "Because resource IDs are tenant-local and may repeat, matching only `row.ID` lets any authenticated tenant overwrite another tenant's resource when that resource appears first with the requested ID. The production handler now discards the verified tenant identity, so the update must continue matching both the resource ID and authenticated tenant.",
+      "priority": 1,
+      "code_location": {
+        "path": "update.go",
+        "start_line": 16,
+        "end_line": 16
+      }
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 2,
+    "verifier_status": "complete",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "1 native finding(s) require manual review"
+    ]
+  }
+}

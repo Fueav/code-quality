@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change moves the balance mutation before `WriteDebit`. When the ledger is unavailable, `Transfer` returns `ErrLedgerUnavailable` after reducing the balance from 10,000 to 5,000, contradicting `main`'s failure-path requirement that it remain 10,000 and causing exit status 2."}]}

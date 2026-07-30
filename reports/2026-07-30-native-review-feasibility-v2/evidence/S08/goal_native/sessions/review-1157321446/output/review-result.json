@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "e1cf2943f8692fc86a72e94b2436f04f488cc957",
+    "target_commit": "bce9261f143bd183544fb9d69712ef545391b8d1",
+    "diff_selection_reason": "frozen_goal_feasibility_v2",
+    "changed_files": [
+      "handler.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Use gateway-verified identity for resource access while preserving editor authorization and tenant ownership.",
+  "directions": [
+    {
+      "id": "security-boundaries",
+      "prompt": "Check trust boundaries, authorization, validation, and secret handling around the changed behavior."
+    },
+    {
+      "id": "contracts-rollout",
+      "prompt": "Check whether changed interfaces, schemas, configuration, migrations, and rollout order remain compatible."
+    }
+  ],
+  "findings": [],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 1,
+    "verifier_status": "not_needed",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "PASS",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "native review reported no actionable findings"
+    ]
+  }
+}

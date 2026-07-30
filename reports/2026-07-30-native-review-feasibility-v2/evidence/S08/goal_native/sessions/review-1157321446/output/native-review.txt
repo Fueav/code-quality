@@ -1,0 +1,1 @@
+The change preserves gateway-verified editor authorization and adds tenant-scoped resource ownership validation using the verified tenant identity. No actionable defects are evident in the review scope.

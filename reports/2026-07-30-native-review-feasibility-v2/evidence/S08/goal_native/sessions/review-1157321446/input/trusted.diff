@@ -1,0 +1,17 @@
+diff --git a/handler.go b/handler.go
+index c7f106c..731e9df 100644
+--- a/handler.go
++++ b/handler.go
+@@ -17,8 +17,11 @@ func (Gateway) Verify(signedHeader string) (GatewayIdentity, bool) {
+ type Repository interface {
+ 	LookupForTenant(tenantID, resourceID string) bool
+ }
+ 
+ func Handle(gateway Gateway, repository Repository, signedHeader, resourceID string) bool {
+ 	identity, valid := gateway.Verify(signedHeader)
+-	return valid && identity.Role == "editor"
++	if !valid || identity.Role != "editor" {
++		return false
++	}
++	return repository.LookupForTenant(identity.TenantID, resourceID)
+ }

@@ -1,0 +1,6 @@
+The change removes tenant scoping from a production write operation. Repeated resource IDs can therefore cause authenticated users to modify another tenant's protected data.
+
+Review comment:
+
+- [P1] Preserve tenant filtering when updating resources — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S07/goal_native/sessions/review-2328674815/input/repository/update.go:16-16
+  Because resource IDs are tenant-local and may repeat, matching only `row.ID` lets any authenticated tenant overwrite another tenant's resource when that resource appears first with the requested ID. The production handler now discards the verified tenant identity, so the update must continue matching both the resource ID and authenticated tenant.

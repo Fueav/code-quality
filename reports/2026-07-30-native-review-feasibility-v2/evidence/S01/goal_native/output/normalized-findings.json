@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "For `annual-plan`, this passes the analytics value of 100 cents to the irreversible charger instead of the authoritative 10,000 cents, undercharging every such order by 99%. The added source metadata explicitly marks analytics as reporting-only and potentially 24 hours stale, so checkout must continue using `AuthoritativePrice`.",
+      "end_line": 24,
+      "path": "price.go",
+      "priority": 1,
+      "start_line": 24,
+      "title": "Keep checkout on the authoritative pricing source"
+    }
+  ],
+  "schema_version": 1
+}

@@ -1,0 +1,6 @@
+The patch breaks failure atomicity: a failed ledger write now still debits the account. This directly contradicts the repository's transaction contract and existing runtime check.
+
+Review comment:
+
+- [P1] Commit the debit only after the ledger write succeeds — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-c38vyl6z/runs/R11/repo/transfer.go:26-26
+  When `ledger.Unavailable` is true, `CommitDebit` reduces the balance before `WriteDebit` returns `ErrLedgerUnavailable`, so `Transfer` reports failure while leaving the account debited. This violates the documented failure contract and the invariant checked in `main`; stage or commit the balance change only after the ledger write succeeds.

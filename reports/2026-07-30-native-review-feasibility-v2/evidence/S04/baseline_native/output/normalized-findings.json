@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When this receives a zero-valued `Database`, or a legacy database with only `orders` initialized, assigning to a nil map panics; in the latter case line 40 has already persisted the order before the outbox write fails, violating the atomic-outbox guarantee. Since the maps are unexported and there is no database constructor, initialize both maps under the lock before either assignment.",
+      "end_line": 41,
+      "path": "place.go",
+      "priority": 1,
+      "start_line": 40,
+      "title": "Initialize both maps before committing the order"
+    }
+  ],
+  "schema_version": 1
+}

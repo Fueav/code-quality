@@ -1,0 +1,1 @@
+The implementation follows the documented cache contract: matching versions use the cached decision, while misses and mismatches fall back to Authority.Current. The added tests cover these paths without introducing regressions.

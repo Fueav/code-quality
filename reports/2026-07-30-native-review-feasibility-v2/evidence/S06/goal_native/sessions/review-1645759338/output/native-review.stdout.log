@@ -1,0 +1,1 @@
+The new framework path preserves the existing response-body ownership behavior, and the public Fetch function delegates through it without changing observable semantics.

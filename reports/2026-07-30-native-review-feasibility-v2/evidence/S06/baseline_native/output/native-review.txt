@@ -1,0 +1,6 @@
+The existing package-level function remains functional, but the newly exported Framework abstraction cannot be initialized safely by external callers.
+
+Review comment:
+
+- [P2] Provide a usable way to initialize Framework — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-c38vyl6z/runs/R03/repo/fetch.go:13-13
+  When an external package tries to use the newly exported `Framework` API, it cannot supply a transport because the field is unexported and no constructor exists. The only value callers can create is `Framework{}`, whose `Fetch` method panics at `framework.transport.Fetch()`; expose a constructor or field, or keep this type unexported if it is only an implementation detail.

@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When an existing `Database` has an initialized `orders` map but a nil `outbox` map\u2014a valid setup before this change\u2014`Save` commits the order and then panics while assigning to `database.outbox`. This leaves the order without its event and violates the new atomic-persistence guarantee; initialize or validate both maps before performing either write.",
+      "end_line": 41,
+      "path": "place.go",
+      "priority": 1,
+      "start_line": 40,
+      "title": "Initialize the outbox before writing the order"
+    }
+  ],
+  "schema_version": 1
+}

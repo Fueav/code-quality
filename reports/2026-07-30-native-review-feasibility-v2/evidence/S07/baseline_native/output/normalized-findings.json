@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "Because resource IDs are tenant-local and can repeat, matching only `row.ID` lets an authenticated tenant modify another tenant's first matching row. The included attacker request consequently changes the victim row and makes `main` exit with status 2; pass the authenticated tenant through and retain the `TenantID` predicate.",
+      "end_line": 16,
+      "path": "update.go",
+      "priority": 1,
+      "start_line": 16,
+      "title": "Retain tenant scope when selecting the row"
+    }
+  ],
+  "schema_version": 1
+}

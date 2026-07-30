@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "42d42fd5630536fe428da9fc5fad272688cb67dc",
+    "target_commit": "4cf314ce443475c08acaefc98315047f76c22f5b",
+    "diff_selection_reason": "frozen_goal_feasibility_v2",
+    "changed_files": [
+      "pool.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Validate requests and manage database connections while preserving pool availability on every return path.",
+  "directions": [
+    {
+      "id": "reliability-lifecycle",
+      "prompt": "Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Register cleanup before rejecting invalid requests",
+      "body": "When `valid` is false, this return occurs before `connection.Close()` is deferred, so every invalid request permanently increments `pool.inUse`. After `capacity` invalid requests, subsequent calls fail with `ErrExhausted`—including the third iteration in `main`; register the defer immediately after a successful `Open()`.",
+      "priority": 1,
+      "code_location": {
+        "path": "pool.go",
+        "start_line": 43,
+        "end_line": 44
+      }
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 2,
+    "verifier_status": "complete",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "1 native finding(s) require manual review"
+    ]
+  }
+}

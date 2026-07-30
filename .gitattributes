@@ -17,3 +17,4 @@ reports/2026-07-30-native-review-negative-v5-smoke/evidence/**/output/*.md -diff
 
 # The feasibility corpus is a frozen byte-for-byte experiment record.
 reports/2026-07-30-native-review-feasibility-v1/evidence/** -diff
+reports/2026-07-30-native-review-feasibility-v2/evidence/** -diff

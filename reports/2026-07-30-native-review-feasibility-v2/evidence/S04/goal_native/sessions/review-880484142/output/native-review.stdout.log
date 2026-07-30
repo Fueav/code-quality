@@ -1,0 +1,6 @@
+The outbox write can panic after the order has already been stored when upgrading an existing database whose previously unused outbox map is nil. That directly breaks the change's atomic order-and-event persistence requirement.
+
+Review comment:
+
+- [P1] Initialize the outbox before writing the order — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S04/goal_native/sessions/review-880484142/input/repository/place.go:40-41
+  When an existing `Database` has an initialized `orders` map but a nil `outbox` map—a valid setup before this change—`Save` commits the order and then panics while assigning to `database.outbox`. This leaves the order without its event and violates the new atomic-persistence guarantee; initialize or validate both maps before performing either write.

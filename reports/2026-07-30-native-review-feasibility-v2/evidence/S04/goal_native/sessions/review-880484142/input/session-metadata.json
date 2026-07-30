@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "host": "codex",
+  "skill_version": "0.3.1",
+  "repository_root": "/private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-c38vyl6z/runs/R16/repo",
+  "checkout_mode": "worktree",
+  "runtime_mode": "codex_native_review"
+}

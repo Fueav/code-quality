@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "Because resource IDs are tenant-local and may repeat, matching only `row.ID` lets any authenticated tenant overwrite another tenant's resource when that resource appears first with the requested ID. The production handler now discards the verified tenant identity, so the update must continue matching both the resource ID and authenticated tenant.",
+      "end_line": 16,
+      "path": "update.go",
+      "priority": 1,
+      "start_line": 16,
+      "title": "Preserve tenant filtering when updating resources"
+    }
+  ],
+  "schema_version": 1
+}

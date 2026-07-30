@@ -1,0 +1,89 @@
+{
+  "maximum_model_calls": 24,
+  "preflight_sha256": "555337135d5b198f944df4b514886ec18ad2b5e80aaebfad3ec0ea2a38e66713",
+  "profile": "native_review_goal_feasibility_v2",
+  "protocol_manifest_sha256": "f9668b7d53ca2cb36cea3e66c46c6799f5e4aa75cddde4713fe9ed3bf3e3a7f3",
+  "schema_version": 1,
+  "session_order": [
+    {
+      "lane": "goal_native",
+      "opaque_id": "S08",
+      "run_id": "R01"
+    },
+    {
+      "lane": "baseline_native",
+      "opaque_id": "S01",
+      "run_id": "R02"
+    },
+    {
+      "lane": "baseline_native",
+      "opaque_id": "S06",
+      "run_id": "R03"
+    },
+    {
+      "lane": "goal_native",
+      "opaque_id": "S03",
+      "run_id": "R04"
+    },
+    {
+      "lane": "goal_native",
+      "opaque_id": "S02",
+      "run_id": "R05"
+    },
+    {
+      "lane": "baseline_native",
+      "opaque_id": "S07",
+      "run_id": "R06"
+    },
+    {
+      "lane": "baseline_native",
+      "opaque_id": "S04",
+      "run_id": "R07"
+    },
+    {
+      "lane": "goal_native",
+      "opaque_id": "S05",
+      "run_id": "R08"
+    },
+    {
+      "lane": "goal_native",
+      "opaque_id": "S01",
+      "run_id": "R09"
+    },
+    {
+      "lane": "baseline_native",
+      "opaque_id": "S08",
+      "run_id": "R10"
+    },
+    {
+      "lane": "baseline_native",
+      "opaque_id": "S03",
+      "run_id": "R11"
+    },
+    {
+      "lane": "goal_native",
+      "opaque_id": "S06",
+      "run_id": "R12"
+    },
+    {
+      "lane": "goal_native",
+      "opaque_id": "S07",
+      "run_id": "R13"
+    },
+    {
+      "lane": "baseline_native",
+      "opaque_id": "S02",
+      "run_id": "R14"
+    },
+    {
+      "lane": "baseline_native",
+      "opaque_id": "S05",
+      "run_id": "R15"
+    },
+    {
+      "lane": "goal_native",
+      "opaque_id": "S04",
+      "run_id": "R16"
+    }
+  ]
+}

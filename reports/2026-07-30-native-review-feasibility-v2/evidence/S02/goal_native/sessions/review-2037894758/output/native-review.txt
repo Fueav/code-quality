@@ -1,0 +1,6 @@
+The cache is validated before it is read, creating a revocation race whose duration includes the cache lookup. This can return a stale allow decision after authoritative membership has changed.
+
+Review comment:
+
+- [P1] Validate the version after reading the cache — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S02/goal_native/sessions/review-2037894758/input/repository/cache.go:19-20
+  If `Cache.Get` is delayed and the user's membership changes after the version read, the captured old version can still match the cached snapshot, allowing a revoked user even though the authority changed before the cache returned. Read the cache before `Authority.Version`, or recheck the version after the cache lookup, so cache latency cannot separate validation from use.

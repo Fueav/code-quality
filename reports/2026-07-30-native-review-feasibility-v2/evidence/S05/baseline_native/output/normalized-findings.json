@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When `valid` is false, this return occurs before `connection.Close` is deferred, leaving `pool.inUse` incremented. Repeated invalid requests therefore leak pool capacity until `Open` returns `ErrExhausted`; register the defer immediately after a successful `Open`.",
+      "end_line": 46,
+      "path": "pool.go",
+      "priority": 1,
+      "start_line": 43,
+      "title": "Close connections before returning invalid requests"
+    }
+  ],
+  "schema_version": 1
+}

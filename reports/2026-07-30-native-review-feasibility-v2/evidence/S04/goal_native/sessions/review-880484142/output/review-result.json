@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "597dc030e96acd011c12cba80fb3ed432b0350f2",
+    "target_commit": "16236fac88a93a1430db051bad7239354981854f",
+    "diff_selection_reason": "frozen_goal_feasibility_v2",
+    "changed_files": [
+      "place.go",
+      "place_test.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Move order-event delivery to an outbox while preserving atomic persistence and at-least-once delivery.",
+  "directions": [
+    {
+      "id": "scale-side-effects",
+      "prompt": "Follow remote calls, storage access, loops, batching, caches, and side effects for production-scale failure modes."
+    },
+    {
+      "id": "data-business-correctness",
+      "prompt": "Trace value, state, identity, ordering, and precision changes through their real business effects."
+    },
+    {
+      "id": "reliability-lifecycle",
+      "prompt": "Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Initialize the outbox before writing the order",
+      "body": "When an existing `Database` has an initialized `orders` map but a nil `outbox` map—a valid setup before this change—`Save` commits the order and then panics while assigning to `database.outbox`. This leaves the order without its event and violates the new atomic-persistence guarantee; initialize or validate both maps before performing either write.",
+      "priority": 1,
+      "code_location": {
+        "path": "place.go",
+        "start_line": 40,
+        "end_line": 41
+      }
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 2,
+    "verifier_status": "complete",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "1 native finding(s) require manual review"
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change moves `defer connection.Close()` after the invalid-request return. Because `Open()` increments `pool.inUse`, each invalid request now leaks its slot, and the third invalid request with capacity 2 returns `ErrExhausted`; the finding is introduced and actionable."}]}

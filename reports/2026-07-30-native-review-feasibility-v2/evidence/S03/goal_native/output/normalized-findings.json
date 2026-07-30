@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When `WriteDebit` returns `ErrLedgerUnavailable`, the account has already been debited and no rollback occurs, leaving the balance changed without a corresponding ledger entry. This violates the failure contract and causes the existing failure-path check in `main` to exit with status 2.",
+      "end_line": 27,
+      "path": "transfer.go",
+      "priority": 1,
+      "start_line": 26,
+      "title": "Commit the debit only after the ledger write succeeds"
+    }
+  ],
+  "schema_version": 1
+}

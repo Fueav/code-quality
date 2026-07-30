@@ -1,0 +1,6 @@
+The change leaks every successfully opened connection when validation fails, eventually exhausting the pool. This directly breaks the invalid-request path exercised by the program.
+
+Review comment:
+
+- [P1] Close connections before returning invalid requests — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-c38vyl6z/runs/R15/repo/pool.go:43-46
+  When `valid` is false, this return occurs before `connection.Close` is deferred, leaving `pool.inUse` incremented. Repeated invalid requests therefore leak pool capacity until `Open` returns `ErrExhausted`; register the defer immediately after a successful `Open`.

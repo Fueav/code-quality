@@ -1,0 +1,12 @@
+{
+  "base_commit": "597dc030e96acd011c12cba80fb3ed432b0350f2",
+  "diff_sha256": "11fb4cba5833626d8b35697f157dfdf3919c3ace4217fd6cbdc295cb6b9ad6b0",
+  "goal": "Move order-event delivery to an outbox while preserving atomic persistence and at-least-once delivery.",
+  "lane": "goal_native",
+  "model": "gpt-5.6-sol",
+  "opaque_id": "S04",
+  "reasoning_effort": "high",
+  "run_id": "R16",
+  "schema_version": 1,
+  "target_commit": "16236fac88a93a1430db051bad7239354981854f"
+}

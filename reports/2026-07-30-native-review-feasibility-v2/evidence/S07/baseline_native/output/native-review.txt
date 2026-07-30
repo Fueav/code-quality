@@ -1,0 +1,6 @@
+The patch removes tenant authorization from resource lookup, enabling cross-tenant writes whenever tenants share a resource ID. The repository's own example demonstrates the resulting failure.
+
+Review comment:
+
+- [P1] Retain tenant scope when selecting the row — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-c38vyl6z/runs/R06/repo/update.go:16-16
+  Because resource IDs are tenant-local and can repeat, matching only `row.ID` lets an authenticated tenant modify another tenant's first matching row. The included attacker request consequently changes the victim row and makes `main` exit with status 2; pass the authenticated tenant through and retain the `TenantID` predicate.

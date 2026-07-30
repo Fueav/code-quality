@@ -1,0 +1,12 @@
+{
+  "repository": "repo",
+  "target_branch": "DETACHED",
+  "base_commit": "3a89a30c7fcd11ed9c8353c619620b144365bea7",
+  "target_commit": "827c39694573dad9abc19f271067aae0e82bb645",
+  "diff_selection_reason": "frozen_goal_feasibility_v2",
+  "changed_files": [
+    "price.go",
+    "pricing-sources.json"
+  ],
+  "affected_entries": []
+}

@@ -1,0 +1,6 @@
+The new transaction can panic on normally constructible or previously valid database state, and may leave the order committed without its outbox event. This breaks the patch's central atomicity guarantee.
+
+Review comment:
+
+- [P1] Initialize both maps before committing the order — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-c38vyl6z/runs/R07/repo/place.go:40-41
+  When this receives a zero-valued `Database`, or a legacy database with only `orders` initialized, assigning to a nil map panics; in the latter case line 40 has already persisted the order before the outbox write fails, violating the atomic-outbox guarantee. Since the maps are unexported and there is no database constructor, initialize both maps under the lock before either assignment.

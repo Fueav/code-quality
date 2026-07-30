@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "status": "COMPLETE",
+  "semantic_result": "MANUAL_REVIEW",
+  "session_dir": "/Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S07/goal_native/sessions/review-2328674815",
+  "result_path": "/Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S07/goal_native/sessions/review-2328674815/output/review-result.json",
+  "markdown_path": "/Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S07/goal_native/sessions/review-2328674815/output/review-result.md",
+  "model_calls": 2,
+  "verifier_status": "complete"
+}

@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When `ledger.Unavailable` is true, `CommitDebit` reduces the balance before `WriteDebit` returns `ErrLedgerUnavailable`, so `Transfer` reports failure while leaving the account debited. This violates the documented failure contract and the invariant checked in `main`; stage or commit the balance change only after the ledger write succeeds.",
+      "end_line": 26,
+      "path": "transfer.go",
+      "priority": 1,
+      "start_line": 26,
+      "title": "Commit the debit only after the ledger write succeeds"
+    }
+  ],
+  "schema_version": 1
+}

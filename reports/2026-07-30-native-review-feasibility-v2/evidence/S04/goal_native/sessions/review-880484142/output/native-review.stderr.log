@@ -1,0 +1,597 @@
+OpenAI Codex v0.145.0
+--------
+workdir: /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S04/goal_native/sessions/review-880484142/input/repository
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: high
+reasoning summaries: none
+session id: 019fb22d-b51b-7b13-90b5-4ac868d308fc
+--------
+user
+Review the committed change 597dc030e96acd011c12cba80fb3ed432b0350f2..16236fac88a93a1430db051bad7239354981854f in the current repository.
+Use `git diff --no-ext-diff --unified=6 597dc030e96acd011c12cba80fb3ed432b0350f2 16236fac88a93a1430db051bad7239354981854f --` as the exact review scope.
+Change goal (user-provided): "Move order-event delivery to an outbox while preserving atomic persistence and at-least-once delivery."
+Potential risk directions (hints only, not an exhaustive checklist):
+- Follow remote calls, storage access, loops, batching, caches, and side effects for production-scale failure modes.
+- Trace value, state, identity, ordering, and precision changes through their real business effects.
+- Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path.
+Report actionable defects outside these hints too. Only report problems introduced or worsened by this change. Do not modify files.
+warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.
+2026-07-30T08:39:36.649726Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=019fb22d-b51b-7b13-90b5-4ac868d308fc turn_id=019fb22d-b540-7120-aaf1-78e692e51d9a item_id="exec-3a25ee55-e586-4964-a90d-7bb9a20db81e"
+exec
+/bin/zsh -lc 'git status --short && git diff --no-ext-diff --unified=6 597dc030e96acd011c12cba80fb3ed432b0350f2 16236fac88a93a1430db051bad7239354981854f --' in /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S04/goal_native/sessions/review-880484142/input/repository
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-oE5LIkWu' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-mDBFrgjr' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-m0ttDmkZ' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-rYgSWC3D' (errno=Operation not permitted)
+diff --git a/place.go b/place.go
+index 62cdadc..f4ec4f3 100644
+--- a/place.go
++++ b/place.go
+@@ -17,28 +17,68 @@ type Provider struct {
+ }
+ 
+ type Transaction interface {
+ 	Save(Order, Event) error
+ }
+ 
+-type directTransaction struct {
+-	database *Database
+-	provider *Provider
++const reconciliationBatchSize = 64
++
++type outboxTransaction struct{ database *Database }
++
++type outboxItem struct {
++	id    string
++	event Event
++}
++
++func NewOutboxTransaction(database *Database) Transaction {
++	return &outboxTransaction{database: database}
+ }
+ 
+-func (transaction *directTransaction) Save(order Order, event Event) error {
+-	transaction.database.mu.Lock()
+-	transaction.database.orders[order.ID] = order
+-	transaction.database.mu.Unlock()
+-	transaction.provider.Deliver(event)
++func (transaction *outboxTransaction) Save(order Order, event Event) error {
++	database := transaction.database
++	database.mu.Lock()
++	defer database.mu.Unlock()
++	database.orders[order.ID] = order
++	database.outbox[event.ID] = event
+ 	return nil
+ }
+ 
+ func Place(transaction Transaction, order Order, event Event) error {
+ 	return transaction.Save(order, event)
+ }
+ 
+ func (provider *Provider) Deliver(event Event) {
+ 	provider.mu.Lock()
+ 	defer provider.mu.Unlock()
+-	provider.deliveries[event.ID]++
++	if provider.deliveries[event.ID] != 0 {
++		return
++	}
++	provider.deliveries[event.ID] = 1
++}
++
++func nextOutboxBatch(database *Database) []outboxItem {
++	database.mu.Lock()
++	defer database.mu.Unlock()
++	batch := make([]outboxItem, 0, reconciliationBatchSize)
++	for id, event := range database.outbox {
++		batch = append(batch, outboxItem{id: id, event: event})
++		if len(batch) == reconciliationBatchSize {
++			break
++		}
++	}
++	return batch
++}
++
++func ReconcileOutbox(database *Database, provider *Provider) {
++	for {
++		batch := nextOutboxBatch(database)
++		if len(batch) == 0 {
++			return
++		}
++		for _, item := range batch {
++			provider.Deliver(item.event)
++			database.mu.Lock()
++			delete(database.outbox, item.id)
++			database.mu.Unlock()
++		}
++	}
+ }
+diff --git a/place_test.go b/place_test.go
+new file mode 100644
+index 0000000..35d092e
+--- /dev/null
++++ b/place_test.go
+@@ -0,0 +1,70 @@
++package orders
++
++import (
++	"reflect"
++	"strconv"
++	"testing"
++)
++
++func TestAtomicOutboxAndIdempotentDelivery(t *testing.T) {
++	database := &Database{orders: map[string]Order{}, outbox: map[string]Event{}}
++	event := Event{ID: "event-1"}
++	if err := Place(NewOutboxTransaction(database), Order{ID: "order-1"}, event); err != nil {
++		t.Fatal(err)
++	}
++	if len(database.orders) != 1 || len(database.outbox) != 1 {
++		t.Fatal("order and outbox were not committed together")
++	}
++	provider := &Provider{deliveries: map[string]int{}}
++	ReconcileOutbox(database, provider)
++	if len(database.outbox) != 0 {
++		t.Fatal("reconciler did not remove the delivered event")
++	}
++	database.outbox[event.ID] = event // Simulate retry after delivery but before acknowledgement.
++	ReconcileOutbox(database, provider)
++	if provider.deliveries[event.ID] != 1 {
++		t.Fatal("redelivery produced a duplicate effect")
++	}
++}
++
++func TestPlacementKeepsHistoryMapsAndAddsBothRecords(t *testing.T) {
++	database := &Database{
++		orders: map[string]Order{"existing": {ID: "existing"}},
++		outbox: map[string]Event{"existing": {ID: "existing"}},
++	}
++	ordersBefore := reflect.ValueOf(database.orders).Pointer()
++	outboxBefore := reflect.ValueOf(database.outbox).Pointer()
++
++	if err := Place(NewOutboxTransaction(database), Order{ID: "new"}, Event{ID: "new"}); err != nil {
++		t.Fatal(err)
++	}
++	if reflect.ValueOf(database.orders).Pointer() != ordersBefore || reflect.ValueOf(database.outbox).Pointer() != outboxBefore {
++		t.Fatal("placement replaced a complete history map")
++	}
++	if _, ok := database.orders["new"]; !ok {
++		t.Fatal("order was not committed")
++	}
++	if _, ok := database.outbox["new"]; !ok {
++		t.Fatal("outbox event was not committed")
++	}
++}
++
++func TestOutboxSnapshotsAreBoundedAndReconciliationDrainsAllBatches(t *testing.T) {
++	database := &Database{orders: map[string]Order{}, outbox: map[string]Event{}}
++	for index := 0; index < reconciliationBatchSize*2+1; index++ {
++		id := "event-" + strconv.Itoa(index)
++		database.outbox[id] = Event{ID: id}
++	}
++	if batch := nextOutboxBatch(database); len(batch) != reconciliationBatchSize {
++		t.Fatalf("batch size = %d", len(batch))
++	}
++
++	provider := &Provider{deliveries: map[string]int{}}
++	ReconcileOutbox(database, provider)
++	if len(database.outbox) != 0 {
++		t.Fatalf("remaining outbox events = %d", len(database.outbox))
++	}
++	if len(provider.deliveries) != reconciliationBatchSize*2+1 {
++		t.Fatalf("deliveries = %d", len(provider.deliveries))
++	}
++}
+
+2026-07-30T08:39:42.996000Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=019fb22d-b51b-7b13-90b5-4ac868d308fc turn_id=019fb22d-b540-7120-aaf1-78e692e51d9a item_id="exec-14842b25-7ec9-4973-a2ac-31726a9bac63"
+exec
+/bin/zsh -lc "ls -la && git show 597dc030e96acd011c12cba80fb3ed432b0350f2:place.go && printf '\\n--- NEW place.go ---\\n' && nl -ba place.go && printf '\\n--- other tracked files ---\\n' && git ls-files && printf '\\n--- log ---\\n' && git log --oneline --decorate --all -10" in /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S04/goal_native/sessions/review-880484142/input/repository
+ succeeded in 0ms:
+total 32
+drwxr-xr-x@ 6 chris  staff   192 Jul 30 17:39 .
+drwx------@ 7 chris  staff   224 Jul 30 17:39 ..
+-rw-r--r--@ 1 chris  staff   150 Jul 30 17:39 .git
+-rw-r--r--@ 1 chris  staff   326 Jul 30 17:39 outbox-contract.json
+-rw-r--r--@ 1 chris  staff  1758 Jul 30 17:39 place.go
+-rw-r--r--@ 1 chris  staff  2435 Jul 30 17:39 place_test.go
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-kctkRxZP' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-Grsz12SL' (errno=Operation not permitted)
+package orders
+
+import "sync"
+
+type Order struct{ ID string }
+type Event struct{ ID string }
+
+type Database struct {
+	mu     sync.Mutex
+	orders map[string]Order
+	outbox map[string]Event
+}
+
+type Provider struct {
+	mu         sync.Mutex
+	deliveries map[string]int
+}
+
+type Transaction interface {
+	Save(Order, Event) error
+}
+
+type directTransaction struct {
+	database *Database
+	provider *Provider
+}
+
+func (transaction *directTransaction) Save(order Order, event Event) error {
+	transaction.database.mu.Lock()
+	transaction.database.orders[order.ID] = order
+	transaction.database.mu.Unlock()
+	transaction.provider.Deliver(event)
+	return nil
+}
+
+func Place(transaction Transaction, order Order, event Event) error {
+	return transaction.Save(order, event)
+}
+
+func (provider *Provider) Deliver(event Event) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	provider.deliveries[event.ID]++
+}
+
+--- NEW place.go ---
+     1	package orders
+     2	
+     3	import "sync"
+     4	
+     5	type Order struct{ ID string }
+     6	type Event struct{ ID string }
+     7	
+     8	type Database struct {
+     9		mu     sync.Mutex
+    10		orders map[string]Order
+    11		outbox map[string]Event
+    12	}
+    13	
+    14	type Provider struct {
+    15		mu         sync.Mutex
+    16		deliveries map[string]int
+    17	}
+    18	
+    19	type Transaction interface {
+    20		Save(Order, Event) error
+    21	}
+    22	
+    23	const reconciliationBatchSize = 64
+    24	
+    25	type outboxTransaction struct{ database *Database }
+    26	
+    27	type outboxItem struct {
+    28		id    string
+    29		event Event
+    30	}
+    31	
+    32	func NewOutboxTransaction(database *Database) Transaction {
+    33		return &outboxTransaction{database: database}
+    34	}
+    35	
+    36	func (transaction *outboxTransaction) Save(order Order, event Event) error {
+    37		database := transaction.database
+    38		database.mu.Lock()
+    39		defer database.mu.Unlock()
+    40		database.orders[order.ID] = order
+    41		database.outbox[event.ID] = event
+    42		return nil
+    43	}
+    44	
+    45	func Place(transaction Transaction, order Order, event Event) error {
+    46		return transaction.Save(order, event)
+    47	}
+    48	
+    49	func (provider *Provider) Deliver(event Event) {
+    50		provider.mu.Lock()
+    51		defer provider.mu.Unlock()
+    52		if provider.deliveries[event.ID] != 0 {
+    53			return
+    54		}
+    55		provider.deliveries[event.ID] = 1
+    56	}
+    57	
+    58	func nextOutboxBatch(database *Database) []outboxItem {
+    59		database.mu.Lock()
+    60		defer database.mu.Unlock()
+    61		batch := make([]outboxItem, 0, reconciliationBatchSize)
+    62		for id, event := range database.outbox {
+    63			batch = append(batch, outboxItem{id: id, event: event})
+    64			if len(batch) == reconciliationBatchSize {
+    65				break
+    66			}
+    67		}
+    68		return batch
+    69	}
+    70	
+    71	func ReconcileOutbox(database *Database, provider *Provider) {
+    72		for {
+    73			batch := nextOutboxBatch(database)
+    74			if len(batch) == 0 {
+    75				return
+    76			}
+    77			for _, item := range batch {
+    78				provider.Deliver(item.event)
+    79				database.mu.Lock()
+    80				delete(database.outbox, item.id)
+    81				database.mu.Unlock()
+    82			}
+    83		}
+    84	}
+
+--- other tracked files ---
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-GpaIgHK3' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-vNajlHtU' (errno=Operation not permitted)
+outbox-contract.json
+place.go
+place_test.go
+
+--- log ---
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-DkTNC0M6' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-mTbwzLMj' (errno=Operation not permitted)
+16236fa (HEAD) candidate change
+597dc03 base snapshot
+
+2026-07-30T08:39:49.683952Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=019fb22d-b51b-7b13-90b5-4ac868d308fc turn_id=019fb22d-b540-7120-aaf1-78e692e51d9a item_id="exec-826bbd5b-f668-4bbd-bb26-5fc0af93b39a"
+exec
+/bin/zsh -lc 'cat outbox-contract.json && git diff --stat 597dc030e96acd011c12cba80fb3ed432b0350f2 16236fac88a93a1430db051bad7239354981854f && git show --stat --oneline 16236fac88a93a1430db051bad7239354981854f && git show 597dc030e96acd011c12cba80fb3ed432b0350f2:outbox-contract.json' in /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S04/goal_native/sessions/review-880484142/input/repository
+ succeeded in 0ms:
+{
+  "approved": true,
+  "delivery": "at_least_once",
+  "event_key": "event_id",
+  "placement_complexity": "constant with respect to historical order count",
+  "reconciliation_batch_maximum": 64,
+  "reconciler": "ReconcileOutbox drains persisted events until acknowledged",
+  "storage": "order_and_outbox_in_one_transaction"
+}
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-MTjBUSK3' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-xgEBDH4d' (errno=Operation not permitted)
+ place.go      | 58 +++++++++++++++++++++++++++++++++++++++++--------
+ place_test.go | 70 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 119 insertions(+), 9 deletions(-)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-ckhWNgcF' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-tPx92u87' (errno=Operation not permitted)
+16236fa candidate change
+ place.go      | 58 +++++++++++++++++++++++++++++++++++++++++--------
+ place_test.go | 70 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 119 insertions(+), 9 deletions(-)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-bDRlnckI' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-5akPZR88' (errno=Operation not permitted)
+{
+  "approved": true,
+  "delivery": "at_least_once",
+  "event_key": "event_id",
+  "placement_complexity": "constant with respect to historical order count",
+  "reconciliation_batch_maximum": 64,
+  "reconciler": "ReconcileOutbox drains persisted events until acknowledged",
+  "storage": "order_and_outbox_in_one_transaction"
+}
+
+2026-07-30T08:40:24.219100Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=019fb22d-b51b-7b13-90b5-4ac868d308fc turn_id=019fb22d-b540-7120-aaf1-78e692e51d9a item_id="exec-439daf38-a089-4de6-97ec-62246075448b"
+exec
+/bin/zsh -lc "find . -maxdepth 3 -type f -not -path './.git/*' -print -exec sed -n '1,240p' {} \\; && printf '\\n--- metadata ---\\n' && git cat-file -p 16236fac88a93a1430db051bad7239354981854f && printf '\\n--- base tree ---\\n' && git ls-tree -r 597dc030e96acd011c12cba80fb3ed432b0350f2" in /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S04/goal_native/sessions/review-880484142/input/repository
+ succeeded in 0ms:
+./place.go
+package orders
+
+import "sync"
+
+type Order struct{ ID string }
+type Event struct{ ID string }
+
+type Database struct {
+	mu     sync.Mutex
+	orders map[string]Order
+	outbox map[string]Event
+}
+
+type Provider struct {
+	mu         sync.Mutex
+	deliveries map[string]int
+}
+
+type Transaction interface {
+	Save(Order, Event) error
+}
+
+const reconciliationBatchSize = 64
+
+type outboxTransaction struct{ database *Database }
+
+type outboxItem struct {
+	id    string
+	event Event
+}
+
+func NewOutboxTransaction(database *Database) Transaction {
+	return &outboxTransaction{database: database}
+}
+
+func (transaction *outboxTransaction) Save(order Order, event Event) error {
+	database := transaction.database
+	database.mu.Lock()
+	defer database.mu.Unlock()
+	database.orders[order.ID] = order
+	database.outbox[event.ID] = event
+	return nil
+}
+
+func Place(transaction Transaction, order Order, event Event) error {
+	return transaction.Save(order, event)
+}
+
+func (provider *Provider) Deliver(event Event) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if provider.deliveries[event.ID] != 0 {
+		return
+	}
+	provider.deliveries[event.ID] = 1
+}
+
+func nextOutboxBatch(database *Database) []outboxItem {
+	database.mu.Lock()
+	defer database.mu.Unlock()
+	batch := make([]outboxItem, 0, reconciliationBatchSize)
+	for id, event := range database.outbox {
+		batch = append(batch, outboxItem{id: id, event: event})
+		if len(batch) == reconciliationBatchSize {
+			break
+		}
+	}
+	return batch
+}
+
+func ReconcileOutbox(database *Database, provider *Provider) {
+	for {
+		batch := nextOutboxBatch(database)
+		if len(batch) == 0 {
+			return
+		}
+		for _, item := range batch {
+			provider.Deliver(item.event)
+			database.mu.Lock()
+			delete(database.outbox, item.id)
+			database.mu.Unlock()
+		}
+	}
+}
+./outbox-contract.json
+{
+  "approved": true,
+  "delivery": "at_least_once",
+  "event_key": "event_id",
+  "placement_complexity": "constant with respect to historical order count",
+  "reconciliation_batch_maximum": 64,
+  "reconciler": "ReconcileOutbox drains persisted events until acknowledged",
+  "storage": "order_and_outbox_in_one_transaction"
+}
+./place_test.go
+package orders
+
+import (
+	"reflect"
+	"strconv"
+	"testing"
+)
+
+func TestAtomicOutboxAndIdempotentDelivery(t *testing.T) {
+	database := &Database{orders: map[string]Order{}, outbox: map[string]Event{}}
+	event := Event{ID: "event-1"}
+	if err := Place(NewOutboxTransaction(database), Order{ID: "order-1"}, event); err != nil {
+		t.Fatal(err)
+	}
+	if len(database.orders) != 1 || len(database.outbox) != 1 {
+		t.Fatal("order and outbox were not committed together")
+	}
+	provider := &Provider{deliveries: map[string]int{}}
+	ReconcileOutbox(database, provider)
+	if len(database.outbox) != 0 {
+		t.Fatal("reconciler did not remove the delivered event")
+	}
+	database.outbox[event.ID] = event // Simulate retry after delivery but before acknowledgement.
+	ReconcileOutbox(database, provider)
+	if provider.deliveries[event.ID] != 1 {
+		t.Fatal("redelivery produced a duplicate effect")
+	}
+}
+
+func TestPlacementKeepsHistoryMapsAndAddsBothRecords(t *testing.T) {
+	database := &Database{
+		orders: map[string]Order{"existing": {ID: "existing"}},
+		outbox: map[string]Event{"existing": {ID: "existing"}},
+	}
+	ordersBefore := reflect.ValueOf(database.orders).Pointer()
+	outboxBefore := reflect.ValueOf(database.outbox).Pointer()
+
+	if err := Place(NewOutboxTransaction(database), Order{ID: "new"}, Event{ID: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(database.orders).Pointer() != ordersBefore || reflect.ValueOf(database.outbox).Pointer() != outboxBefore {
+		t.Fatal("placement replaced a complete history map")
+	}
+	if _, ok := database.orders["new"]; !ok {
+		t.Fatal("order was not committed")
+	}
+	if _, ok := database.outbox["new"]; !ok {
+		t.Fatal("outbox event was not committed")
+	}
+}
+
+func TestOutboxSnapshotsAreBoundedAndReconciliationDrainsAllBatches(t *testing.T) {
+	database := &Database{orders: map[string]Order{}, outbox: map[string]Event{}}
+	for index := 0; index < reconciliationBatchSize*2+1; index++ {
+		id := "event-" + strconv.Itoa(index)
+		database.outbox[id] = Event{ID: id}
+	}
+	if batch := nextOutboxBatch(database); len(batch) != reconciliationBatchSize {
+		t.Fatalf("batch size = %d", len(batch))
+	}
+
+	provider := &Provider{deliveries: map[string]int{}}
+	ReconcileOutbox(database, provider)
+	if len(database.outbox) != 0 {
+		t.Fatalf("remaining outbox events = %d", len(database.outbox))
+	}
+	if len(provider.deliveries) != reconciliationBatchSize*2+1 {
+		t.Fatalf("deliveries = %d", len(provider.deliveries))
+	}
+}
+./.git
+gitdir: /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-c38vyl6z/runs/R16/repo/.git/worktrees/repository
+
+--- metadata ---
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-Rh0TLRmk' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-xZ6dDfIq' (errno=Operation not permitted)
+tree db9c480f6a684c96be7f7c3e12be811741c1c4b3
+parent 597dc030e96acd011c12cba80fb3ed432b0350f2
+author Frozen Review Fixture <fixture@example.invalid> 946684800 +0000
+committer Frozen Review Fixture <fixture@example.invalid> 946684800 +0000
+
+candidate change
+
+--- base tree ---
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-zuZs1VLi' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-aTY3yGMW' (errno=Operation not permitted)
+100644 blob 0a47e76626931e918ba5be860cade937f9aa26b1	outbox-contract.json
+100644 blob 62cdadc584550b2f6bc1ad590b39a311244950f1	place.go
+
+codex
+The outbox write can panic after the order has already been stored when upgrading an existing database whose previously unused outbox map is nil. That directly breaks the change's atomic order-and-event persistence requirement.
+
+Review comment:
+
+- [P1] Initialize the outbox before writing the order — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S04/goal_native/sessions/review-880484142/input/repository/place.go:40-41
+  When an existing `Database` has an initialized `orders` map but a nil `outbox` map—a valid setup before this change—`Save` commits the order and then panics while assigning to `database.outbox`. This leaves the order without its event and violates the new atomic-persistence guarantee; initialize or validate both maps before performing either write.

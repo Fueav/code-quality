@@ -1,0 +1,12 @@
+{
+  "repository": "repo",
+  "target_branch": "DETACHED",
+  "base_commit": "597dc030e96acd011c12cba80fb3ed432b0350f2",
+  "target_commit": "16236fac88a93a1430db051bad7239354981854f",
+  "diff_selection_reason": "frozen_goal_feasibility_v2",
+  "changed_files": [
+    "place.go",
+    "place_test.go"
+  ],
+  "affected_entries": []
+}

@@ -1,0 +1,6 @@
+The change leaks an opened connection on every invalid-request return path, eventually exhausting the pool.
+
+Review comment:
+
+- [P1] Register cleanup before rejecting invalid requests — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S05/goal_native/sessions/review-3706202672/input/repository/pool.go:43-44
+  When `valid` is false, this return occurs before `connection.Close()` is deferred, so every invalid request permanently increments `pool.inUse`. After `capacity` invalid requests, subsequent calls fail with `ErrExhausted`—including the third iteration in `main`; register the defer immediately after a successful `Open()`.

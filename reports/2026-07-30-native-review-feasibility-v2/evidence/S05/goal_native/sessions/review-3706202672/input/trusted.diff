@@ -1,0 +1,22 @@
+diff --git a/pool.go b/pool.go
+index 8e3f260..d46129f 100644
+--- a/pool.go
++++ b/pool.go
+@@ -37,16 +37,16 @@ func (connection *Connection) Close() {
+ 
+ func Handle(pool *Pool, valid bool) error {
+ 	connection, err := pool.Open()
+ 	if err != nil {
+ 		return err
+ 	}
+-	defer connection.Close()
+ 	if !valid {
+ 		return ErrInvalid
+ 	}
++	defer connection.Close()
+ 	return nil
+ }
+ 
+ func main() {
+ 	pool := &Pool{capacity: 2}
+ 	for attempt := 0; attempt < 3; attempt++ {

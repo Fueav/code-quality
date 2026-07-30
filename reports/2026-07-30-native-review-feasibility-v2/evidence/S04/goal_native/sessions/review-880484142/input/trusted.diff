@@ -1,0 +1,158 @@
+diff --git a/place.go b/place.go
+index 62cdadc..f4ec4f3 100644
+--- a/place.go
++++ b/place.go
+@@ -17,28 +17,68 @@ type Provider struct {
+ }
+ 
+ type Transaction interface {
+ 	Save(Order, Event) error
+ }
+ 
+-type directTransaction struct {
+-	database *Database
+-	provider *Provider
++const reconciliationBatchSize = 64
++
++type outboxTransaction struct{ database *Database }
++
++type outboxItem struct {
++	id    string
++	event Event
++}
++
++func NewOutboxTransaction(database *Database) Transaction {
++	return &outboxTransaction{database: database}
+ }
+ 
+-func (transaction *directTransaction) Save(order Order, event Event) error {
+-	transaction.database.mu.Lock()
+-	transaction.database.orders[order.ID] = order
+-	transaction.database.mu.Unlock()
+-	transaction.provider.Deliver(event)
++func (transaction *outboxTransaction) Save(order Order, event Event) error {
++	database := transaction.database
++	database.mu.Lock()
++	defer database.mu.Unlock()
++	database.orders[order.ID] = order
++	database.outbox[event.ID] = event
+ 	return nil
+ }
+ 
+ func Place(transaction Transaction, order Order, event Event) error {
+ 	return transaction.Save(order, event)
+ }
+ 
+ func (provider *Provider) Deliver(event Event) {
+ 	provider.mu.Lock()
+ 	defer provider.mu.Unlock()
+-	provider.deliveries[event.ID]++
++	if provider.deliveries[event.ID] != 0 {
++		return
++	}
++	provider.deliveries[event.ID] = 1
++}
++
++func nextOutboxBatch(database *Database) []outboxItem {
++	database.mu.Lock()
++	defer database.mu.Unlock()
++	batch := make([]outboxItem, 0, reconciliationBatchSize)
++	for id, event := range database.outbox {
++		batch = append(batch, outboxItem{id: id, event: event})
++		if len(batch) == reconciliationBatchSize {
++			break
++		}
++	}
++	return batch
++}
++
++func ReconcileOutbox(database *Database, provider *Provider) {
++	for {
++		batch := nextOutboxBatch(database)
++		if len(batch) == 0 {
++			return
++		}
++		for _, item := range batch {
++			provider.Deliver(item.event)
++			database.mu.Lock()
++			delete(database.outbox, item.id)
++			database.mu.Unlock()
++		}
++	}
+ }
+diff --git a/place_test.go b/place_test.go
+new file mode 100644
+index 0000000..35d092e
+--- /dev/null
++++ b/place_test.go
+@@ -0,0 +1,70 @@
++package orders
++
++import (
++	"reflect"
++	"strconv"
++	"testing"
++)
++
++func TestAtomicOutboxAndIdempotentDelivery(t *testing.T) {
++	database := &Database{orders: map[string]Order{}, outbox: map[string]Event{}}
++	event := Event{ID: "event-1"}
++	if err := Place(NewOutboxTransaction(database), Order{ID: "order-1"}, event); err != nil {
++		t.Fatal(err)
++	}
++	if len(database.orders) != 1 || len(database.outbox) != 1 {
++		t.Fatal("order and outbox were not committed together")
++	}
++	provider := &Provider{deliveries: map[string]int{}}
++	ReconcileOutbox(database, provider)
++	if len(database.outbox) != 0 {
++		t.Fatal("reconciler did not remove the delivered event")
++	}
++	database.outbox[event.ID] = event // Simulate retry after delivery but before acknowledgement.
++	ReconcileOutbox(database, provider)
++	if provider.deliveries[event.ID] != 1 {
++		t.Fatal("redelivery produced a duplicate effect")
++	}
++}
++
++func TestPlacementKeepsHistoryMapsAndAddsBothRecords(t *testing.T) {
++	database := &Database{
++		orders: map[string]Order{"existing": {ID: "existing"}},
++		outbox: map[string]Event{"existing": {ID: "existing"}},
++	}
++	ordersBefore := reflect.ValueOf(database.orders).Pointer()
++	outboxBefore := reflect.ValueOf(database.outbox).Pointer()
++
++	if err := Place(NewOutboxTransaction(database), Order{ID: "new"}, Event{ID: "new"}); err != nil {
++		t.Fatal(err)
++	}
++	if reflect.ValueOf(database.orders).Pointer() != ordersBefore || reflect.ValueOf(database.outbox).Pointer() != outboxBefore {
++		t.Fatal("placement replaced a complete history map")
++	}
++	if _, ok := database.orders["new"]; !ok {
++		t.Fatal("order was not committed")
++	}
++	if _, ok := database.outbox["new"]; !ok {
++		t.Fatal("outbox event was not committed")
++	}
++}
++
++func TestOutboxSnapshotsAreBoundedAndReconciliationDrainsAllBatches(t *testing.T) {
++	database := &Database{orders: map[string]Order{}, outbox: map[string]Event{}}
++	for index := 0; index < reconciliationBatchSize*2+1; index++ {
++		id := "event-" + strconv.Itoa(index)
++		database.outbox[id] = Event{ID: id}
++	}
++	if batch := nextOutboxBatch(database); len(batch) != reconciliationBatchSize {
++		t.Fatalf("batch size = %d", len(batch))
++	}
++
++	provider := &Provider{deliveries: map[string]int{}}
++	ReconcileOutbox(database, provider)
++	if len(database.outbox) != 0 {
++		t.Fatalf("remaining outbox events = %d", len(database.outbox))
++	}
++	if len(provider.deliveries) != reconciliationBatchSize*2+1 {
++		t.Fatalf("deliveries = %d", len(provider.deliveries))
++	}
++}

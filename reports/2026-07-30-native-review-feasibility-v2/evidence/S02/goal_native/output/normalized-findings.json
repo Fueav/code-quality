@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "If `Cache.Get` is delayed and the user's membership changes after the version read, the captured old version can still match the cached snapshot, allowing a revoked user even though the authority changed before the cache returned. Read the cache before `Authority.Version`, or recheck the version after the cache lookup, so cache latency cannot separate validation from use.",
+      "end_line": 20,
+      "path": "cache.go",
+      "priority": 1,
+      "start_line": 19,
+      "title": "Validate the version after reading the cache"
+    }
+  ],
+  "schema_version": 1
+}

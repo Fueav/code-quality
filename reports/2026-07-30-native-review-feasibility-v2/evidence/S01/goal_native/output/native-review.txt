@@ -1,0 +1,6 @@
+The checkout path now uses a non-authoritative analytics price, causing the production annual plan to be charged at 100 cents rather than 10,000 cents.
+
+Review comment:
+
+- [P1] Keep checkout on the authoritative pricing source — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S01/goal_native/sessions/review-4186266941/input/repository/price.go:24-24
+  For `annual-plan`, this passes the analytics value of 100 cents to the irreversible charger instead of the authoritative 10,000 cents, undercharging every such order by 99%. The added source metadata explicitly marks analytics as reporting-only and potentially 24 hours stale, so checkout must continue using `AuthoritativePrice`.

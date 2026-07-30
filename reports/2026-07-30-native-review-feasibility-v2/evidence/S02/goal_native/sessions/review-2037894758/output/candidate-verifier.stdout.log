@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change introduces this TOCTOU window: Authority.Version is read before Cache.Get, so a membership change during a delayed cache lookup can leave the old version matching an old cached allow decision. No synchronization or post-lookup version check prevents returning that stale decision."}]}

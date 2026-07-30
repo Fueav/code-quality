@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When an external package tries to use the newly exported `Framework` API, it cannot supply a transport because the field is unexported and no constructor exists. The only value callers can create is `Framework{}`, whose `Fetch` method panics at `framework.transport.Fetch()`; expose a constructor or field, or keep this type unexported if it is only an implementation detail.",
+      "end_line": 13,
+      "path": "fetch.go",
+      "priority": 2,
+      "start_line": 13,
+      "title": "Provide a usable way to initialize Framework"
+    }
+  ],
+  "schema_version": 1
+}

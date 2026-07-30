@@ -1,0 +1,6 @@
+The refactor reverses the safe operation order, so a ledger failure leaves the account debited without a ledger entry. This directly breaks the required atomic failure outcome.
+
+Review comment:
+
+- [P1] Commit the debit only after the ledger write succeeds — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v2/evidence/S03/goal_native/sessions/review-1925731448/input/repository/transfer.go:26-27
+  When `WriteDebit` returns `ErrLedgerUnavailable`, the account has already been debited and no rollback occurs, leaving the balance changed without a corresponding ledger entry. This violates the failure contract and causes the existing failure-path check in `main` to exit with status 2.

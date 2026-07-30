@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change directly replaces AuthoritativePrice with AnalyticsPrice in FinalCheckoutPrice. ChargeOrder passes that result to ChargeCents, so annual-plan charges fall from 10,000 to 100 cents; the added metadata confirms analytics is reporting-only and the debit is immediate and irreversible."}]}
