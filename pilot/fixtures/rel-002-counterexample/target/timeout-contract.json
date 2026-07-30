@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "approved": true,
+  "component": "downstream-client",
+  "caller_deadline_seconds": 5,
+  "downstream_timeout_seconds": 2,
+  "downstream_slo_seconds": 1,
+  "preserve_caller_context": true,
+  "operations_exceeding_timeout_supported": false
+}

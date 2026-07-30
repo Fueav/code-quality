@@ -44,6 +44,13 @@ class QualificationToolsTest(unittest.TestCase):
         self.assertIn("context.WithTimeout(ctx", case["fixture"]["after"])
         self.assertNotIn("context.Background()", case["fixture"]["after"])
         self.assertTrue(any("caller context" in fact for fact in case["fixture"]["facts"]))
+        base_contract = SOURCE_ROOT / "pilot" / "fixtures" / "rel-002-counterexample" / "base" / "timeout-contract.json"
+        target_contract = SOURCE_ROOT / "pilot" / "fixtures" / "rel-002-counterexample" / "target" / "timeout-contract.json"
+        self.assertEqual(base_contract.read_bytes(), target_contract.read_bytes())
+        contract = json.loads(target_contract.read_text(encoding="utf-8"))
+        self.assertTrue(contract["approved"])
+        self.assertEqual(contract["downstream_timeout_seconds"], 2)
+        self.assertTrue(contract["preserve_caller_context"])
 
     def test_blind_task_prompt_does_not_need_case_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
