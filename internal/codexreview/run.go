@@ -1,9 +1,7 @@
 package codexreview
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -89,38 +87,21 @@ type nativeLineRange struct {
 	End   int
 }
 
-type verifierEnvelope struct {
-	Decisions []verifierDecision `json:"decisions"`
-}
-
-type verifierCandidate struct {
-	Index   int                   `json:"index"`
-	Finding quality.NativeFinding `json:"finding"`
-}
-
-type verifierDecision struct {
-	Index  int    `json:"index"`
-	Keep   bool   `json:"keep"`
-	Reason string `json:"reason"`
-}
-
 func Run(ctx context.Context, options Options) (quality.NativeReviewResult, error) {
 	if err := normalizeOptions(&options); err != nil {
 		return quality.NativeReviewResult{}, err
 	}
-	diff, err := reviewsession.ReadRegularFile(options.Prepared.DiffPath, maxNativeOutputBytes)
-	if err != nil {
+	if _, err := reviewsession.ReadRegularFile(options.Prepared.DiffPath, maxNativeOutputBytes); err != nil {
 		return quality.NativeReviewResult{}, fmt.Errorf("read trusted diff: %w", err)
 	}
-	directions := selectDirections(options.Request, diff)
-	result := newResult(options, directions)
+	result := newResult(options)
 	executor := options.Executor
 	if executor == nil {
 		executor = ProcessExecutor{}
 	}
 
 	result.Execution.ModelCalls = 1
-	if err := executor.Run(ctx, buildReviewInvocation(options, directions)); err != nil {
+	if err := executor.Run(ctx, buildReviewInvocation(options)); err != nil {
 		markIncomplete(&result, "native review failed: "+err.Error())
 		return result, nil
 	}
@@ -139,29 +120,8 @@ func Run(ctx context.Context, options Options) (quality.NativeReviewResult, erro
 		markPass(&result, "native review reported no actionable findings")
 		return result, nil
 	}
-
-	result.Execution.ModelCalls = 2
-	verifierInvocation, err := buildVerifierInvocation(options, findings)
-	if err != nil {
-		failOpen(&result, findings, "build verifier input: "+err.Error())
-		return result, nil
-	}
-	if err := executor.Run(ctx, verifierInvocation); err != nil {
-		failOpen(&result, findings, "candidate verifier failed: "+err.Error())
-		return result, nil
-	}
-	verifier, err := readVerifierOutput(options.Prepared.VerifierOutputPath, len(findings))
-	if err != nil {
-		failOpen(&result, findings, "candidate verifier output is invalid: "+err.Error())
-		return result, nil
-	}
-	result.Execution.VerifierStatus = quality.VerifierComplete
-	result.Findings = filterFindings(findings, verifier.Decisions)
-	if len(result.Findings) == 0 {
-		markPass(&result, "all native candidates were rejected by the candidate-only verifier")
-	} else {
-		markManualReview(&result)
-	}
+	result.Findings = findings
+	markManualReview(&result)
 	return result, nil
 }
 
@@ -173,17 +133,13 @@ func normalizeOptions(options *Options) error {
 		"session":           options.Prepared.SessionDir,
 		"repository":        options.Prepared.RepositoryDir,
 		"diff":              options.Prepared.DiffPath,
-		"verifier schema":   options.Prepared.VerifierSchemaPath,
 		"native review log": options.Prepared.NativeReviewPath,
-		"verifier output":   options.Prepared.VerifierOutputPath,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s path is required", name)
 		}
 	}
-	if strings.TrimSpace(options.Goal) == "" {
-		options.Goal = "Find actionable defects introduced or worsened by this change."
-	}
+	options.Goal = strings.TrimSpace(options.Goal)
 	if len(options.Goal) > 4000 {
 		return errors.New("review goal exceeds 4000 bytes")
 	}
@@ -203,18 +159,16 @@ func normalizeOptions(options *Options) error {
 	return nil
 }
 
-func newResult(options Options, directions []quality.ReviewDirection) quality.NativeReviewResult {
+func newResult(options Options) quality.NativeReviewResult {
 	return quality.NativeReviewResult{
 		SchemaVersion:           quality.NativeResultSchemaVersion,
 		EvaluationRubricVersion: options.EvaluationRubricVersion,
 		Request:                 options.Request,
 		ReviewGoal:              options.Goal,
-		Directions:              directions,
 		Findings:                []quality.NativeFinding{},
 		Execution: quality.NativeExecution{
 			Host: "codex", ReviewMode: "native_review", Model: options.Model,
-			ReasoningEffort: options.ReasoningEffort, VerifierStatus: quality.VerifierNotNeeded,
-			AdapterDrops: []quality.AdapterDrop{},
+			ReasoningEffort: options.ReasoningEffort, AdapterDrops: []quality.AdapterDrop{},
 		},
 		Adjudication: quality.Adjudication{
 			SemanticResult: quality.ResultIncomplete,
@@ -223,7 +177,7 @@ func newResult(options Options, directions []quality.ReviewDirection) quality.Na
 	}
 }
 
-func buildReviewInvocation(options Options, directions []quality.ReviewDirection) Invocation {
+func buildReviewInvocation(options Options) Invocation {
 	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
 	args := []string{"exec", "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "review"}
 	args = appendModelOptions(args, options)
@@ -233,50 +187,20 @@ func buildReviewInvocation(options Options, directions []quality.ReviewDirection
 	)
 	return Invocation{
 		Executable: options.CodexBinary, Args: args, Dir: options.Prepared.RepositoryDir,
-		Stdin: buildReviewPrompt(options, directions), OutputPath: options.Prepared.NativeReviewPath,
+		Stdin: buildReviewPrompt(options), OutputPath: options.Prepared.NativeReviewPath,
 		StdoutPath: layout.NativeStdoutPath, StderrPath: layout.NativeStderrPath,
 	}
 }
 
-func buildReviewPrompt(options Options, directions []quality.ReviewDirection) string {
+func buildReviewPrompt(options Options) string {
 	var prompt strings.Builder
 	fmt.Fprintf(&prompt, "Review the committed change %s..%s in the current repository.\n", options.Request.BaseCommit, options.Request.TargetCommit)
 	fmt.Fprintf(&prompt, "Use `git diff --no-ext-diff --unified=6 %s %s --` as the exact review scope.\n", options.Request.BaseCommit, options.Request.TargetCommit)
-	fmt.Fprintf(&prompt, "Change goal (user-provided): %s\n", strconv.Quote(options.Goal))
-	prompt.WriteString("Potential risk directions (hints only, not an exhaustive checklist):\n")
-	for _, direction := range directions {
-		fmt.Fprintf(&prompt, "- %s\n", direction.Prompt)
+	if options.Goal != "" {
+		fmt.Fprintf(&prompt, "User-supplied optional focus: %s. This is not a review boundary; report actionable defects outside it too.\n", strconv.Quote(options.Goal))
 	}
-	prompt.WriteString("Report actionable defects outside these hints too. Only report problems introduced or worsened by this change. Do not modify files.\n")
+	prompt.WriteString("Do not modify files.\n")
 	return prompt.String()
-}
-
-func buildVerifierInvocation(options Options, findings []quality.NativeFinding) (Invocation, error) {
-	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
-	indexed := make([]verifierCandidate, len(findings))
-	for index, finding := range findings {
-		indexed[index] = verifierCandidate{Index: index, Finding: finding}
-	}
-	candidates, err := json.Marshal(indexed)
-	if err != nil {
-		return Invocation{}, err
-	}
-	args := []string{"exec", "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral"}
-	args = appendModelOptions(args, options)
-	args = append(args,
-		"--output-schema", options.Prepared.VerifierSchemaPath,
-		"--output-last-message", options.Prepared.VerifierOutputPath,
-		"-",
-	)
-	prompt := fmt.Sprintf(
-		"Falsify only the indexed candidates below against committed change %s..%s. Each candidate has a zero-based integer index; copy its exact index into the corresponding decision and return exactly one decision per candidate. Keep a candidate unless the code proves it is not introduced or worsened, is contradicted, or is not actionable. Do not add candidates. Do not rewrite candidates. Do not merge or reprioritize them.\nCandidates:\n%s\n",
-		options.Request.BaseCommit, options.Request.TargetCommit, candidates,
-	)
-	return Invocation{
-		Executable: options.CodexBinary, Args: args, Dir: options.Prepared.RepositoryDir,
-		Stdin: prompt, OutputPath: options.Prepared.VerifierOutputPath,
-		StdoutPath: layout.VerifierStdoutPath, StderrPath: layout.VerifierStderrPath,
-	}, nil
 }
 
 func appendModelOptions(args []string, options Options) []string {
@@ -463,64 +387,6 @@ func parseNativeLocation(raw string) (string, int, int, error) {
 	return path, start, end, nil
 }
 
-func readVerifierOutput(path string, count int) (verifierEnvelope, error) {
-	raw, err := reviewsession.ReadRegularFile(path, maxNativeOutputBytes)
-	if err != nil {
-		return verifierEnvelope{}, err
-	}
-	var shape map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &shape); err != nil {
-		return verifierEnvelope{}, err
-	}
-	value, exists := shape["decisions"]
-	if !exists || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-		return verifierEnvelope{}, errors.New("decisions array is required")
-	}
-	var items []map[string]json.RawMessage
-	if err := json.Unmarshal(value, &items); err != nil {
-		return verifierEnvelope{}, errors.New("decisions must be an array of objects")
-	}
-	for index, item := range items {
-		if err := requireRawFields(item, fmt.Sprintf("decisions[%d]", index), "index", "keep", "reason"); err != nil {
-			return verifierEnvelope{}, err
-		}
-	}
-	verifier, err := quality.DecodeStrict[verifierEnvelope](bytes.NewReader(raw))
-	if err != nil {
-		return verifierEnvelope{}, err
-	}
-	if len(verifier.Decisions) != count {
-		return verifierEnvelope{}, fmt.Errorf("decision count %d does not match candidate count %d", len(verifier.Decisions), count)
-	}
-	seen := make(map[int]struct{}, count)
-	for _, decision := range verifier.Decisions {
-		if decision.Index < 0 || decision.Index >= count {
-			return verifierEnvelope{}, fmt.Errorf("decision index %d is out of range", decision.Index)
-		}
-		if _, exists := seen[decision.Index]; exists {
-			return verifierEnvelope{}, fmt.Errorf("decision index %d is duplicated", decision.Index)
-		}
-		if strings.TrimSpace(decision.Reason) == "" {
-			return verifierEnvelope{}, fmt.Errorf("decision index %d has no reason", decision.Index)
-		}
-		seen[decision.Index] = struct{}{}
-	}
-	return verifier, nil
-}
-
-func requireRawFields(document map[string]json.RawMessage, prefix string, fields ...string) error {
-	if document == nil {
-		return errors.New(prefix + " must be an object")
-	}
-	for _, field := range fields {
-		value, exists := document[field]
-		if !exists || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return fmt.Errorf("%s.%s is required", prefix, field)
-		}
-	}
-	return nil
-}
-
 func adaptFindings(raw []nativeFinding, repository string, changedFiles []string) ([]quality.NativeFinding, []quality.AdapterDrop) {
 	changed := make(map[string]struct{}, len(changedFiles))
 	for _, path := range changedFiles {
@@ -574,20 +440,6 @@ func validateNativeCandidate(candidate nativeFinding) string {
 	return ""
 }
 
-func filterFindings(findings []quality.NativeFinding, decisions []verifierDecision) []quality.NativeFinding {
-	keep := make(map[int]bool, len(decisions))
-	for _, decision := range decisions {
-		keep[decision.Index] = decision.Keep
-	}
-	result := make([]quality.NativeFinding, 0, len(findings))
-	for index, finding := range findings {
-		if keep[index] {
-			result = append(result, finding)
-		}
-	}
-	return result
-}
-
 func markPass(result *quality.NativeReviewResult, reason string) {
 	result.Adjudication.SemanticResult = quality.ResultPass
 	result.Adjudication.Reasons = []string{reason}
@@ -602,13 +454,6 @@ func markIncomplete(result *quality.NativeReviewResult, reason string) {
 	result.Findings = []quality.NativeFinding{}
 	result.Adjudication.SemanticResult = quality.ResultIncomplete
 	result.Adjudication.Reasons = []string{reason}
-}
-
-func failOpen(result *quality.NativeReviewResult, findings []quality.NativeFinding, note string) {
-	result.Findings = findings
-	result.Execution.VerifierStatus = quality.VerifierFailedOpen
-	result.Execution.VerifierNote = note
-	markManualReview(result)
 }
 
 func Publish(prepared reviewsession.Prepared, result quality.NativeReviewResult) error {

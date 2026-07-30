@@ -1,6 +1,6 @@
 # Native Review Goal-mode Feasibility v2
 
-Status: **DO NOT EXPAND TO 40**
+Status: **CLOSED — DO NOT RERUN OR EXPAND**
 
 ## Decision
 
@@ -12,6 +12,8 @@ The corrected eight-case gate did not pass. Goal mode and the official native ba
 - actual/maximum model calls: 22/24, with no retry.
 
 This result does not support adding more runtime review rules or prompt constraints. The thin goal did not improve positive coverage in this sample, and each lane produced one different false positive. One supposedly corrected negative still contained a genuine atomicity bug, so the experiment cannot authorize the 40-case comparison.
+
+The subsequent locked-architecture decision retires this synthetic gate from product-superiority scoring. Its fixtures remain regression and calibration evidence only; the product no longer contains a candidate verifier or automatic risk directions.
 
 Machine outcome: [outcome.json](outcome.json)
 
@@ -93,16 +95,9 @@ No authentication file, credential-pattern match, or symlink was retained in the
 - Evidence was frozen before reading candidates; judgments were frozen before lane reveal.
 - The machine expansion decision is false because two mandatory conditions are false.
 
-## Next bounded iteration
+## Closed follow-up
 
-Do not run another 16-session matrix immediately.
-
-1. Make COR-004 initialize or validate both maps before either write, and add a regression test for the legacy `orders`-only database state.
-2. Remove the avoidable S02 adjudication ambiguity by reading the cached snapshot before performing the authoritative version validation, with a call-order test.
-3. Freeze only these two corrected negatives and run both lanes: maximum 2 baseline plus 4 goal-mode calls, 6 total. If either case still exposes a real defect, repair the sample again without running the full matrix.
-4. Only after that negative smoke is clean should a new full eight-case gate be considered.
-
-This sequence tests the measuring instrument before spending another 22 to 24 calls. It keeps the product architecture thin and concentrates the next work on deterministic fixture quality rather than prompt expansion.
+Do not continue the S02/S04 repair loop and do not rerun this matrix. A future quality A/B starts from a separately qualified benchmark built from real historical changes. Plausible newly discovered defects move a sample to `ambiguous` or `excluded` before scoring rather than triggering another fixture patch.
 
 ## Residual uncertainty
 

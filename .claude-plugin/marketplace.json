@@ -10,7 +10,7 @@
       "name": "code-quality",
       "source": "./plugins/code-quality",
       "description": "Reviews a trusted committed Git increment for material correctness, data, reliability, security, and compatibility defects.",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "author": {
         "name": "Fueav"
       },

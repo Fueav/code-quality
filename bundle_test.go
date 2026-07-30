@@ -72,8 +72,7 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-request.schema.json",
 		"model-review.schema.json",
 		"review-result.schema.json",
-		"candidate-verifier.schema.json",
-		"review-result-v2.schema.json",
+		"review-result-v3.schema.json",
 	} {
 		schema, err := Schema(name)
 		if err != nil || len(schema) == 0 {
@@ -89,15 +88,20 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 }
 
 func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
-	for _, name := range []string{"candidate-verifier.schema.json", "review-result-v2.schema.json"} {
+	for _, name := range []string{"review-result-v3.schema.json"} {
 		raw, err := Schema(name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, obsolete := range []string{"activated_rule_families", "inactive_rule_families", "rereview_scope", "rule_id"} {
+		for _, obsolete := range []string{"activated_rule_families", "inactive_rule_families", "rereview_scope", "rule_id", "directions", "verifier_status"} {
 			if strings.Contains(string(raw), obsolete) {
 				t.Fatalf("%s exposes obsolete runtime field %q", name, obsolete)
 			}
+		}
+	}
+	for _, retired := range []string{"candidate-verifier.schema.json", "review-result-v2.schema.json"} {
+		if _, err := Schema(retired); err == nil {
+			t.Fatalf("retired runtime schema %s is still embedded", retired)
 		}
 	}
 }

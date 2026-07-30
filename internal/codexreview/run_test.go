@@ -14,35 +14,13 @@ import (
 	"github.com/Fueav/code-quality/quality"
 )
 
-func TestSelectDirectionsIsDeterministicAndBounded(t *testing.T) {
-	request := quality.ReviewRequest{ChangedFiles: []string{"internal/auth/token.go", "internal/worker.go"}}
-	diff := []byte("+if token == \"\" { return errUnauthorized }\n+case <-time.After(timeout):\n")
-
-	first := selectDirections(request, diff)
-	second := selectDirections(request, diff)
-	if len(first) < 1 || len(first) > 3 {
-		t.Fatalf("direction count = %d", len(first))
-	}
-	if directionsKey(first) != directionsKey(second) {
-		t.Fatalf("directions are not deterministic: %#v != %#v", first, second)
-	}
-	joined := directionsKey(first)
-	for _, expected := range []string{"security-boundaries", "reliability-lifecycle"} {
-		if !strings.Contains(joined, expected) {
-			t.Fatalf("directions %q do not include %q", joined, expected)
-		}
-	}
-}
-
 func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	options := Options{
 		Prepared: prepared, Request: request, Goal: "protect settlement correctness",
 		Model: "gpt-5.6-sol", ReasoningEffort: "high",
 	}
-	directions := []quality.ReviewDirection{{ID: "data-business-correctness", Prompt: "Trace value and state transitions."}}
-
-	invocation := buildReviewInvocation(options, directions)
+	invocation := buildReviewInvocation(options)
 	args := strings.Join(invocation.Args, " ")
 	if !strings.Contains(args, "exec --sandbox read-only --ignore-user-config --ignore-rules --ephemeral review") {
 		t.Fatalf("native review args = %q", args)
@@ -52,13 +30,32 @@ func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
 			t.Fatalf("custom target is combined with %s: %q", forbidden, args)
 		}
 	}
-	for _, required := range []string{request.BaseCommit, request.TargetCommit, "protect settlement correctness", "hints only", "outside these hints"} {
+	for _, required := range []string{request.BaseCommit, request.TargetCommit, "protect settlement correctness", "optional focus", "not a review boundary"} {
 		if !strings.Contains(invocation.Stdin, required) {
 			t.Fatalf("prompt is missing %q:\n%s", required, invocation.Stdin)
 		}
 	}
-	if strings.Contains(invocation.Stdin, "first nonblank line exactly") {
-		t.Fatalf("prompt imposes a private zero-candidate marker:\n%s", invocation.Stdin)
+	for _, forbidden := range []string{"Potential risk directions", "security boundaries", "reliability lifecycle", "first nonblank line exactly"} {
+		if strings.Contains(invocation.Stdin, forbidden) {
+			t.Fatalf("prompt contains automatic direction or private protocol %q:\n%s", forbidden, invocation.Stdin)
+		}
+	}
+}
+
+func TestNativeReviewPromptOmitsUnsuppliedGoal(t *testing.T) {
+	prepared, request := nativeFixture(t)
+	options := Options{Prepared: prepared, Request: request, ReasoningEffort: "high"}
+	if err := normalizeOptions(&options); err != nil {
+		t.Fatal(err)
+	}
+	if options.Goal != "" {
+		t.Fatalf("wrapper invented goal %q", options.Goal)
+	}
+	prompt := buildReviewPrompt(options)
+	for _, forbidden := range []string{"Review goal", "optional focus", "Find actionable defects introduced"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("prompt contains invented goal text %q:\n%s", forbidden, prompt)
+		}
 	}
 }
 
@@ -232,7 +229,7 @@ func TestNativeOutputRejectsNoFindingsFollowedByAnyCandidateHeading(t *testing.T
 	}
 }
 
-func TestZeroFindingsSkipsVerifier(t *testing.T) {
+func TestZeroFindingsCompletesAfterOneNativeCall(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	executor := &scriptedExecutor{outputs: []string{"The target preserves cancellation and enforces the approved timeout.\n"}}
 
@@ -243,7 +240,7 @@ func TestZeroFindingsSkipsVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Adjudication.SemanticResult != quality.ResultPass || result.Execution.ModelCalls != 1 || result.Execution.VerifierStatus != quality.VerifierNotNeeded {
+	if result.Adjudication.SemanticResult != quality.ResultPass || result.Execution.ModelCalls != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	if len(executor.invocations) != 1 {
@@ -251,13 +248,10 @@ func TestZeroFindingsSkipsVerifier(t *testing.T) {
 	}
 }
 
-func TestVerifierCanOnlyFilterExistingCandidates(t *testing.T) {
+func TestNativeFindingsCompleteAfterOneNativeCall(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	path := filepath.Join(prepared.RepositoryDir, "app.go")
-	executor := &scriptedExecutor{outputs: []string{
-		nativeFindingOutput(path, "timeout is ignored", "The new call can wait forever.", 1),
-		`{"decisions":[{"index":0,"keep":false,"reason":"The target already enforces the timeout."}]}`,
-	}}
+	executor := &scriptedExecutor{outputs: []string{nativeFindingOutput(path, "timeout is ignored", "The new call can wait forever.", 1)}}
 
 	result, err := Run(context.Background(), Options{
 		Prepared: prepared, Request: request, Goal: "review the change",
@@ -266,56 +260,11 @@ func TestVerifierCanOnlyFilterExistingCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Adjudication.SemanticResult != quality.ResultPass || len(result.Findings) != 0 || result.Execution.ModelCalls != 2 || result.Execution.VerifierStatus != quality.VerifierComplete {
+	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 1 || result.Execution.ModelCalls != 1 {
 		t.Fatalf("result = %#v", result)
 	}
-	if len(executor.invocations) != 2 {
+	if len(executor.invocations) != 1 {
 		t.Fatalf("model calls = %d", len(executor.invocations))
-	}
-	for _, required := range []string{"only the indexed candidates", "zero-based", "copy its exact index", `"index":0`, "Do not add", "Do not rewrite"} {
-		if !strings.Contains(executor.invocations[1].Stdin, required) {
-			t.Fatalf("verifier prompt is missing %q:\n%s", required, executor.invocations[1].Stdin)
-		}
-	}
-}
-
-func TestVerifierFailureKeepsNativeCandidates(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	path := filepath.Join(prepared.RepositoryDir, "app.go")
-	executor := &scriptedExecutor{
-		outputs: []string{nativeFindingOutput(path, "wrong result", "The new branch returns the opposite value.", 1)},
-		errors:  []error{nil, errors.New("verifier unavailable")},
-	}
-
-	result, err := Run(context.Background(), Options{
-		Prepared: prepared, Request: request, Goal: "review the change",
-		ReasoningEffort: "high", EvaluationRubricVersion: "1.2.0", Executor: executor,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Adjudication.SemanticResult != quality.ResultManualReview || result.Execution.VerifierStatus != quality.VerifierFailedOpen {
-		t.Fatalf("result = %#v", result)
-	}
-}
-
-func TestMalformedVerifierDecisionFailsOpen(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	path := filepath.Join(prepared.RepositoryDir, "app.go")
-	executor := &scriptedExecutor{outputs: []string{
-		nativeFindingOutput(path, "wrong result", "The new branch returns the opposite value.", 1),
-		`{"decisions":[{"index":0,"reason":"Missing the required keep field."}]}`,
-	}}
-
-	result, err := Run(context.Background(), Options{
-		Prepared: prepared, Request: request, Goal: "review the change",
-		ReasoningEffort: "high", EvaluationRubricVersion: "1.2.0", Executor: executor,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Execution.VerifierStatus != quality.VerifierFailedOpen {
-		t.Fatalf("malformed verifier did not fail open: %#v", result)
 	}
 }
 
@@ -375,9 +324,7 @@ func nativeFixture(t *testing.T) (reviewsession.Prepared, quality.ReviewRequest)
 	}
 	prepared := reviewsession.Prepared{
 		SessionDir: directory, RepositoryDir: repository, DiffPath: diffPath,
-		VerifierSchemaPath: filepath.Join(directory, "verifier.schema.json"),
-		NativeReviewPath:   filepath.Join(output, "native-review.txt"),
-		VerifierOutputPath: filepath.Join(output, "candidate-verdicts.json"),
+		NativeReviewPath: filepath.Join(output, "native-review.txt"),
 	}
 	request := quality.ReviewRequest{
 		Repository: "example/repo", TargetBranch: "main",
@@ -389,12 +336,4 @@ func nativeFixture(t *testing.T) (reviewsession.Prepared, quality.ReviewRequest)
 
 func nativeFindingOutput(path, title, body string, priority int) string {
 	return fmt.Sprintf("Review comment:\n\n- [P%d] %s — %s:2-2\n  %s\n", priority, title, path, body)
-}
-
-func directionsKey(directions []quality.ReviewDirection) string {
-	values := make([]string, 0, len(directions))
-	for _, direction := range directions {
-		values = append(values, direction.ID)
-	}
-	return strings.Join(values, ",")
 }

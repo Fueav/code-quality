@@ -8,27 +8,14 @@ import (
 func ValidateNativeResult(result NativeReviewResult) []string {
 	var problems []string
 	if result.SchemaVersion != NativeResultSchemaVersion {
-		problems = append(problems, "native result schema_version must be 2")
+		problems = append(problems, "native result schema_version must be 3")
 	}
 	if strings.TrimSpace(result.EvaluationRubricVersion) == "" {
 		problems = append(problems, "evaluation_rubric_version is required")
 	}
 	problems = append(problems, ValidateRequest(result.Request)...)
-	if strings.TrimSpace(result.ReviewGoal) == "" {
-		problems = append(problems, "review_goal is required")
-	}
-	if len(result.Directions) < 1 || len(result.Directions) > 3 {
-		problems = append(problems, "directions must contain between 1 and 3 hints")
-	}
-	seenDirections := map[string]struct{}{}
-	for index, direction := range result.Directions {
-		if strings.TrimSpace(direction.ID) == "" || strings.TrimSpace(direction.Prompt) == "" {
-			problems = append(problems, fmt.Sprintf("directions[%d] is incomplete", index))
-		}
-		if _, exists := seenDirections[direction.ID]; exists {
-			problems = append(problems, "directions contains duplicate ids")
-		}
-		seenDirections[direction.ID] = struct{}{}
+	if len(result.ReviewGoal) > 4000 {
+		problems = append(problems, "review_goal exceeds 4000 bytes")
 	}
 	changed := map[string]struct{}{}
 	for _, path := range result.Request.ChangedFiles {
@@ -55,23 +42,8 @@ func ValidateNativeResult(result NativeReviewResult) []string {
 	if strings.TrimSpace(result.Execution.ReasoningEffort) == "" {
 		problems = append(problems, "execution.reasoning_effort is required")
 	}
-	if result.Execution.ModelCalls < 1 || result.Execution.ModelCalls > 2 {
-		problems = append(problems, "execution.model_calls must be 1 or 2")
-	}
-	switch result.Execution.VerifierStatus {
-	case VerifierNotNeeded:
-		if result.Execution.ModelCalls != 1 {
-			problems = append(problems, "not_needed verifier requires one model call")
-		}
-	case VerifierComplete, VerifierFailedOpen:
-		if result.Execution.ModelCalls != 2 {
-			problems = append(problems, "completed or failed-open verifier requires two model calls")
-		}
-	default:
-		problems = append(problems, "execution.verifier_status is invalid")
-	}
-	if result.Execution.VerifierStatus == VerifierFailedOpen && strings.TrimSpace(result.Execution.VerifierNote) == "" {
-		problems = append(problems, "failed_open verifier requires a note")
+	if result.Execution.ModelCalls != 1 {
+		problems = append(problems, "execution.model_calls must be exactly 1")
 	}
 	for index, dropped := range result.Execution.AdapterDrops {
 		if dropped.Index < 0 || strings.TrimSpace(dropped.Reason) == "" {

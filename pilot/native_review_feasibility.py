@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the frozen native-review goal-mode feasibility experiment."""
+"""Inspect the frozen native-review goal-mode feasibility experiment."""
 
 from __future__ import annotations
 
@@ -24,6 +24,10 @@ from native_review_admission import audit_inventory, file_sha256, tree_sha256
 
 
 PROFILE_PATTERN = re.compile(r"^native_review_goal_feasibility_v[1-9][0-9]*$")
+RETIRED_PROFILES = {
+    "native_review_goal_feasibility_v1",
+    "native_review_goal_feasibility_v2",
+}
 MODEL = "gpt-5.6-sol"
 REASONING_EFFORT = "high"
 LANES = ("baseline_native", "goal_native")
@@ -86,6 +90,8 @@ def audit_protocol(root: pathlib.Path, manifest_path: pathlib.Path) -> dict[str,
     profile = manifest.get("profile")
     if manifest.get("schema_version") != 1 or not isinstance(profile, str) or not PROFILE_PATTERN.fullmatch(profile):
         errors.append("protocol header is invalid")
+    elif profile in RETIRED_PROFILES:
+        errors.append("protocol is retired; retain it as historical evidence only")
 
     specification = manifest.get("specification")
     admission_ref = manifest.get("admission")

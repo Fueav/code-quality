@@ -60,15 +60,14 @@ func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 	for _, required := range []string{
 		"quality-review run-codex",
 		"--goal",
-		"native `codex exec review`",
-		"candidate-only verifier",
+		"exactly one native `codex exec review`",
 		"Never delete the session directory",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("Skill is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"rereview_scope", "REVIEW_INVALID", "activated_rule_families", "20 rules", "rm -rf .code-quality"} {
+	for _, forbidden := range []string{"candidate-only verifier", "risk direction", "rereview_scope", "REVIEW_INVALID", "activated_rule_families", "20 rules", "rm -rf .code-quality"} {
 		if strings.Contains(skill, forbidden) {
 			t.Fatalf("Skill retains obsolete runtime guidance %q", forbidden)
 		}

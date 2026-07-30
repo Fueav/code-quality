@@ -24,12 +24,13 @@ from native_review_feasibility import (  # noqa: E402
 
 
 class NativeReviewFeasibilityTest(unittest.TestCase):
-    def test_protocol_freezes_balanced_admitted_sample_and_session_order(self) -> None:
+    def test_historical_protocol_is_retired_but_remains_auditable(self) -> None:
         report = audit_protocol(
             SOURCE_ROOT,
             SOURCE_ROOT / "evals" / "native-review-feasibility-v2.json",
         )
-        self.assertTrue(report["ready"])
+        self.assertFalse(report["ready"])
+        self.assertIn("protocol is retired; retain it as historical evidence only", report["errors"])
         self.assertEqual(report["case_count"], 8)
         self.assertEqual(report["kind_totals"], {"counterexample": 4, "positive": 4})
         self.assertEqual(report["dimension_totals"], {"D1": 2, "D2": 2, "D3": 2, "D4": 2})

@@ -2,34 +2,35 @@
 
 ## Outcome
 
-The new default path is `quality-review run-codex`. It starts from the existing deterministic committed-scope intake, creates a clean target checkout, and delegates semantic discovery to native `codex exec review`.
+The v0.4.0 architecture is locked to one semantic model call. `quality-review run-codex` deterministically fixes and isolates one committed `base..target` scope, invokes native `codex exec review` once, adapts the retained native text to trusted changed files, and publishes a report-only result.
 
-The historical V1.2 rule activation, inactive-dimension explanation, zero-finding rereview, and host-authored model JSON are not used by this path. V1.2 remains available only as an offline evaluation rubric and through explicitly named legacy commands.
+The wrapper no longer selects risk directions, invents a default goal, runs a candidate verifier, rereviews, retries, or injects the V1.2 rubric. A user-supplied `--goal` is the only optional semantic input and is explicitly presented as a focus rather than a review boundary.
 
-## Specification audit
+## Contract evidence
 
-| Contract | Implementation evidence | Verification |
-| --- | --- | --- |
-| Exact committed scope | `intake.Discover`, trusted `base..target` diff, isolated target checkout | Existing intake/session tests plus native CLI integration test |
-| Native review owns discovery | Main process invokes the `review` subcommand with a short custom target | Generated argument contract test and local Codex 0.145.0 parser check |
-| No competing native target | Main invocation contains no `--base`, `--commit`, or `--uncommitted` | `TestNativeReviewInvocationUsesOneCustomTarget` |
-| One to three non-binding directions | Deterministic change-signal catalog with generic fallback and explicit non-exhaustive wording | `TestSelectDirectionsIsDeterministicAndBounded` |
-| Zero findings stop after one call | Verifier branch is entered only for normalized candidates | `TestZeroFindingsSkipsVerifier` and end-to-end CLI test |
-| Candidate-only falsification | Second call returns only indexed keep/reject decisions; original findings are filtered deterministically | `TestVerifierCanOnlyFilterExistingCandidates` |
-| Verifier failure is fail-open | Process, shape, or decision-contract failure keeps every valid native candidate | Verifier failure and missing-field tests |
-| Deterministic output boundary | Native zero-candidate assessment handling, strict candidate-section parsing, absolute-path containment, changed-file mapping, and line/priority validation | Native adapter, result validator, orphan-candidate rejection, and out-of-checkout test |
-| No old runtime prompt artifacts | Native sessions materialize only scope plus the candidate-verifier schema | End-to-end CLI test and active-path forbidden-field scan |
-| Report-only | Final semantic states are `PASS`, `MANUAL_REVIEW`, or `INCOMPLETE`; CI action remains `publish_report` | `ValidateNativeResult` tests |
+| Locked contract | Implementation evidence |
+| --- | --- |
+| Exactly one native call | Both zero-finding and finding-bearing tests assert `model_calls=1`; the finding path publishes the original valid native candidate directly |
+| Optional goal only | Empty input stays empty and is omitted from the prompt and JSON; supplied input is quoted as a non-limiting optional focus |
+| No automatic directions | The direction catalog and result fields were deleted; prompt tests reject automatic direction text |
+| No verifier path | Verifier code, session paths, schema, logs, result fields, and Skill guidance were deleted |
+| Deterministic safety boundary | Native text grammar, checkout containment, changed-file mapping, line validation, and adapter-drop behavior remain covered |
+| Report-only semantics | Zero findings produce `PASS`, valid findings produce `MANUAL_REVIEW`, and failed or unusable native output produces `INCOMPLETE` |
+| Frozen external contract | Native result and CLI summary use schema v3; plugin/runtime version is v0.4.0 |
 
-## Verification evidence
+## Evaluation decision
 
-- RED: the initial `internal/codexreview` contract test failed to compile because the native runner, direction selector, and v2 result types did not exist.
-- GREEN: `go test ./...` passed.
-- Static checks: `go vet ./...` and `git diff --check` passed.
-- Auxiliary suites: all live-watch/live-adjudication and historical-mining Python tests passed.
-- Prompt discipline: the shipped Skill became two lines shorter and contains no rereview or rule-activation loop.
-- CLI feasibility: bounded live smokes used local `codex-cli 0.145.0`, `gpt-5.6-sol`, and `high` reasoning. They proved that findings use a `Review comment:` section while zero-candidate results are nonempty assessment prose; the final contract-backed negative v5 reached `PASS` with one call. See `reports/2026-07-30-native-review-negative-v5-smoke/report.md`.
+The 60 synthetic cases remain offline regression and calibration fixtures, not product-superiority labels. The v1 and v2 feasibility profiles are mechanically retired: their manifests and raw evidence remain auditable, while the runner refuses to mark them ready for another execution.
+
+A future A/B requires a separately qualified benchmark built from real historical changes. A plausible newly discovered defect moves a sample to `ambiguous` or `excluded` before scoring. A goal treatment is preferred only if a predeclared paired comparison finds more accepted true findings without more accepted false positives; a tie leaves native review as the default and goal mode optional.
+
+## Verification
+
+- RED: focused contracts failed on the old invocation signature, required directions and verifier fields, missing v3 schema, old Skill guidance, and the two-call prompt behavior.
+- GREEN: all Go package tests passed, including the single-call finding and zero-finding paths.
+- Static and build checks passed: `gofmt`, `go vet ./...`, `go build ./cmd/quality-review`, and `git diff --check`.
+- Python qualification, live-watch/live-adjudication, and historical-mining suites passed after replacing the obsolete “old protocol is ready” assertion with a retirement assertion.
 
 ## Intentionally not performed
 
-No large frozen-sample A/B run, release tag, push, or deployment was performed. Each follow-up smoke had its own frozen two-call ceiling; the final v5 used one call and no verifier.
+No model A/B, token-spending smoke, release tag, push, deployment, or superiority claim was performed. The next quality experiment is blocked on an independently qualified real-change benchmark, not on further synthetic fixture repair.

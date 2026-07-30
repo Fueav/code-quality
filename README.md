@@ -15,7 +15,7 @@ Report-only 代码质量审查组件。它对一个**已提交的代码增量**�
 # 最新版
 curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
 # 指定版本
-curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.3.1
+curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.4.0
 ```
 
 确认：`quality-review version`
@@ -24,10 +24,10 @@ curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/instal
 
 ```sh
 # Codex
-codex plugin marketplace add Fueav/code-quality --ref v0.3.1 && codex plugin add code-quality@fueav-code-quality
+codex plugin marketplace add Fueav/code-quality --ref v0.4.0 && codex plugin add code-quality@fueav-code-quality
 
 # Claude Code
-claude plugin marketplace add Fueav/code-quality@v0.3.1 && claude plugin install code-quality@fueav-code-quality
+claude plugin marketplace add Fueav/code-quality@v0.4.0 && claude plugin install code-quality@fueav-code-quality
 ```
 
 仓库根目录同时提供 Codex 的 `.agents/plugins/marketplace.json` 与 Claude Code 的 `.claude-plugin/marketplace.json`，两端共用 `plugins/code-quality/` 的同一份 Skill。
@@ -40,9 +40,9 @@ claude plugin marketplace add Fueav/code-quality@v0.3.1 && claude plugin install
 quality-review run-codex --repo . --goal "这次改动的意图或额外关注点"
 ```
 
-流程只有三层：确定性固定 base→target；一次 `codex exec review` 原生发现；仅在存在候选时追加一次只允许保留/排除的证伪。零发现直接结束，不做覆盖声明或强制复审。系统按改动信号提供 1–3 个非约束方向，模型仍可报告方向之外的问题。
+默认链路只有一次语义调用：确定性固定并隔离 base→target；执行一次 `codex exec review`；确定性适配原生结果并发布报告。`--goal` 只在用户显式提供时加入，作为可选关注点而不是审查边界。系统不再自动选择方向，也不追加验证器、复审或重试。
 
-20 条 V1.2 底线保留为离线评测量尺，不再整包注入运行时 Prompt，也不再要求模型激活规则、解释未激活维度或填写覆盖表。
+20 条 V1.2 底线保留为离线评测量尺，不注入运行时 Prompt。历史合成样本只用于回归和校准，不作为产品优越性门槛；未来 A/B 必须使用独立资格审查后的冻结样本，并把新发现的合理缺陷标记为争议样本而不是直接计作误报。
 
 ## 对照评测
 

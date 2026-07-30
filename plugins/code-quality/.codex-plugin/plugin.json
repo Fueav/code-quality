@@ -1,6 +1,6 @@
 {
   "name": "code-quality",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Runs a Codex-native report-only review with the V1.2 rubric retained for offline evaluation.",
   "author": {
     "name": "Fueav",
@@ -16,7 +16,7 @@
   "interface": {
     "displayName": "Code Quality",
     "shortDescription": "Run a thin Codex-native code review",
-    "longDescription": "Review a trusted committed Git increment with native Codex discovery, optional risk hints, and candidate-only filtering.",
+    "longDescription": "Review a trusted committed Git increment with exactly one native Codex review and an optional user-supplied goal.",
     "developerName": "Fueav",
     "category": "Developer Tools",
     "capabilities": [

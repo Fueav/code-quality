@@ -36,16 +36,12 @@ type Layout struct {
 	RubricPath          string
 	WorkflowPath        string
 	ModelSchemaPath     string
-	VerifierSchemaPath  string
 	ManifestPath        string
 	MetadataPath        string
 	MainReviewPath      string
 	NativeReviewPath    string
-	VerifierOutputPath  string
 	NativeStdoutPath    string
 	NativeStderrPath    string
-	VerifierStdoutPath  string
-	VerifierStderrPath  string
 	RereviewPath        string
 	ReviewInvalidPath   string
 	ResultPath          string
@@ -63,12 +59,10 @@ type Prepared struct {
 	RubricPath          string       `json:"rubric_path"`
 	WorkflowPath        string       `json:"workflow_path"`
 	ModelSchemaPath     string       `json:"model_schema_path"`
-	VerifierSchemaPath  string       `json:"verifier_schema_path,omitempty"`
 	ManifestPath        string       `json:"manifest_path"`
 	MetadataPath        string       `json:"metadata_path"`
 	MainReviewPath      string       `json:"main_review_path"`
 	NativeReviewPath    string       `json:"native_review_path,omitempty"`
-	VerifierOutputPath  string       `json:"verifier_output_path,omitempty"`
 	ResultPath          string       `json:"result_path,omitempty"`
 	MarkdownPath        string       `json:"markdown_path,omitempty"`
 	DirtyWorktree       bool         `json:"dirty_worktree"`
@@ -165,11 +159,7 @@ func prepare(ctx context.Context, options Options, native bool) (Prepared, error
 	if err := writeTrustedDiff(ctx, options.RepositoryRoot, options.Request, layout.DiffPath); err != nil {
 		return Prepared{}, err
 	}
-	if native {
-		if err := writeSchema(layout.VerifierSchemaPath, "candidate-verifier.schema.json"); err != nil {
-			return Prepared{}, err
-		}
-	} else {
+	if !native {
 		if err := writeEmbedded(layout.RubricPath, bundle.ReviewLens); err != nil {
 			return Prepared{}, err
 		}
@@ -208,9 +198,7 @@ func prepare(ctx context.Context, options Options, native bool) (Prepared, error
 		result.WorkflowPath = ""
 		result.ModelSchemaPath = ""
 		result.MainReviewPath = ""
-		result.VerifierSchemaPath = layout.VerifierSchemaPath
 		result.NativeReviewPath = layout.NativeReviewPath
-		result.VerifierOutputPath = layout.VerifierOutputPath
 	}
 	return result, nil
 }
@@ -234,16 +222,12 @@ func NewLayout(directory string) Layout {
 		RubricPath:          filepath.Join(input, "rubric.md"),
 		WorkflowPath:        filepath.Join(input, "workflow.md"),
 		ModelSchemaPath:     filepath.Join(input, "model-review.schema.json"),
-		VerifierSchemaPath:  filepath.Join(input, "candidate-verifier.schema.json"),
 		ManifestPath:        filepath.Join(directory, "input-manifest.json"),
 		MetadataPath:        filepath.Join(input, "session-metadata.json"),
 		MainReviewPath:      filepath.Join(output, "main-review.json"),
 		NativeReviewPath:    filepath.Join(output, "native-review.txt"),
-		VerifierOutputPath:  filepath.Join(output, "candidate-verdicts.json"),
 		NativeStdoutPath:    filepath.Join(output, "native-review.stdout.log"),
 		NativeStderrPath:    filepath.Join(output, "native-review.stderr.log"),
-		VerifierStdoutPath:  filepath.Join(output, "candidate-verifier.stdout.log"),
-		VerifierStderrPath:  filepath.Join(output, "candidate-verifier.stderr.log"),
 		RereviewPath:        filepath.Join(output, "rereview.json"),
 		ReviewInvalidPath:   filepath.Join(output, ".review-invalid-attempted"),
 		ResultPath:          filepath.Join(output, "review-result.json"),

@@ -80,7 +80,7 @@ printf '%s\n' 'No findings.' > "$output"
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ModelCalls != 1 || summary.VerifierStatus != quality.VerifierNotNeeded {
+	if summary.SchemaVersion != 3 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ModelCalls != 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	count, err := os.ReadFile(countPath)
@@ -88,11 +88,11 @@ printf '%s\n' 'No findings.' > "$output"
 		t.Fatalf("model call count = %q, err = %v", count, err)
 	}
 	prompt, err := os.ReadFile(promptPath)
-	if err != nil || !strings.Contains(string(prompt), "hints only") || !strings.Contains(string(prompt), "protect behavior") {
+	if err != nil || strings.Contains(string(prompt), "risk directions") || !strings.Contains(string(prompt), "protect behavior") {
 		t.Fatalf("prompt = %q, err = %v", prompt, err)
 	}
 	result := readJSON[quality.NativeReviewResult](t, summary.ResultPath)
-	if result.SchemaVersion != 2 || result.Execution.ModelCalls != 1 {
+	if result.SchemaVersion != 3 || result.Execution.ModelCalls != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json"} {
@@ -103,8 +103,8 @@ printf '%s\n' 'No findings.' > "$output"
 	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "native-review.schema.json")); !os.IsNotExist(err) {
 		t.Fatalf("native session still contains an unused main-output schema: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "candidate-verifier.schema.json")); err != nil {
-		t.Fatalf("verifier schema is unavailable: %v", err)
+	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "candidate-verifier.schema.json")); !os.IsNotExist(err) {
+		t.Fatalf("native session still contains a verifier schema: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "output", "native-review.txt")); err != nil {
 		t.Fatalf("native review text is unavailable: %v", err)
