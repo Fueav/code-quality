@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "profile": "native_review_goal_feasibility_v2",
+  "specification": {
+    "path": "2026-07-30-native-review-feasibility-v2-spec.md",
+    "sha256": "de3b9751b16efa6d02c996955db314397ba78b3007531c45f3d436e2d5333701"
+  },
+  "product_source_commit": "c9bfbc946a0ae95e86f31c5a0819d2b723e9dfee",
+  "admission": {
+    "path": "evals/native-review-admission.json",
+    "sha256": "0eb2f1fa4c63cfd44180e606ee0d5540aa0e1130ebe23f86fb3507f0675fef23",
+    "cases_sha256": "1c53c6e8eded52ec20e54ae56ce82e6bcc8c8024ac07a313943ae4777f3688e2",
+    "fixtures_sha256": "eed86783e59e9c09d4f230bf8f17e673a0d4f6f3054aee44fe737744079f4c2f"
+  },
+  "runtime": {
+    "codex_cli_version": "codex-cli 0.145.0",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "sandbox": "read-only",
+    "ignore_user_config": true,
+    "ignore_rules": true,
+    "ephemeral": true,
+    "max_parallel_sessions": 2,
+    "session_timeout_seconds": 1200,
+    "product_binary": {
+      "version": "quality-review c9bfbc9-feasibility-v2",
+      "sha256": "cb948fc243c12639a0000080b3ddf3d98ee6d953c16805eaeb06fbd4c123a470",
+      "build": "go build -trimpath -ldflags '-s -w -X main.version=c9bfbc9-feasibility-v2' ./cmd/quality-review"
+    }
+  },
+  "lanes": {
+    "baseline_native": {
+      "description": "official codex exec review of HEAD with no custom review prompt",
+      "maximum_calls_per_case": 1
+    },
+    "goal_native": {
+      "description": "quality-review run-codex with one frozen change goal and candidate-only verification",
+      "maximum_calls_per_case": 2
+    }
+  },
+  "maximum_model_calls": 24,
+  "cases": [
+    {
+      "opaque_id": "S01",
+      "case_id": "DES-004-positive",
+      "dimension": "D1",
+      "kind": "positive",
+      "fixture_sha256": "a3f2a78832a5155198cbc13b007324bc836c98f0ce49c4275575b52475db51d0",
+      "goal": "Use the intended pricing source during checkout while preserving correct charge amounts and source-of-truth behavior.",
+      "expected_root": "Checkout selects the reporting-only analytics price instead of the authoritative price and sends the divergent value to the charger."
+    },
+    {
+      "opaque_id": "S02",
+      "case_id": "DES-004-counterexample",
+      "dimension": "D1",
+      "kind": "counterexample",
+      "fixture_sha256": "d5ee2f6e2970273c075b748a5c2e6ba00bb4691f61d1e686ac1b9052645da32b",
+      "goal": "Reduce authorization lookup latency with a cache while preserving authoritative membership decisions.",
+      "expected_root": "No actionable defect: a matching cheap coherence version returns the cached decision without the full authority lookup, while misses and mismatches synchronously use the authority."
+    },
+    {
+      "opaque_id": "S03",
+      "case_id": "COR-004-positive",
+      "dimension": "D2",
+      "kind": "positive",
+      "fixture_sha256": "5d06ebd284e28c69550b42bd95d3fdb83f76ca03fa74ae8a8d26ba3f5cf3c652",
+      "goal": "Refactor transfer persistence while preserving atomic account and ledger outcomes under failure.",
+      "expected_root": "The debit commits before a stable ledger-write failure and no rollback, compensation, or reconciliation restores the balance."
+    },
+    {
+      "opaque_id": "S04",
+      "case_id": "COR-004-counterexample",
+      "dimension": "D2",
+      "kind": "counterexample",
+      "fixture_sha256": "299efd3c3b00438ea6e019daa2c47c9edad2d14a07682b7494e9fcb38c9eadd7",
+      "goal": "Move order-event delivery to an outbox while preserving atomic persistence and at-least-once delivery.",
+      "expected_root": "No actionable defect: order and outbox commit under one lock without copying history, bounded reconciliation drains persisted events, and event-keyed delivery is idempotent."
+    },
+    {
+      "opaque_id": "S05",
+      "case_id": "REL-004-positive",
+      "dimension": "D3",
+      "kind": "positive",
+      "fixture_sha256": "85abf0874cf684e67e6421faf31503ff3281a77ab42e0fde758382ee3aa2e120",
+      "goal": "Validate requests and manage database connections while preserving pool availability on every return path.",
+      "expected_root": "The changed invalid-input return occurs after connection acquisition but before release, leaking one connection per normal invalid request."
+    },
+    {
+      "opaque_id": "S06",
+      "case_id": "REL-004-counterexample",
+      "dimension": "D3",
+      "kind": "counterexample",
+      "fixture_sha256": "1b4356fb8e5f8bf7cf4106fcf5fac82939a3dfb760b84f3ca4c1ba9d93d34454",
+      "goal": "Route fetches through the framework while preserving response-body lifecycle ownership.",
+      "expected_root": "No actionable defect: the framework path retains a deferred close and its test proves the response body is closed."
+    },
+    {
+      "opaque_id": "S07",
+      "case_id": "SEC-001-positive",
+      "dimension": "D4",
+      "kind": "positive",
+      "fixture_sha256": "d3ccd8e732c4404282b434b18d5060bd615474647d4766037f660a98a7b96e27",
+      "goal": "Simplify public resource updates while preserving authenticated tenant isolation.",
+      "expected_root": "The target removes the authenticated-tenant predicate from a public update, allowing a repeated tenant-local ID to select another tenant's resource."
+    },
+    {
+      "opaque_id": "S08",
+      "case_id": "SEC-001-counterexample",
+      "dimension": "D4",
+      "kind": "counterexample",
+      "fixture_sha256": "760b1951d9908345ce9c52b795f0e69b8fabb21f8c7afb7ef319d86877fff686",
+      "goal": "Use gateway-verified identity for resource access while preserving editor authorization and tenant ownership.",
+      "expected_root": "No actionable defect: signed gateway identity, the editor-role check, and tenant-scoped lookup are all enforced."
+    }
+  ],
+  "session_order": [
+    {"run_id": "R01", "opaque_id": "S08", "lane": "goal_native"},
+    {"run_id": "R02", "opaque_id": "S01", "lane": "baseline_native"},
+    {"run_id": "R03", "opaque_id": "S06", "lane": "baseline_native"},
+    {"run_id": "R04", "opaque_id": "S03", "lane": "goal_native"},
+    {"run_id": "R05", "opaque_id": "S02", "lane": "goal_native"},
+    {"run_id": "R06", "opaque_id": "S07", "lane": "baseline_native"},
+    {"run_id": "R07", "opaque_id": "S04", "lane": "baseline_native"},
+    {"run_id": "R08", "opaque_id": "S05", "lane": "goal_native"},
+    {"run_id": "R09", "opaque_id": "S01", "lane": "goal_native"},
+    {"run_id": "R10", "opaque_id": "S08", "lane": "baseline_native"},
+    {"run_id": "R11", "opaque_id": "S03", "lane": "baseline_native"},
+    {"run_id": "R12", "opaque_id": "S06", "lane": "goal_native"},
+    {"run_id": "R13", "opaque_id": "S07", "lane": "goal_native"},
+    {"run_id": "R14", "opaque_id": "S02", "lane": "baseline_native"},
+    {"run_id": "R15", "opaque_id": "S05", "lane": "baseline_native"},
+    {"run_id": "R16", "opaque_id": "S04", "lane": "goal_native"}
+  ],
+  "scoring": {
+    "positive": "at_least_one_finding_matches_expected_root_and_concrete_impact",
+    "counterexample": "no_actionable_introduced_finding",
+    "extra_valid_positive_findings": "allowed",
+    "malformed_or_incomplete": "fail",
+    "new_genuine_counterexample_defect": "block_case"
+  },
+  "expansion_gate": {
+    "all_sessions_complete": true,
+    "goal_positive_passes_at_least": 3,
+    "goal_counterexample_passes_at_least": 3,
+    "goal_not_worse_than_baseline_by_kind": true,
+    "blocked_cases": 0,
+    "all_hashes_match": true
+  }
+}

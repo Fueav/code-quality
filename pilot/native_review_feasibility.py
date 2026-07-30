@@ -23,7 +23,7 @@ from typing import Any
 from native_review_admission import audit_inventory, file_sha256, tree_sha256
 
 
-PROFILE = "native_review_goal_feasibility_v1"
+PROFILE_PATTERN = re.compile(r"^native_review_goal_feasibility_v[1-9][0-9]*$")
 MODEL = "gpt-5.6-sol"
 REASONING_EFFORT = "high"
 LANES = ("baseline_native", "goal_native")
@@ -83,7 +83,8 @@ def audit_protocol(root: pathlib.Path, manifest_path: pathlib.Path) -> dict[str,
     manifest = read_json(manifest_path)
     errors: list[str] = []
 
-    if manifest.get("schema_version") != 1 or manifest.get("profile") != PROFILE:
+    profile = manifest.get("profile")
+    if manifest.get("schema_version") != 1 or not isinstance(profile, str) or not PROFILE_PATTERN.fullmatch(profile):
         errors.append("protocol header is invalid")
 
     specification = manifest.get("specification")
@@ -270,7 +271,7 @@ def audit_protocol(root: pathlib.Path, manifest_path: pathlib.Path) -> dict[str,
 
     return {
         "schema_version": 1,
-        "profile": PROFILE,
+        "profile": profile,
         "ready": not errors,
         "errors": errors,
         "case_count": len(cases),
@@ -503,6 +504,11 @@ def build_product_binary(root: pathlib.Path, manifest: dict[str, Any], working_r
     binary = working_root / "quality-review"
     run_checked(["git", "clone", "--quiet", "--shared", "--no-checkout", str(root), str(source)])
     run_checked(["git", "-C", str(source), "checkout", "--quiet", "--detach", manifest["product_source_commit"]])
+    expected = manifest["runtime"]["product_binary"]
+    expected_version = expected.get("version")
+    if not isinstance(expected_version, str) or not expected_version.startswith("quality-review "):
+        raise ValueError("product binary version is invalid")
+    build_version = expected_version.removeprefix("quality-review ")
     command = [
         "go",
         "-C",
@@ -510,13 +516,12 @@ def build_product_binary(root: pathlib.Path, manifest: dict[str, Any], working_r
         "build",
         "-trimpath",
         "-ldflags",
-        "-s -w -X main.version=aa8bdf8-feasibility-v1",
+        f"-s -w -X main.version={build_version}",
         "-o",
         str(binary),
         "./cmd/quality-review",
     ]
     run_checked(command)
-    expected = manifest["runtime"]["product_binary"]
     if file_sha256(binary) != expected["sha256"]:
         raise ValueError("product binary hash mismatch")
     if run_checked([str(binary), "version"]).strip() != expected["version"]:
@@ -591,7 +596,7 @@ def run_preflight(
                 errors.append(f"preflight execution failed: {error}")
     return {
         "schema_version": 1,
-        "profile": PROFILE,
+        "profile": manifest.get("profile"),
         "generated_at": utc_now(),
         "ready": not errors,
         "model_calls": 0,
@@ -848,6 +853,8 @@ def execute_experiment(
     preflight = read_json(preflight_path)
     if not preflight.get("ready") or preflight.get("model_calls") != 0:
         raise ValueError("clean zero-call preflight is required")
+    if preflight.get("profile") != manifest.get("profile"):
+        raise ValueError("preflight profile mismatch")
     if preflight.get("protocol_manifest_sha256") != file_sha256(manifest_path):
         raise ValueError("preflight protocol hash mismatch")
     runtime_errors = check_runtime(codex_binary, auth_path, manifest)
@@ -860,7 +867,7 @@ def execute_experiment(
         evidence_root / "execution-plan.json",
         {
             "schema_version": 1,
-            "profile": PROFILE,
+            "profile": manifest.get("profile"),
             "protocol_manifest_sha256": file_sha256(manifest_path),
             "preflight_sha256": file_sha256(preflight_path),
             "maximum_model_calls": manifest["maximum_model_calls"],
@@ -922,7 +929,7 @@ def execute_experiment(
     actual_calls = sum(record["model_calls"] for record in records if isinstance(record.get("model_calls"), int))
     summary = {
         "schema_version": 1,
-        "profile": PROFILE,
+        "profile": manifest.get("profile"),
         "started_at": started_at,
         "finished_at": utc_now(),
         "protocol_manifest_sha256": file_sha256(manifest_path),
@@ -1011,8 +1018,9 @@ def create_blind_packet(
                 "outputs": outputs,
             }
         )
-    mapping = {"schema_version": 1, "profile": PROFILE, "cases": mapping_cases}
-    judgments = {"schema_version": 1, "profile": PROFILE, "status": "unadjudicated", "cases": judgment_cases}
+    profile = manifest.get("profile")
+    mapping = {"schema_version": 1, "profile": profile, "cases": mapping_cases}
+    judgments = {"schema_version": 1, "profile": profile, "status": "unadjudicated", "cases": judgment_cases}
     write_json(mapping_path, mapping)
     os.chmod(mapping_path, 0o600)
     write_json(judgments_path, judgments)
@@ -1029,6 +1037,11 @@ def score_judgments(
     manifest = read_json(manifest_path)
     mapping = read_json(mapping_path)
     judgments = read_json(judgments_path)
+    profile = manifest.get("profile")
+    if mapping.get("profile") != profile or judgments.get("profile") != profile:
+        raise ValueError("blind artifacts do not match the protocol profile")
+    if judgments.get("status") != "adjudicated":
+        raise ValueError("judgments are not frozen as adjudicated")
     case_by_opaque = {case["opaque_id"]: case for case in manifest["cases"]}
     map_by_opaque = {
         case["opaque_id"]: {output["label"]: output["lane"] for output in case["outputs"]}
@@ -1092,7 +1105,7 @@ def score_judgments(
     }
     return {
         "schema_version": 1,
-        "profile": PROFILE,
+        "profile": profile,
         "generated_at": utc_now(),
         "expand_to_40": all(conditions.values()),
         "conditions": conditions,
@@ -1109,7 +1122,7 @@ def main() -> int:
     parser.add_argument(
         "--manifest",
         type=pathlib.Path,
-        default=pathlib.Path("evals/native-review-feasibility-v1.json"),
+        default=pathlib.Path("evals/native-review-feasibility-v2.json"),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("audit")

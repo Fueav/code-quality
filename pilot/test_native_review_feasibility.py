@@ -27,7 +27,7 @@ class NativeReviewFeasibilityTest(unittest.TestCase):
     def test_protocol_freezes_balanced_admitted_sample_and_session_order(self) -> None:
         report = audit_protocol(
             SOURCE_ROOT,
-            SOURCE_ROOT / "evals" / "native-review-feasibility-v1.json",
+            SOURCE_ROOT / "evals" / "native-review-feasibility-v2.json",
         )
         self.assertTrue(report["ready"])
         self.assertEqual(report["case_count"], 8)
@@ -111,7 +111,7 @@ class NativeReviewFeasibilityTest(unittest.TestCase):
             self.assertEqual(normalize_native_review("The change is safe.\n", root), [])
 
     def test_blind_packet_hides_lanes_and_frozen_judgments_drive_gate(self) -> None:
-        manifest_path = SOURCE_ROOT / "evals" / "native-review-feasibility-v1.json"
+        manifest_path = SOURCE_ROOT / "evals" / "native-review-feasibility-v2.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
