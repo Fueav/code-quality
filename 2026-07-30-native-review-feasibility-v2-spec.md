@@ -15,7 +15,7 @@ This iteration tests those corrections. It must not add a runtime checklist, pri
 
 ## Product correction
 
-Native candidate parsing accepts exactly the observed heading grammar `^(Full )?Review comments?:$`. All accepted headings feed the same strict finding parser.
+Native candidate parsing accepts exactly the observed heading grammar `^(?:Review|Full review) comments?:$`. All accepted headings feed the same strict finding parser.
 
 The adapter must continue to reject:
 
