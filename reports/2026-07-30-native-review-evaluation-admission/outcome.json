@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "profile": "native_review_vnext",
+  "spec_commit": "b470869",
+  "source_commit": "e275e7f",
+  "model_calls": 0,
+  "total_cases": 60,
+  "qualified_cases": 40,
+  "human_only_cases": 20,
+  "blocked_cases": {},
+  "qualified_kind_totals": {
+    "positive": 20,
+    "counterexample": 20
+  },
+  "cases_sha256": "9cff0be5062af324c5f772a5cdcf6fb650af661c6b1acece4094ef3108262ae5",
+  "fixtures_sha256": "db36f9b8b3c8caaa01c226ca0a4ec3586c095256882a956433ab187522869182",
+  "hashes_match": true,
+  "scoring_contract_match": true,
+  "invalid_fixtures": {},
+  "counterexample_api_issues": {},
+  "errors": [],
+  "admission_ready": true
+}
