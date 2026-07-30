@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "source_commit": "c16e8847bd2da1590d8dd62f9bfeeea872f4a5da",
+  "predecessor_report": "../2026-07-30-native-review-negative-v3-smoke/report.md",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "high",
+  "maximum_total_model_calls": 2,
+  "shared_goal": "Implement the approved two-second downstream timeout while preserving caller cancellation, earlier deadlines, and request-scoped values.",
+  "terminal_contract": "If there are no actionable defects, the first nonblank line must be exactly No findings.",
+  "binary": {
+    "version": "quality-review c16e884-negative-v4-smoke",
+    "sha256": "f0dd5dadea3ef9d6e91b47d10df8d772ae4567ee6e34119f05a6a44dd67358e9"
+  },
+  "case": {
+    "id": "REL-002-counterexample",
+    "fixture": "pilot/fixtures/rel-002-counterexample",
+    "kind": "counterexample",
+    "expected_semantic_result": "PASS",
+    "expected_finding_count": 0,
+    "expected_behavior": "The changed handler implements the approved two-second downstream timeout from the caller context, preserving caller cancellation, earlier deadlines, and request-scoped values.",
+    "fixture_sha256": {
+      "base/client.go": "0d2dc207538f98d172d6442f8cedcbff0365f9129c5ba674cadf75dcc8390c1f",
+      "base/timeout-contract.json": "2e98bb34bb5577ba59e3b6124d7a26c1278668f9aeea6fe390f661f6d01ea8ae",
+      "target/client.go": "dd3c77bd0688134cee090bcf9df54a61b6e7f3b5d1f20ec8df3f00cea69fd1bc",
+      "target/timeout-contract.json": "2e98bb34bb5577ba59e3b6124d7a26c1278668f9aeea6fe390f661f6d01ea8ae",
+      "evals/cases.json": "d66f4f2853ff4147c446c9cfaef95ced154626d36f23111887ba347aae1946df"
+    },
+    "materialized": {
+      "base_commit": "cfeba349e532d7a010eb21924efc32d470ce5f94",
+      "target_commit": "7391baaf4c6652c6a2eecd1c55384ca2e0bae62f"
+    }
+  },
+  "acceptance": {
+    "final_semantic_result_is_pass": true,
+    "final_finding_count_is_zero": true,
+    "result_is_not_incomplete": true,
+    "total_model_calls_at_most_two": true,
+    "raw_native_verifier_and_final_outputs_retained": true
+  }
+}
