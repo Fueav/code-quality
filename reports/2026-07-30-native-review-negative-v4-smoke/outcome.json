@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "freeze_commit": "ac9a92b1e87902d05f7db965706196c74c00a421",
+  "maximum_total_model_calls": 2,
+  "actual_total_model_calls": 1,
+  "call_ceiling_respected": true,
+  "overall_acceptance_passed": false,
+  "case": {
+    "id": "REL-002-counterexample",
+    "model_semantic_assessment": "PASS",
+    "adapter_semantic_result": "INCOMPLETE",
+    "final_finding_count": 0,
+    "verifier_status": "not_needed",
+    "expected_pass_matched": false,
+    "terminal_instruction_was_present": true,
+    "evidence_result": "evidence/REL-002-counterexample/sessions/review-65031574/output/review-result.json",
+    "native_review_sha256": "8945ce60d785db9f4e1b09e218d36f8e8eca17e1e7458b08c733e0767ccb9e8b",
+    "review_result_sha256": "defe210ebb97f9fc3eb4aaa06d136339c00c73808a41b4798b2b7503c235d2ba"
+  },
+  "failure_assessment": {
+    "status": "adapter_contract_mismatch",
+    "reason": "The native review received but ignored the custom No findings. formatting instruction, again returned a nonempty zero-candidate assessment, and the wrapper rejected that real native contract."
+  },
+  "next_contract": "Remove the ineffective formatting instruction. Treat a successful nonempty native response with no Review comment section and no malformed finding header as zero candidates; retain strict parsing for candidate sections."
+}

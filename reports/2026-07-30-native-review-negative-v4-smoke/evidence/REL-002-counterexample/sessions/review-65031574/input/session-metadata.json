@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "host": "codex",
+  "skill_version": "0.3.1",
+  "repository_root": "/private/tmp/code-quality-native-negative-v4.YCj35d/REL-002-counterexample-v4-repo",
+  "checkout_mode": "worktree",
+  "runtime_mode": "codex_native_review"
+}
