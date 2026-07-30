@@ -14,8 +14,8 @@ type Client interface {
 	Do(context.Context) error
 }
 
-func Handle(_ context.Context, client Client) error {
-	bounded, cancel := context.WithTimeout(context.Background(), sharedClientTimeout)
+func Handle(ctx context.Context, client Client) error {
+	bounded, cancel := context.WithTimeout(ctx, sharedClientTimeout)
 	defer cancel()
 	return client.Do(bounded)
 }

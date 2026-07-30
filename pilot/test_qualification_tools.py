@@ -33,6 +33,18 @@ class QualificationToolsTest(unittest.TestCase):
             root = SOURCE_ROOT / "pilot" / "fixtures" / str(case["id"]).lower()
             self.assertEqual(validate_fixture(root, fixture["language"]), [], case["id"])
 
+    def test_rel_002_counterexample_preserves_the_caller_context(self) -> None:
+        cases = load_cases(SOURCE_ROOT / "evals" / "cases.json")
+        case = next(item for item in cases if item["id"] == "REL-002-counterexample")
+        target = (SOURCE_ROOT / "pilot" / "fixtures" / "rel-002-counterexample" / "target" / "client.go").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("context.WithTimeout(ctx, sharedClientTimeout)", target)
+        self.assertNotIn("context.WithTimeout(context.Background()", target)
+        self.assertIn("context.WithTimeout(ctx", case["fixture"]["after"])
+        self.assertNotIn("context.Background()", case["fixture"]["after"])
+        self.assertTrue(any("caller context" in fact for fact in case["fixture"]["facts"]))
+
     def test_blind_task_prompt_does_not_need_case_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
