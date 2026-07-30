@@ -1,0 +1,119 @@
+{
+  "auth_available": true,
+  "codex_cli_version": "codex-cli 0.145.0",
+  "errors": [],
+  "generated_at": "2026-07-30T07:48:32Z",
+  "materialized_cases": {
+    "S01": {
+      "base_commit": "3a89a30c7fcd11ed9c8353c619620b144365bea7",
+      "changed_files": [
+        "price.go",
+        "pricing-sources.json"
+      ],
+      "diff_sha256": "598429630ef500c4e778704e436b29db6513633b863623fb8a3ec605853d6ba7",
+      "fixture_sha256": "a3f2a78832a5155198cbc13b007324bc836c98f0ce49c4275575b52475db51d0",
+      "target_commit": "827c39694573dad9abc19f271067aae0e82bb645"
+    },
+    "S02": {
+      "base_commit": "75a5b87345ac1e0745c465654aff388d8ab04012",
+      "changed_files": [
+        "cache.go"
+      ],
+      "diff_sha256": "564269f4410af64132f2dc8955f16a1b5b5e6bdb6b518821cfa4d38eaea66418",
+      "fixture_sha256": "ab86e5acd992d204990a53d26695d0b08653357aea614fb0cb48aa7255810fd5",
+      "target_commit": "aa17d902d5ae976d17ab77f38add3fc543255fd1"
+    },
+    "S03": {
+      "base_commit": "2efee2371de799f214b8364c68d16ea07434ce46",
+      "changed_files": [
+        "transfer.go"
+      ],
+      "diff_sha256": "0d4be0cee7903f781175dd5b736e6ff0f0e1ef327cb1364a92164095d3cf93ce",
+      "fixture_sha256": "5d06ebd284e28c69550b42bd95d3fdb83f76ca03fa74ae8a8d26ba3f5cf3c652",
+      "target_commit": "beecff13c2ba519c768918e4a1e8c3e424b9e254"
+    },
+    "S04": {
+      "base_commit": "9830ef0f6722b3eb73d22281d31659742fb57e9d",
+      "changed_files": [
+        "place.go",
+        "place_test.go"
+      ],
+      "diff_sha256": "859df00577b434dd42a653b93cdb9c66dc5c93ed8de857469a35a068831ca864",
+      "fixture_sha256": "4d21bc0a7e294747b1e63c9341d03d9133da5d69b6b260ac6ccd17baa8cc97d2",
+      "target_commit": "63817ac35790a32b158ff26f38144c1899fdb063"
+    },
+    "S05": {
+      "base_commit": "42d42fd5630536fe428da9fc5fad272688cb67dc",
+      "changed_files": [
+        "pool.go"
+      ],
+      "diff_sha256": "95937d5c091c037e1e3a125ab0c3b3c74712937fff3c4fa0f71735cfbb97bf31",
+      "fixture_sha256": "85abf0874cf684e67e6421faf31503ff3281a77ab42e0fde758382ee3aa2e120",
+      "target_commit": "4cf314ce443475c08acaefc98315047f76c22f5b"
+    },
+    "S06": {
+      "base_commit": "c6cf1e339ea3408c792538de3e7f5adf93c1c77d",
+      "changed_files": [
+        "fetch.go",
+        "fetch_test.go"
+      ],
+      "diff_sha256": "a7ade2f6629860d433d7fb16da3a58d8f0ca249524db9909c5e5da7c1866b51b",
+      "fixture_sha256": "1b4356fb8e5f8bf7cf4106fcf5fac82939a3dfb760b84f3ca4c1ba9d93d34454",
+      "target_commit": "ee00bce22db39d5ab7ded588cf91abac72ee022e"
+    },
+    "S07": {
+      "base_commit": "82785a3633c2cf527a6fe8487ea8dd7637c5f2af",
+      "changed_files": [
+        "route-contract.json",
+        "update.go"
+      ],
+      "diff_sha256": "cc1da8dcff77967f13367106cdda534dfd549dbcf1f08a2d319a654b91123ef9",
+      "fixture_sha256": "d3ccd8e732c4404282b434b18d5060bd615474647d4766037f660a98a7b96e27",
+      "target_commit": "ca760895d10e0c88aa23d781f72ff4db79d70d0b"
+    },
+    "S08": {
+      "base_commit": "e1cf2943f8692fc86a72e94b2436f04f488cc957",
+      "changed_files": [
+        "handler.go"
+      ],
+      "diff_sha256": "c9b2e7bdfddc6bf20d9551cb765f88bb1b94ce120f606766719ee3c65fcfe5a7",
+      "fixture_sha256": "760b1951d9908345ce9c52b795f0e69b8fabb21f8c7afb7ef319d86877fff686",
+      "target_commit": "bce9261f143bd183544fb9d69712ef545391b8d1"
+    }
+  },
+  "model_calls": 0,
+  "product_binary_sha256": "8919c31e2442a0d61a2073e83e05402fd0a26ac46bd1e4212c9391e28f868f27",
+  "product_binary_version": "quality-review aa8bdf8-feasibility-v1",
+  "profile": "native_review_goal_feasibility_v1",
+  "protocol_audit": {
+    "admission_ready": true,
+    "case_count": 8,
+    "dimension_totals": {
+      "D1": 2,
+      "D2": 2,
+      "D3": 2,
+      "D4": 2
+    },
+    "errors": [],
+    "kind_totals": {
+      "counterexample": 4,
+      "positive": 4
+    },
+    "lane_totals": {
+      "baseline_native": 8,
+      "goal_native": 8
+    },
+    "manifest_sha256": "4ba2385a25ebe7bca71f3ca3625c8cdbddf1d36f47f74fc8f8408f0c931b0014",
+    "maximum_model_calls": 24,
+    "model": "gpt-5.6-sol",
+    "profile": "native_review_goal_feasibility_v1",
+    "ready": true,
+    "reasoning_effort": "high",
+    "schema_version": 1,
+    "session_count": 16,
+    "specification_sha256": "e7815c8b6897bb54f126553e386a86e3cda65a4d88a3fc6d1d02491c2f55af60"
+  },
+  "protocol_manifest_sha256": "4ba2385a25ebe7bca71f3ca3625c8cdbddf1d36f47f74fc8f8408f0c931b0014",
+  "ready": true,
+  "schema_version": 1
+}
