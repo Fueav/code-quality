@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "source_commit": "2d60862655e41cc0bd07e3d8735db3ca902de626",
+  "predecessor_report": "../2026-07-30-native-review-negative-v4-smoke/report.md",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "high",
+  "maximum_total_model_calls": 2,
+  "shared_goal": "Implement the approved two-second downstream timeout while preserving caller cancellation, earlier deadlines, and request-scoped values.",
+  "native_zero_candidate_contract": "A successful nonempty native response without a Review comment section and without an orphan finding header means zero candidates.",
+  "binary": {
+    "version": "quality-review 2d60862-negative-v5-smoke",
+    "sha256": "ce859221dce1cb7f10907936c7ac8ba49c8976710f40ad243a2cc391b598a3e1"
+  },
+  "case": {
+    "id": "REL-002-counterexample",
+    "fixture": "pilot/fixtures/rel-002-counterexample",
+    "kind": "counterexample",
+    "expected_semantic_result": "PASS",
+    "expected_finding_count": 0,
+    "expected_behavior": "The changed handler implements the approved two-second downstream timeout from the caller context, preserving caller cancellation, earlier deadlines, and request-scoped values.",
+    "fixture_sha256": {
+      "base/client.go": "0d2dc207538f98d172d6442f8cedcbff0365f9129c5ba674cadf75dcc8390c1f",
+      "base/timeout-contract.json": "2e98bb34bb5577ba59e3b6124d7a26c1278668f9aeea6fe390f661f6d01ea8ae",
+      "target/client.go": "dd3c77bd0688134cee090bcf9df54a61b6e7f3b5d1f20ec8df3f00cea69fd1bc",
+      "target/timeout-contract.json": "2e98bb34bb5577ba59e3b6124d7a26c1278668f9aeea6fe390f661f6d01ea8ae",
+      "evals/cases.json": "d66f4f2853ff4147c446c9cfaef95ced154626d36f23111887ba347aae1946df"
+    },
+    "materialized": {
+      "base_commit": "f5995ea85d64fa006a9e38858de49910a7a6a5ef",
+      "target_commit": "94c991cfc4ab0ae59e79668c3c6006356004ad95"
+    }
+  },
+  "acceptance": {
+    "final_semantic_result_is_pass": true,
+    "final_finding_count_is_zero": true,
+    "result_is_not_incomplete": true,
+    "total_model_calls_at_most_two": true,
+    "raw_native_verifier_and_final_outputs_retained": true
+  }
+}
