@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source_commit": "ccb81b9c1d3ea47ddcbf2ffb2b40900313ede956",
+  "predecessor_report": "../2026-07-30-native-review-live-smoke/report.md",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "high",
+  "maximum_total_model_calls": 2,
+  "shared_goal": "Assess the downstream request-context refactor for production safety.",
+  "binary": {
+    "version": "quality-review ccb81b9-negative-v2-smoke",
+    "sha256": "646427f957a83e6932eaf5c2cea3c910233f9bbf6657a106b2c7fa2a7ca16a7b"
+  },
+  "case": {
+    "id": "REL-002-counterexample",
+    "fixture": "pilot/fixtures/rel-002-counterexample",
+    "kind": "counterexample",
+    "expected_semantic_result": "PASS",
+    "expected_finding_count": 0,
+    "expected_behavior": "The changed handler derives a two-second timeout from the caller context, preserving caller cancellation, earlier deadlines, and request-scoped values.",
+    "fixture_sha256": {
+      "base/client.go": "0d2dc207538f98d172d6442f8cedcbff0365f9129c5ba674cadf75dcc8390c1f",
+      "target/client.go": "dd3c77bd0688134cee090bcf9df54a61b6e7f3b5d1f20ec8df3f00cea69fd1bc"
+    },
+    "materialized": {
+      "base_commit": "be298dc424a08459b524184c57f55639109992bb",
+      "target_commit": "f9abe82b9f77616ae70a3771d56bd65ce43b5eb5"
+    }
+  },
+  "acceptance": {
+    "final_semantic_result_is_pass": true,
+    "final_finding_count_is_zero": true,
+    "result_is_not_incomplete": true,
+    "total_model_calls_at_most_two": true,
+    "raw_native_verifier_and_final_outputs_retained": true
+  }
+}
