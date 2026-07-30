@@ -1,0 +1,1 @@
+The timeout-derived context correctly preserves caller cancellation, earlier deadlines, and request-scoped values. The deferred cancellation also releases associated timer resources.

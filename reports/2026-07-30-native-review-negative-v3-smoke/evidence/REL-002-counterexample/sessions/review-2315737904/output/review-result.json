@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "REL-002-counterexample-v3-repo",
+    "target_branch": "main",
+    "base_commit": "bb5824f4f10b904035e62bf212521b1112350f1c",
+    "target_commit": "ccbfe0f8579c19f6ac31bb181ef70b96a33dc16c",
+    "diff_selection_reason": "frozen_REL-002-counterexample-v3",
+    "changed_files": [
+      "client.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Implement the approved two-second downstream timeout while preserving caller cancellation, earlier deadlines, and request-scoped values.",
+  "directions": [
+    {
+      "id": "reliability-lifecycle",
+      "prompt": "Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path."
+    }
+  ],
+  "findings": [],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 1,
+    "verifier_status": "not_needed",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "INCOMPLETE",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "native review output is invalid: native review contains neither an explicit no-findings result nor a review comment section"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+diff --git a/client.go b/client.go
+index b3b914c..1588d95 100644
+--- a/client.go
++++ b/client.go
+@@ -1,11 +1,21 @@
+ package downstream
+ 
+-import "context"
++import (
++	"context"
++	"time"
++)
++
++const (
++	sharedClientTimeout = 2 * time.Second
++	callerDeadline      = 5 * time.Second
++)
+ 
+ type Client interface {
+ 	Do(context.Context) error
+ }
+ 
+ func Handle(ctx context.Context, client Client) error {
+-	return client.Do(ctx)
++	bounded, cancel := context.WithTimeout(ctx, sharedClientTimeout)
++	defer cancel()
++	return client.Do(bounded)
+ }

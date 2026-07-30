@@ -5,3 +5,6 @@ reports/2026-07-30-native-review-live-smoke/evidence/**/output/*.md -diff
 reports/2026-07-30-native-review-negative-v2-smoke/evidence/**/input/trusted.diff -diff
 reports/2026-07-30-native-review-negative-v2-smoke/evidence/**/output/*.log -diff
 reports/2026-07-30-native-review-negative-v2-smoke/evidence/**/output/*.md -diff
+reports/2026-07-30-native-review-negative-v3-smoke/evidence/**/input/trusted.diff -diff
+reports/2026-07-30-native-review-negative-v3-smoke/evidence/**/output/*.log -diff
+reports/2026-07-30-native-review-negative-v3-smoke/evidence/**/output/*.md -diff

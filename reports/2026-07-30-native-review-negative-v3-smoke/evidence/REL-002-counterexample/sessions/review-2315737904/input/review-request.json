@@ -1,0 +1,11 @@
+{
+  "repository": "REL-002-counterexample-v3-repo",
+  "target_branch": "main",
+  "base_commit": "bb5824f4f10b904035e62bf212521b1112350f1c",
+  "target_commit": "ccbfe0f8579c19f6ac31bb181ef70b96a33dc16c",
+  "diff_selection_reason": "frozen_REL-002-counterexample-v3",
+  "changed_files": [
+    "client.go"
+  ],
+  "affected_entries": []
+}

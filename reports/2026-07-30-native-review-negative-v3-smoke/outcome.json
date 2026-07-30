@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "freeze_commit": "594d3b21dbf3c5ee4e7ff4f780810c885c178525",
+  "maximum_total_model_calls": 2,
+  "actual_total_model_calls": 1,
+  "call_ceiling_respected": true,
+  "overall_acceptance_passed": false,
+  "case": {
+    "id": "REL-002-counterexample",
+    "model_semantic_assessment": "PASS",
+    "adapter_semantic_result": "INCOMPLETE",
+    "final_finding_count": 0,
+    "verifier_status": "not_needed",
+    "expected_pass_matched": false,
+    "evidence_result": "evidence/REL-002-counterexample/sessions/review-2315737904/output/review-result.json",
+    "native_review_sha256": "bff61f3def534f74110a14954caf43827228a72a67c8bb3bc5b723e50a40ba63",
+    "review_result_sha256": "3ff96a94eb0169bb85086cf6653d69ae090ea24670a18f44793f78525f8a58d6"
+  },
+  "failure_assessment": {
+    "status": "terminal_protocol_mismatch",
+    "reason": "The model explicitly assessed the timeout derivation as correct and produced no candidate, but expressed that conclusion as prose instead of the adapter's required first-line No findings. marker."
+  },
+  "next_contract": "Keep strict parsing, explicitly require the first nonblank line to be No findings. when there are no actionable defects, and repeat one freshly frozen bounded smoke."
+}
