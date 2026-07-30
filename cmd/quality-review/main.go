@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	bundle "github.com/Fueav/code-quality"
+	"github.com/Fueav/code-quality/internal/codexreview"
 	evalrunner "github.com/Fueav/code-quality/internal/eval"
 	"github.com/Fueav/code-quality/internal/intake"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
@@ -19,6 +20,7 @@ import (
 )
 
 var version = "dev"
+var codexBinary = "codex"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -26,13 +28,8 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "quality-review: invoke the code-quality Skill from an active Claude Code or Codex session")
-		fmt.Fprintln(stderr, "quality-review: deterministic commands: prepare, finalize, adjudicate, compare, eval, replay, validate, render")
-		return 2
-	}
-	policy, err := loadPolicy()
-	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: load embedded policy: %v\n", err)
+		fmt.Fprintln(stderr, "quality-review: run `quality-review run-codex` for the default native review")
+		fmt.Fprintln(stderr, "quality-review: offline and legacy commands: prepare, finalize, adjudicate, compare, eval, replay, validate, render")
 		return 2
 	}
 	switch args[0] {
@@ -43,6 +40,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "quality-review %s\n", version)
 		return 0
+	case "run-codex":
+		return runCodex(args[1:], stdout, stderr)
+	}
+	policy, err := loadPolicy()
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: load embedded policy: %v\n", err)
+		return 2
+	}
+	switch args[0] {
 	case "prepare":
 		return runPrepare(args[1:], stdout, stderr)
 	case "finalize":
@@ -63,6 +69,104 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "quality-review: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+type codexRunSummary struct {
+	SchemaVersion  int    `json:"schema_version"`
+	Status         string `json:"status"`
+	SemanticResult string `json:"semantic_result"`
+	SessionDir     string `json:"session_dir"`
+	ResultPath     string `json:"result_path"`
+	MarkdownPath   string `json:"markdown_path"`
+	ModelCalls     int    `json:"model_calls"`
+	VerifierStatus string `json:"verifier_status"`
+}
+
+func runCodex(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("run-codex", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	repository := flags.String("repo", ".", "Git repository path")
+	base := flags.String("base", "", "base commit")
+	target := flags.String("target", "", "target commit")
+	reason := flags.String("diff-reason", "", "diff selection reason")
+	goal := flags.String("goal", "", "optional change intent or extra review concern")
+	model := flags.String("model", "", "optional Codex model override")
+	reasoningEffort := flags.String("reasoning-effort", "high", "Codex reasoning effort")
+	outputRoot := flags.String("output-root", ".code-quality", "session output root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "quality-review: run-codex accepts flags only")
+		return 2
+	}
+	discovered, err := intake.Discover(intake.Options{
+		RepositoryPath: *repository,
+		Base:           *base,
+		Target:         *target,
+		DiffReason:     *reason,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: resolve review scope: %v\n", err)
+		return 1
+	}
+	root, err := resolvePath(*outputRoot, discovered.RepositoryRoot)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: output root: %v\n", err)
+		return 2
+	}
+	prepared, err := reviewsession.PrepareNative(context.Background(), reviewsession.Options{
+		RepositoryRoot: discovered.RepositoryRoot,
+		OutputRoot:     root,
+		Host:           "codex",
+		Request:        discovered.Request,
+		DirtyWorktree:  discovered.DirtyWorktree,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: prepare native review: %v\n", err)
+		return 1
+	}
+	if discovered.DirtyWorktree {
+		fmt.Fprintln(stderr, "quality-review: working tree changes are not included; review covers committed base and target only")
+	}
+	result, runErr := codexreview.Run(context.Background(), codexreview.Options{
+		Prepared:                prepared,
+		Request:                 discovered.Request,
+		Goal:                    *goal,
+		Model:                   *model,
+		ReasoningEffort:         *reasoningEffort,
+		EvaluationRubricVersion: quality.EvaluationRubricVersion,
+		CodexBinary:             codexBinary,
+	})
+	if runErr != nil {
+		_ = reviewsession.CleanupPreparedCheckout(discovered.RepositoryRoot, prepared)
+		fmt.Fprintf(stderr, "quality-review: run native review: %v\n", runErr)
+		return 1
+	}
+	if err := codexreview.Publish(prepared, result); err != nil {
+		_ = reviewsession.CleanupPreparedCheckout(discovered.RepositoryRoot, prepared)
+		fmt.Fprintf(stderr, "quality-review: publish native review: %v\n", err)
+		return 1
+	}
+	if err := reviewsession.CleanupPreparedCheckout(discovered.RepositoryRoot, prepared); err != nil {
+		fmt.Fprintf(stderr, "quality-review: warning: %v\n", err)
+	}
+	status := "COMPLETE"
+	exitCode := 0
+	if result.Adjudication.SemanticResult == quality.ResultIncomplete {
+		status = "INCOMPLETE"
+		exitCode = 1
+	}
+	summary := codexRunSummary{
+		SchemaVersion: 2, Status: status, SemanticResult: result.Adjudication.SemanticResult,
+		SessionDir: prepared.SessionDir, ResultPath: prepared.ResultPath, MarkdownPath: prepared.MarkdownPath,
+		ModelCalls: result.Execution.ModelCalls, VerifierStatus: result.Execution.VerifierStatus,
+	}
+	if err := quality.EncodeJSON(stdout, summary); err != nil {
+		fmt.Fprintf(stderr, "quality-review: encode native review summary: %v\n", err)
+		return 2
+	}
+	return exitCode
 }
 
 func runCompare(args []string, stdout, stderr io.Writer) int {

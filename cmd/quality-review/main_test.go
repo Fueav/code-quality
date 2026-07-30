@@ -26,13 +26,85 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-func TestBareCommandRequiresHostSessionSkill(t *testing.T) {
+func TestBareCommandPointsToNativeReview(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run(nil, &stdout, &stderr); code != 2 {
 		t.Fatalf("exit code = %d", code)
 	}
-	if !strings.Contains(stderr.String(), "active Claude Code or Codex session") {
+	if !strings.Contains(stderr.String(), "quality-review run-codex") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
+	repo, base, target := cliReviewFixture(t)
+	directory := t.TempDir()
+	countPath := filepath.Join(directory, "count")
+	promptPath := filepath.Join(directory, "prompt")
+	scriptPath := filepath.Join(directory, "codex")
+	script := `#!/bin/sh
+set -eu
+count=0
+if [ -f "$FAKE_CODEX_COUNT_PATH" ]; then count=$(cat "$FAKE_CODEX_COUNT_PATH"); fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$FAKE_CODEX_COUNT_PATH"
+output=''
+previous=''
+for argument in "$@"; do
+  if [ "$previous" = '--output-last-message' ]; then output="$argument"; fi
+  previous="$argument"
+done
+test -n "$output"
+cat > "$FAKE_CODEX_PROMPT_PATH"
+printf '%s\n' '{"findings":[]}' > "$output"
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_CODEX_COUNT_PATH", countPath)
+	t.Setenv("FAKE_CODEX_PROMPT_PATH", promptPath)
+	previousBinary := codexBinary
+	codexBinary = scriptPath
+	t.Cleanup(func() { codexBinary = previousBinary })
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"run-codex", "--repo", repo, "--base", base, "--target", target,
+		"--diff-reason", "test_increment", "--goal", "protect behavior",
+		"--output-root", filepath.Join(directory, "sessions"),
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	var summary codexRunSummary
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ModelCalls != 1 || summary.VerifierStatus != quality.VerifierNotNeeded {
+		t.Fatalf("summary = %#v", summary)
+	}
+	count, err := os.ReadFile(countPath)
+	if err != nil || strings.TrimSpace(string(count)) != "1" {
+		t.Fatalf("model call count = %q, err = %v", count, err)
+	}
+	prompt, err := os.ReadFile(promptPath)
+	if err != nil || !strings.Contains(string(prompt), "hints only") || !strings.Contains(string(prompt), "protect behavior") {
+		t.Fatalf("prompt = %q, err = %v", prompt, err)
+	}
+	result := readJSON[quality.NativeReviewResult](t, summary.ResultPath)
+	if result.SchemaVersion != 2 || result.Execution.ModelCalls != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json"} {
+		if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", legacy)); !os.IsNotExist(err) {
+			t.Fatalf("native session contains legacy artifact %s: %v", legacy, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "native-review.schema.json")); err != nil {
+		t.Fatalf("native schema is unavailable: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "repository")); !os.IsNotExist(err) {
+		t.Fatalf("isolated checkout was not removed: %v", err)
 	}
 }
 

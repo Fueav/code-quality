@@ -51,27 +51,27 @@ func TestHostMarketplacesExposeCodeQualityPlugin(t *testing.T) {
 	})
 }
 
-func TestPluginSkillRequiresApprovalAndPreservesFinalReports(t *testing.T) {
+func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 	raw, err := os.ReadFile("plugins/code-quality/skills/code-quality/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	skill := string(raw)
 	for _, required := range []string{
-		"explicit approval",
-		"Do not run `prepare` until the user approves",
+		"quality-review run-codex",
+		"--goal",
+		"native `codex exec review`",
+		"candidate-only verifier",
 		"Never delete the session directory",
-		"session-local shared clone",
-		"rereview_scope",
-		"REVIEW_INVALID",
-		"validation_errors",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("Skill is missing %q", required)
 		}
 	}
-	if strings.Contains(skill, "rm -rf .code-quality") {
-		t.Fatal("Skill must not authorize deleting the report root")
+	for _, forbidden := range []string{"rereview_scope", "REVIEW_INVALID", "activated_rule_families", "20 rules", "rm -rf .code-quality"} {
+		if strings.Contains(skill, forbidden) {
+			t.Fatalf("Skill retains obsolete runtime guidance %q", forbidden)
+		}
 	}
 }
 

@@ -72,6 +72,9 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-request.schema.json",
 		"model-review.schema.json",
 		"review-result.schema.json",
+		"native-review.schema.json",
+		"candidate-verifier.schema.json",
+		"review-result-v2.schema.json",
 	} {
 		schema, err := Schema(name)
 		if err != nil || len(schema) == 0 {
@@ -83,6 +86,20 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 	}
 	if lens, err := ReviewLens(); err != nil || !strings.Contains(string(lens), "不设固定数量上限") || strings.Contains(string(lens), "最多 3") {
 		t.Fatalf("embedded review lens contract drifted: %v", err)
+	}
+}
+
+func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
+	for _, name := range []string{"native-review.schema.json", "candidate-verifier.schema.json", "review-result-v2.schema.json"} {
+		raw, err := Schema(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, obsolete := range []string{"activated_rule_families", "inactive_rule_families", "rereview_scope", "rule_id"} {
+			if strings.Contains(string(raw), obsolete) {
+				t.Fatalf("%s exposes obsolete runtime field %q", name, obsolete)
+			}
+		}
 	}
 }
 

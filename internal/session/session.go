@@ -25,43 +25,57 @@ const (
 )
 
 type Layout struct {
-	SessionDir          string
-	InputDir            string
-	RepositoryDir       string
-	EvidenceDir         string
-	OutputDir           string
-	EvidenceContextPath string
-	RequestPath         string
-	DiffPath            string
-	RubricPath          string
-	WorkflowPath        string
-	ModelSchemaPath     string
-	ManifestPath        string
-	MetadataPath        string
-	MainReviewPath      string
-	RereviewPath        string
-	ReviewInvalidPath   string
-	ResultPath          string
-	MarkdownPath        string
+	SessionDir             string
+	InputDir               string
+	RepositoryDir          string
+	EvidenceDir            string
+	OutputDir              string
+	EvidenceContextPath    string
+	RequestPath            string
+	DiffPath               string
+	RubricPath             string
+	WorkflowPath           string
+	ModelSchemaPath        string
+	NativeReviewSchemaPath string
+	VerifierSchemaPath     string
+	ManifestPath           string
+	MetadataPath           string
+	MainReviewPath         string
+	NativeReviewPath       string
+	VerifierOutputPath     string
+	NativeStdoutPath       string
+	NativeStderrPath       string
+	VerifierStdoutPath     string
+	VerifierStderrPath     string
+	RereviewPath           string
+	ReviewInvalidPath      string
+	ResultPath             string
+	MarkdownPath           string
 }
 
 type Prepared struct {
-	SchemaVersion       int          `json:"schema_version"`
-	Status              string       `json:"status"`
-	SessionDir          string       `json:"session_dir"`
-	RepositoryDir       string       `json:"repository_dir"`
-	EvidenceContextPath string       `json:"evidence_context_path"`
-	RequestPath         string       `json:"request_path"`
-	DiffPath            string       `json:"diff_path"`
-	RubricPath          string       `json:"rubric_path"`
-	WorkflowPath        string       `json:"workflow_path"`
-	ModelSchemaPath     string       `json:"model_schema_path"`
-	ManifestPath        string       `json:"manifest_path"`
-	MetadataPath        string       `json:"metadata_path"`
-	MainReviewPath      string       `json:"main_review_path"`
-	DirtyWorktree       bool         `json:"dirty_worktree"`
-	CheckoutMode        CheckoutMode `json:"checkout_mode"`
-	EvidencePresent     bool         `json:"evidence_present"`
+	SchemaVersion          int          `json:"schema_version"`
+	Status                 string       `json:"status"`
+	SessionDir             string       `json:"session_dir"`
+	RepositoryDir          string       `json:"repository_dir"`
+	EvidenceContextPath    string       `json:"evidence_context_path"`
+	RequestPath            string       `json:"request_path"`
+	DiffPath               string       `json:"diff_path"`
+	RubricPath             string       `json:"rubric_path"`
+	WorkflowPath           string       `json:"workflow_path"`
+	ModelSchemaPath        string       `json:"model_schema_path"`
+	NativeReviewSchemaPath string       `json:"native_review_schema_path,omitempty"`
+	VerifierSchemaPath     string       `json:"verifier_schema_path,omitempty"`
+	ManifestPath           string       `json:"manifest_path"`
+	MetadataPath           string       `json:"metadata_path"`
+	MainReviewPath         string       `json:"main_review_path"`
+	NativeReviewPath       string       `json:"native_review_path,omitempty"`
+	VerifierOutputPath     string       `json:"verifier_output_path,omitempty"`
+	ResultPath             string       `json:"result_path,omitempty"`
+	MarkdownPath           string       `json:"markdown_path,omitempty"`
+	DirtyWorktree          bool         `json:"dirty_worktree"`
+	CheckoutMode           CheckoutMode `json:"checkout_mode"`
+	EvidencePresent        bool         `json:"evidence_present"`
 }
 
 type Options struct {
@@ -78,9 +92,21 @@ type Metadata struct {
 	SkillVersion   string       `json:"skill_version"`
 	RepositoryRoot string       `json:"repository_root"`
 	CheckoutMode   CheckoutMode `json:"checkout_mode"`
+	RuntimeMode    string       `json:"runtime_mode,omitempty"`
 }
 
 func Prepare(ctx context.Context, options Options) (Prepared, error) {
+	return prepare(ctx, options, false)
+}
+
+func PrepareNative(ctx context.Context, options Options) (Prepared, error) {
+	if options.Host != "codex" {
+		return Prepared{}, errors.New("native review host must be codex")
+	}
+	return prepare(ctx, options, true)
+}
+
+func prepare(ctx context.Context, options Options, native bool) (Prepared, error) {
 	if strings.TrimSpace(options.RepositoryRoot) == "" {
 		return Prepared{}, errors.New("repository root is required")
 	}
@@ -117,34 +143,50 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, err
 	}
-	evidence, err := DiscoverEvidence(options.RepositoryRoot, options.Request.TargetCommit, layout.EvidenceDir)
-	if err != nil {
-		return Prepared{}, fmt.Errorf("discover optional Harness evidence: %w", err)
+	evidencePresent := false
+	if !native {
+		evidence, err := DiscoverEvidence(options.RepositoryRoot, options.Request.TargetCommit, layout.EvidenceDir)
+		if err != nil {
+			return Prepared{}, fmt.Errorf("discover optional Harness evidence: %w", err)
+		}
+		if err := encodeEvidenceContext(layout.EvidenceContextPath, evidence); err != nil {
+			return Prepared{}, err
+		}
+		evidencePresent = len(evidence.Sources) > 0 || len(evidence.Rejected) > 0
 	}
-	if err := encodeEvidenceContext(layout.EvidenceContextPath, evidence); err != nil {
-		return Prepared{}, err
-	}
-	evidencePresent := len(evidence.Sources) > 0 || len(evidence.Rejected) > 0
 	if err := writeJSON(layout.RequestPath, options.Request); err != nil {
 		return Prepared{}, err
 	}
-	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion, RepositoryRoot: options.RepositoryRoot, CheckoutMode: checkoutMode}); err != nil {
+	runtimeMode := "session_agent"
+	if native {
+		runtimeMode = "codex_native_review"
+	}
+	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion, RepositoryRoot: options.RepositoryRoot, CheckoutMode: checkoutMode, RuntimeMode: runtimeMode}); err != nil {
 		return Prepared{}, err
 	}
 	if err := writeTrustedDiff(ctx, options.RepositoryRoot, options.Request, layout.DiffPath); err != nil {
 		return Prepared{}, err
 	}
-	if err := writeEmbedded(layout.RubricPath, bundle.ReviewLens); err != nil {
-		return Prepared{}, err
-	}
-	if err := writeEmbedded(layout.WorkflowPath, bundle.Workflow); err != nil {
-		return Prepared{}, err
-	}
-	if err := writeSchema(layout.ModelSchemaPath, "model-review.schema.json"); err != nil {
-		return Prepared{}, err
+	if native {
+		if err := writeSchema(layout.NativeReviewSchemaPath, "native-review.schema.json"); err != nil {
+			return Prepared{}, err
+		}
+		if err := writeSchema(layout.VerifierSchemaPath, "candidate-verifier.schema.json"); err != nil {
+			return Prepared{}, err
+		}
+	} else {
+		if err := writeEmbedded(layout.RubricPath, bundle.ReviewLens); err != nil {
+			return Prepared{}, err
+		}
+		if err := writeEmbedded(layout.WorkflowPath, bundle.Workflow); err != nil {
+			return Prepared{}, err
+		}
+		if err := writeSchema(layout.ModelSchemaPath, "model-review.schema.json"); err != nil {
+			return Prepared{}, err
+		}
 	}
 	prepared = true
-	return Prepared{
+	result := Prepared{
 		SchemaVersion:       1,
 		Status:              "READY_FOR_MAIN_REVIEW",
 		SessionDir:          layout.SessionDir,
@@ -158,10 +200,25 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 		ManifestPath:        layout.ManifestPath,
 		MetadataPath:        layout.MetadataPath,
 		MainReviewPath:      layout.MainReviewPath,
+		ResultPath:          layout.ResultPath,
+		MarkdownPath:        layout.MarkdownPath,
 		DirtyWorktree:       options.DirtyWorktree,
 		CheckoutMode:        checkoutMode,
 		EvidencePresent:     evidencePresent,
-	}, nil
+	}
+	if native {
+		result.Status = "READY_FOR_NATIVE_REVIEW"
+		result.EvidenceContextPath = ""
+		result.RubricPath = ""
+		result.WorkflowPath = ""
+		result.ModelSchemaPath = ""
+		result.MainReviewPath = ""
+		result.NativeReviewSchemaPath = layout.NativeReviewSchemaPath
+		result.VerifierSchemaPath = layout.VerifierSchemaPath
+		result.NativeReviewPath = layout.NativeReviewPath
+		result.VerifierOutputPath = layout.VerifierOutputPath
+	}
+	return result, nil
 }
 
 func NewLayout(directory string) Layout {
@@ -172,24 +229,56 @@ func NewLayout(directory string) Layout {
 	input := filepath.Join(directory, "input")
 	output := filepath.Join(directory, "output")
 	return Layout{
-		SessionDir:          directory,
-		InputDir:            input,
-		RepositoryDir:       filepath.Join(input, "repository"),
-		EvidenceDir:         filepath.Join(input, "evidence"),
-		OutputDir:           output,
-		EvidenceContextPath: filepath.Join(input, "evidence-context.json"),
-		RequestPath:         filepath.Join(input, "review-request.json"),
-		DiffPath:            filepath.Join(input, "trusted.diff"),
-		RubricPath:          filepath.Join(input, "rubric.md"),
-		WorkflowPath:        filepath.Join(input, "workflow.md"),
-		ModelSchemaPath:     filepath.Join(input, "model-review.schema.json"),
-		ManifestPath:        filepath.Join(directory, "input-manifest.json"),
-		MetadataPath:        filepath.Join(input, "session-metadata.json"),
-		MainReviewPath:      filepath.Join(output, "main-review.json"),
-		RereviewPath:        filepath.Join(output, "rereview.json"),
-		ReviewInvalidPath:   filepath.Join(output, ".review-invalid-attempted"),
-		ResultPath:          filepath.Join(output, "review-result.json"),
-		MarkdownPath:        filepath.Join(output, "review-result.md"),
+		SessionDir:             directory,
+		InputDir:               input,
+		RepositoryDir:          filepath.Join(input, "repository"),
+		EvidenceDir:            filepath.Join(input, "evidence"),
+		OutputDir:              output,
+		EvidenceContextPath:    filepath.Join(input, "evidence-context.json"),
+		RequestPath:            filepath.Join(input, "review-request.json"),
+		DiffPath:               filepath.Join(input, "trusted.diff"),
+		RubricPath:             filepath.Join(input, "rubric.md"),
+		WorkflowPath:           filepath.Join(input, "workflow.md"),
+		ModelSchemaPath:        filepath.Join(input, "model-review.schema.json"),
+		NativeReviewSchemaPath: filepath.Join(input, "native-review.schema.json"),
+		VerifierSchemaPath:     filepath.Join(input, "candidate-verifier.schema.json"),
+		ManifestPath:           filepath.Join(directory, "input-manifest.json"),
+		MetadataPath:           filepath.Join(input, "session-metadata.json"),
+		MainReviewPath:         filepath.Join(output, "main-review.json"),
+		NativeReviewPath:       filepath.Join(output, "native-review.json"),
+		VerifierOutputPath:     filepath.Join(output, "candidate-verdicts.json"),
+		NativeStdoutPath:       filepath.Join(output, "native-review.stdout.log"),
+		NativeStderrPath:       filepath.Join(output, "native-review.stderr.log"),
+		VerifierStdoutPath:     filepath.Join(output, "candidate-verifier.stdout.log"),
+		VerifierStderrPath:     filepath.Join(output, "candidate-verifier.stderr.log"),
+		RereviewPath:           filepath.Join(output, "rereview.json"),
+		ReviewInvalidPath:      filepath.Join(output, ".review-invalid-attempted"),
+		ResultPath:             filepath.Join(output, "review-result.json"),
+		MarkdownPath:           filepath.Join(output, "review-result.md"),
+	}
+}
+
+// CleanupPreparedCheckout removes only the isolated checkout created for a
+// prepared session. The session inputs, raw model outputs, and final reports
+// remain available.
+func CleanupPreparedCheckout(repositoryRoot string, prepared Prepared) error {
+	layout := NewLayout(prepared.SessionDir)
+	if filepath.Clean(prepared.RepositoryDir) != layout.RepositoryDir {
+		return errors.New("prepared repository path does not match its session")
+	}
+	switch prepared.CheckoutMode {
+	case CheckoutModeWorktree:
+		var stderr bytes.Buffer
+		command := exec.Command("git", "-C", repositoryRoot, "worktree", "remove", "--force", layout.RepositoryDir)
+		command.Stderr = &stderr
+		if err := command.Run(); err != nil {
+			return fmt.Errorf("remove review worktree: %w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		return nil
+	case CheckoutModeClone:
+		return removeCloneCheckout(layout.SessionDir, layout.RepositoryDir)
+	default:
+		return fmt.Errorf("unsupported checkout mode %q", prepared.CheckoutMode)
 	}
 }
 

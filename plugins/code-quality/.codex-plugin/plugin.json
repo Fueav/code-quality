@@ -1,7 +1,7 @@
 {
   "name": "code-quality",
   "version": "0.3.1",
-  "description": "Runs the V1.2 ordinary report-only code review in the current host session.",
+  "description": "Runs a Codex-native report-only review with the V1.2 rubric retained for offline evaluation.",
   "author": {
     "name": "Fueav",
     "url": "https://github.com/Fueav"
@@ -15,8 +15,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Code Quality",
-    "shortDescription": "Run a focused ordinary code review",
-    "longDescription": "Review a trusted committed Git increment for material V1.2 production-floor defects and deterministically publish a report-only result.",
+    "shortDescription": "Run a thin Codex-native code review",
+    "longDescription": "Review a trusted committed Git increment with native Codex discovery, optional risk hints, and candidate-only filtering.",
     "developerName": "Fueav",
     "category": "Developer Tools",
     "capabilities": [
@@ -25,7 +25,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Run the V1.2 ordinary report-only code review for this committed change."
+      "Run the Codex-native report-only review for this committed change; use V1.2 only as the offline evaluation rubric."
     ]
   }
 }

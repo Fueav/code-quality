@@ -1,11 +1,11 @@
 # code-quality (`quality-review`)
 
-Report-only 代码质量审查组件。在 Claude Code / Codex 会话里对一个**已提交的代码增量**做审查，发现本次改动引入或加重的生产底线缺陷（正确性、数据、稳定性、安全、兼容性），输出结构化报告——**只给建议，不阻断合并、不改 CI**。
+Report-only 代码质量审查组件。它对一个**已提交的代码增量**调用 Codex 原生 review，发现本次改动引入或加重的可执行缺陷，输出结构化报告——**只给建议，不阻断合并、不改 CI**。
 
 ## 形态
 
-- **`quality-review`** — 静态 Go CLI（确定性引擎：基线固定、schema 校验、裁决、渲染报告）。不调模型、不需要 API key。
-- **`plugins/code-quality/`** — Claude Code 与 Codex 共用的薄 Skill，在会话里触发流程。模型能力借用你当前已登录的 Claude Code / Codex 会话。
+- **`quality-review`** — 静态 Go CLI，固定审查范围并调用本机已登录的 Codex CLI 原生 review 模式。
+- **`plugins/code-quality/`** — 薄 Skill，只负责触发 CLI，不复制审查方法论。
 
 ## 安装
 
@@ -34,13 +34,15 @@ claude plugin marketplace add Fueav/code-quality@v0.3.1 && claude plugin install
 
 ## 使用
 
-在 Claude Code / Codex 会话里，用自然语言触发（例如「帮我审一下这个改动」）。Skill 会：
+在 Codex 会话里用自然语言触发，或直接运行：
 
-1. `prepare` —— 钉住本次 commit 增量（base→target diff）；
-2. 当前会话按 20 条底线规则审查引入/加重的缺陷；
-3. `finalize` —— 零发现时明确要求一次复审，否则产出 `review-result.json` + `review-result.md`（report-only 建议）。
+```sh
+quality-review run-codex --repo . --goal "这次改动的意图或额外关注点"
+```
 
-使用者无需配置模型、无需了解内部规则。
+流程只有三层：确定性固定 base→target；一次 `codex exec review` 原生发现；仅在存在候选时追加一次只允许保留/排除的证伪。零发现直接结束，不做覆盖声明或强制复审。系统按改动信号提供 1–3 个非约束方向，模型仍可报告方向之外的问题。
+
+20 条 V1.2 底线保留为离线评测量尺，不再整包注入运行时 Prompt，也不再要求模型激活规则、解释未激活维度或填写覆盖表。
 
 ## 对照评测
 
@@ -48,7 +50,7 @@ claude plugin marketplace add Fueav/code-quality@v0.3.1 && claude plugin install
 
 ## 版本冻结
 
-每个 release tag 把 policy（20 条规则）、schema、确定性引擎、CLI 一起冻结成一个不变版本，报告可追溯到具体版本。
+每个 release tag 冻结 schema、确定性范围逻辑、CLI 与离线评测量尺，报告可追溯到具体版本。
 
 ## 发布（维护者）
 
