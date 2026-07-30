@@ -1,0 +1,12 @@
+{
+  "base_commit": "82785a3633c2cf527a6fe8487ea8dd7637c5f2af",
+  "diff_sha256": "cc1da8dcff77967f13367106cdda534dfd549dbcf1f08a2d319a654b91123ef9",
+  "goal": "Simplify public resource updates while preserving authenticated tenant isolation.",
+  "lane": "goal_native",
+  "model": "gpt-5.6-sol",
+  "opaque_id": "S07",
+  "reasoning_effort": "high",
+  "run_id": "R13",
+  "schema_version": 1,
+  "target_commit": "ca760895d10e0c88aa23d781f72ff4db79d70d0b"
+}

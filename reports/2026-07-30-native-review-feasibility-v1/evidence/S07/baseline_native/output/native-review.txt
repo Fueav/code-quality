@@ -1,0 +1,6 @@
+The patch removes tenant scoping from a protected update operation, allowing authenticated users to modify another tenant's resource whenever IDs overlap.
+
+Review comment:
+
+- [P1] Keep tenant scope in the update predicate — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/runs/R06/repo/update.go:16-16
+  When two tenants use the same resource ID, any authenticated tenant can now update the first matching row regardless of ownership because `authenticatedTenant` is discarded. The route contract explicitly permits tenant-local IDs to repeat and exposes this write operation to every authenticated tenant, so this enables cross-tenant modification; retain `TenantID == authenticatedTenant` in the lookup.

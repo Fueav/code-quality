@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "Because `transport` is unexported and no constructor or setter is provided, callers outside package `fetch` cannot create a usable `Framework`; the only constructible zero value panics when `Fetch` dereferences its nil transport. The new test misses this because it invokes the legacy package-level `Fetch` function rather than `Framework.Fetch`. Export the dependency field or add a constructor.",
+      "end_line": 13,
+      "path": "fetch.go",
+      "priority": 2,
+      "start_line": 13,
+      "title": "Make Framework constructible by external callers"
+    }
+  ],
+  "schema_version": 1
+}

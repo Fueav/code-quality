@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "9830ef0f6722b3eb73d22281d31659742fb57e9d",
+    "target_commit": "63817ac35790a32b158ff26f38144c1899fdb063",
+    "diff_selection_reason": "frozen_goal_feasibility_v1",
+    "changed_files": [
+      "place.go",
+      "place_test.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Move order-event delivery to an outbox while preserving atomic persistence and at-least-once delivery.",
+  "directions": [
+    {
+      "id": "data-business-correctness",
+      "prompt": "Trace value, state, identity, ordering, and precision changes through their real business effects."
+    },
+    {
+      "id": "reliability-lifecycle",
+      "prompt": "Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path."
+    },
+    {
+      "id": "scale-side-effects",
+      "prompt": "Follow remote calls, storage access, loops, batching, caches, and side effects for production-scale failure modes."
+    }
+  ],
+  "findings": [],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 1,
+    "verifier_status": "not_needed",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "INCOMPLETE",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "native review output is invalid: native finding appears without a review comment section"
+    ]
+  }
+}

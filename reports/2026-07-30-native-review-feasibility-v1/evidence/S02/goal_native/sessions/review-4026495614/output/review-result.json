@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "75a5b87345ac1e0745c465654aff388d8ab04012",
+    "target_commit": "aa17d902d5ae976d17ab77f38add3fc543255fd1",
+    "diff_selection_reason": "frozen_goal_feasibility_v1",
+    "changed_files": [
+      "cache.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Reduce authorization lookup latency with a cache while preserving authoritative membership decisions.",
+  "directions": [
+    {
+      "id": "scale-side-effects",
+      "prompt": "Follow remote calls, storage access, loops, batching, caches, and side effects for production-scale failure modes."
+    },
+    {
+      "id": "contracts-rollout",
+      "prompt": "Check whether changed interfaces, schemas, configuration, migrations, and rollout order remain compatible."
+    },
+    {
+      "id": "security-boundaries",
+      "prompt": "Check trust boundaries, authorization, validation, and secret handling around the changed behavior."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Avoid the authoritative lookup on cache hits",
+      "body": "When `Current` performs the remote or storage lookup this cache is intended to optimize, it is completed before `cache.Get`, so every cache hit still incurs the full latency and backend load and remains blocked by authority outages. Cache freshness must be established without completing the expensive `Current` call before returning the cached decision.",
+      "priority": 1,
+      "code_location": {
+        "path": "cache.go",
+        "start_line": 17,
+        "end_line": 17
+      }
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 2,
+    "verifier_status": "complete",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "1 native finding(s) require manual review"
+    ]
+  }
+}

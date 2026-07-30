@@ -1,0 +1,1 @@
+The change correctly enforces tenant-scoped resource ownership after validating the signed editor identity, matching the documented authorization policy. No actionable defects were found.

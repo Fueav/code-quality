@@ -1,0 +1,11 @@
+{
+  "repository": "repo",
+  "target_branch": "DETACHED",
+  "base_commit": "42d42fd5630536fe428da9fc5fad272688cb67dc",
+  "target_commit": "4cf314ce443475c08acaefc98315047f76c22f5b",
+  "diff_selection_reason": "frozen_goal_feasibility_v1",
+  "changed_files": [
+    "pool.go"
+  ],
+  "affected_entries": []
+}

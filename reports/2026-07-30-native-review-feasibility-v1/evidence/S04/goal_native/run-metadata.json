@@ -1,0 +1,43 @@
+{
+  "call_limit": 2,
+  "command": [
+    "/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/quality-review",
+    "run-codex",
+    "--repo",
+    "/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/runs/R16/repo",
+    "--base",
+    "9830ef0f6722b3eb73d22281d31659742fb57e9d",
+    "--target",
+    "63817ac35790a32b158ff26f38144c1899fdb063",
+    "--diff-reason",
+    "frozen_goal_feasibility_v1",
+    "--goal",
+    "Move order-event delivery to an outbox while preserving atomic persistence and at-least-once delivery.",
+    "--model",
+    "gpt-5.6-sol",
+    "--reasoning-effort",
+    "high",
+    "--output-root",
+    "/Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v1/evidence/S04/goal_native/sessions"
+  ],
+  "duration_seconds": 215.557,
+  "errors": [
+    "product semantic result is INCOMPLETE"
+  ],
+  "exit_code": 1,
+  "finished_at": "2026-07-30T08:00:14Z",
+  "lane": "goal_native",
+  "model": "gpt-5.6-sol",
+  "model_calls": 1,
+  "native_review_sha256": "f60bd7681fe582c892a8aa01f6568a88f321533da647c3ecfb5cd78967299044",
+  "normalized_findings_sha256": "4e99cf6ea008e0d4e5a9048becbfb6750c55e285c692ddf2c6d3a5689a10b8ac",
+  "opaque_id": "S04",
+  "reasoning_effort": "high",
+  "result_path": "/Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v1/evidence/S04/goal_native/sessions/review-3670807343/output/review-result.json",
+  "run_id": "R16",
+  "schema_version": 1,
+  "semantic_result": "INCOMPLETE",
+  "started_at": "2026-07-30T07:56:38Z",
+  "status": "INCOMPLETE",
+  "verifier_status": "not_needed"
+}

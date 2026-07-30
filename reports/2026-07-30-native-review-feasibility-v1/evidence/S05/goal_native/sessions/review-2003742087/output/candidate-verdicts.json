@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change moves `defer connection.Close()` below the `!valid` early return. Since `Open()` increments `pool.inUse`, invalid requests now return without decrementing it, and repeated invalid requests exhaust the pool. The candidate is introduced by this commit and is actionable."}]}

@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "3a89a30c7fcd11ed9c8353c619620b144365bea7",
+    "target_commit": "827c39694573dad9abc19f271067aae0e82bb645",
+    "diff_selection_reason": "frozen_goal_feasibility_v1",
+    "changed_files": [
+      "price.go",
+      "pricing-sources.json"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Use the intended pricing source during checkout while preserving correct charge amounts and source-of-truth behavior.",
+  "directions": [
+    {
+      "id": "data-business-correctness",
+      "prompt": "Trace value, state, identity, ordering, and precision changes through their real business effects."
+    },
+    {
+      "id": "security-boundaries",
+      "prompt": "Check trust boundaries, authorization, validation, and secret handling around the changed behavior."
+    },
+    {
+      "id": "contracts-rollout",
+      "prompt": "Check whether changed interfaces, schemas, configuration, migrations, and rollout order remain compatible."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Keep analytics prices out of checkout charges",
+      "body": "When `ChargeOrder` processes `annual-plan`, this now sends the analytics price (100 cents) to the irreversible external charger instead of the authoritative price (10,000 cents). The added configuration explicitly marks analytics as non-authoritative and potentially 24 hours stale, so checkout must continue using `AuthoritativePrice` to avoid incorrect charges.",
+      "priority": 1,
+      "code_location": {
+        "path": "price.go",
+        "start_line": 24,
+        "end_line": 24
+      }
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 2,
+    "verifier_status": "complete",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "1 native finding(s) require manual review"
+    ]
+  }
+}

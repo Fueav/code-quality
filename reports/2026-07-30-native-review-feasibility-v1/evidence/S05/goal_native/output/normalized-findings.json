@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When `valid` is false, this return occurs before `connection.Close()` is deferred, so every rejected request permanently increments `pool.inUse`. After `capacity` invalid requests, all subsequent calls fail with `ErrExhausted`; register the defer immediately after a successful `Open()` so this return path also releases the connection.",
+      "end_line": 46,
+      "path": "pool.go",
+      "priority": 1,
+      "start_line": 43,
+      "title": "Close the connection before rejecting invalid requests"
+    }
+  ],
+  "schema_version": 1
+}

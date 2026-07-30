@@ -1,0 +1,59 @@
+diff --git a/fetch.go b/fetch.go
+index 4afcaec..87493b1 100644
+--- a/fetch.go
++++ b/fetch.go
+@@ -7,14 +7,20 @@ type Body interface {
+ type Response struct{ Body Body }
+ 
+ type Transport interface {
+ 	Fetch() (Response, error)
+ }
+ 
+-func Fetch(transport Transport) error {
+-	response, err := transport.Fetch()
++type Framework struct{ transport Transport }
++
++func (framework Framework) Fetch() error {
++	response, err := framework.transport.Fetch()
+ 	if err != nil {
+ 		return err
+ 	}
+ 	defer response.Body.Close()
+ 	return nil
+ }
++
++func Fetch(transport Transport) error {
++	return (Framework{transport: transport}).Fetch()
++}
+diff --git a/fetch_test.go b/fetch_test.go
+new file mode 100644
+index 0000000..adb6525
+--- /dev/null
++++ b/fetch_test.go
+@@ -0,0 +1,26 @@
++package fetch
++
++import "testing"
++
++type body struct{ closed bool }
++
++func (value *body) Close() error {
++	value.closed = true
++	return nil
++}
++
++type transport struct{ body *body }
++
++func (value transport) Fetch() (Response, error) {
++	return Response{Body: value.body}, nil
++}
++
++func TestFrameworkClosesResponse(t *testing.T) {
++	resource := &body{}
++	if err := Fetch(transport{body: resource}); err != nil {
++		t.Fatal(err)
++	}
++	if !resource.closed {
++		t.Fatal("framework did not close the response")
++	}
++}

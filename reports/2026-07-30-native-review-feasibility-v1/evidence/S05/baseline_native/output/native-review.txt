@@ -1,0 +1,6 @@
+The change leaks connections for every invalid request, eventually exhausting the pool and breaking subsequent requests.
+
+Review comment:
+
+- [P1] Close the connection before returning invalid requests — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/runs/R15/repo/pool.go:46-46
+  When `valid` is false, `Handle` returns before this defer is registered, leaving the opened connection counted in `pool.inUse`. After `capacity` invalid requests, all subsequent calls fail with `ErrExhausted`; keep the close defer immediately after a successful `Open`.

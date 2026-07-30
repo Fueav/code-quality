@@ -1,0 +1,6 @@
+The update path discards the authenticated tenant and therefore permits cross-tenant modification whenever tenant-local resource IDs collide.
+
+Review comment:
+
+- [P1] Retain tenant filtering for tenant-local resource IDs — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v1/evidence/S07/goal_native/sessions/review-1179037787/input/repository/update.go:16-16
+  Because resource IDs can repeat across tenants, matching only `row.ID` lets any authenticated tenant update whichever tenant's matching row appears first. In the included example, the attacker request updates the victim's `shared-id` row, violating the stated tenant isolation; the authenticated tenant must remain part of the repository predicate.

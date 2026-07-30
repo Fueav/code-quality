@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change removes tenantID from Repository.Update and changes the predicate from ID plus TenantID to ID alone. Since IDs are explicitly tenant-local and duplicated in the example, an attacker update now modifies the victim row first, so the tenant-isolation regression is introduced and actionable."}]}

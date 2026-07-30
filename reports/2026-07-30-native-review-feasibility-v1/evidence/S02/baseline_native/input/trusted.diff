@@ -1,0 +1,18 @@
+diff --git a/cache.go b/cache.go
+index a1d38e9..df045bc 100644
+--- a/cache.go
++++ b/cache.go
+@@ -11,8 +11,12 @@ type Authority interface {
+ 
+ type Cache interface {
+ 	Get(user string) (Snapshot, bool)
+ }
+ 
+ func Authorize(authority Authority, cache Cache, user string) bool {
+-	return authority.Current(user).Allowed
++	current := authority.Current(user)
++	if cached, ok := cache.Get(user); ok && cached.Version == current.Version {
++		return cached.Allowed
++	}
++	return current.Allowed
+ }

@@ -1,0 +1,6 @@
+The change breaks failure atomicity by mutating the account before confirming that the ledger write succeeded. A ledger failure now leaves the account incorrectly debited.
+
+Review comment:
+
+- [P1] Preserve the balance when the ledger write fails — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/runs/R11/repo/transfer.go:26-27
+  When `ledger.WriteDebit` returns an error, such as when `ledger.Unavailable` is true, `CommitDebit` has already reduced the account balance. `Transfer` therefore reports failure while leaving a debit behind, violating the transaction contract and the existing check in `main`; commit the debit only after the ledger write succeeds.

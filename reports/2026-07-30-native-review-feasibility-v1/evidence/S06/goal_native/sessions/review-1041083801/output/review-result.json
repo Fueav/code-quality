@@ -1,0 +1,41 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "c6cf1e339ea3408c792538de3e7f5adf93c1c77d",
+    "target_commit": "ee00bce22db39d5ab7ded588cf91abac72ee022e",
+    "diff_selection_reason": "frozen_goal_feasibility_v1",
+    "changed_files": [
+      "fetch.go",
+      "fetch_test.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Route fetches through the framework while preserving response-body lifecycle ownership.",
+  "directions": [
+    {
+      "id": "reliability-lifecycle",
+      "prompt": "Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path."
+    }
+  ],
+  "findings": [],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 1,
+    "verifier_status": "not_needed",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "PASS",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "native review reported no actionable findings"
+    ]
+  }
+}

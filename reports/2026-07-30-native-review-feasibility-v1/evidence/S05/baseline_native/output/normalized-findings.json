@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When `valid` is false, `Handle` returns before this defer is registered, leaving the opened connection counted in `pool.inUse`. After `capacity` invalid requests, all subsequent calls fail with `ErrExhausted`; keep the close defer immediately after a successful `Open`.",
+      "end_line": 46,
+      "path": "pool.go",
+      "priority": 1,
+      "start_line": 46,
+      "title": "Close the connection before returning invalid requests"
+    }
+  ],
+  "schema_version": 1
+}

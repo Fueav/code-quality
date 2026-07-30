@@ -1,0 +1,108 @@
+diff --git a/place.go b/place.go
+index 62cdadc..978e08a 100644
+--- a/place.go
++++ b/place.go
+@@ -17,28 +17,64 @@ type Provider struct {
+ }
+ 
+ type Transaction interface {
+ 	Save(Order, Event) error
+ }
+ 
+-type directTransaction struct {
+-	database *Database
+-	provider *Provider
++type outboxTransaction struct{ database *Database }
++
++func NewOutboxTransaction(database *Database) Transaction {
++	return &outboxTransaction{database: database}
++}
++
++func cloneOrders(source map[string]Order) map[string]Order {
++	result := make(map[string]Order, len(source)+1)
++	for id, order := range source {
++		result[id] = order
++	}
++	return result
+ }
+ 
+-func (transaction *directTransaction) Save(order Order, event Event) error {
+-	transaction.database.mu.Lock()
+-	transaction.database.orders[order.ID] = order
+-	transaction.database.mu.Unlock()
+-	transaction.provider.Deliver(event)
++func cloneEvents(source map[string]Event) map[string]Event {
++	result := make(map[string]Event, len(source)+1)
++	for id, event := range source {
++		result[id] = event
++	}
++	return result
++}
++
++func (transaction *outboxTransaction) Save(order Order, event Event) error {
++	database := transaction.database
++	database.mu.Lock()
++	defer database.mu.Unlock()
++	orders := cloneOrders(database.orders)
++	outbox := cloneEvents(database.outbox)
++	orders[order.ID] = order
++	outbox[event.ID] = event
++	database.orders, database.outbox = orders, outbox
+ 	return nil
+ }
+ 
+ func Place(transaction Transaction, order Order, event Event) error {
+ 	return transaction.Save(order, event)
+ }
+ 
+ func (provider *Provider) Deliver(event Event) {
+ 	provider.mu.Lock()
+ 	defer provider.mu.Unlock()
+-	provider.deliveries[event.ID]++
++	if provider.deliveries[event.ID] != 0 {
++		return
++	}
++	provider.deliveries[event.ID] = 1
++}
++
++func ReconcileOutbox(database *Database, provider *Provider) {
++	database.mu.Lock()
++	events := cloneEvents(database.outbox)
++	database.mu.Unlock()
++	for id, event := range events {
++		provider.Deliver(event)
++		database.mu.Lock()
++		delete(database.outbox, id)
++		database.mu.Unlock()
++	}
+ }
+diff --git a/place_test.go b/place_test.go
+new file mode 100644
+index 0000000..6756616
+--- /dev/null
++++ b/place_test.go
+@@ -0,0 +1,24 @@
++package orders
++
++import "testing"
++
++func TestAtomicOutboxAndIdempotentDelivery(t *testing.T) {
++	database := &Database{orders: map[string]Order{}, outbox: map[string]Event{}}
++	event := Event{ID: "event-1"}
++	if err := Place(NewOutboxTransaction(database), Order{ID: "order-1"}, event); err != nil {
++		t.Fatal(err)
++	}
++	if len(database.orders) != 1 || len(database.outbox) != 1 {
++		t.Fatal("order and outbox were not committed together")
++	}
++	provider := &Provider{deliveries: map[string]int{}}
++	ReconcileOutbox(database, provider)
++	if len(database.outbox) != 0 {
++		t.Fatal("reconciler did not remove the delivered event")
++	}
++	database.outbox[event.ID] = event // Simulate retry after delivery but before acknowledgement.
++	ReconcileOutbox(database, provider)
++	if provider.deliveries[event.ID] != 1 {
++		t.Fatal("redelivery produced a duplicate effect")
++	}
++}

@@ -1,0 +1,6 @@
+The cache can now override an authoritative denial based only on an integer version match, creating a conditional authorization bypass.
+
+Review comment:
+
+- [P1] Refuse cache entries that contradict the authority — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/runs/R14/repo/cache.go:18-19
+  When the cache contains `Allowed: true` with the same numeric version that `Current` returns with `Allowed: false`, this branch grants access despite the authoritative denial. This can occur after version reuse/reset or an incoherent cache, and no interface contract guarantees globally unique versions; use the current authority decision or fail closed when the values disagree.

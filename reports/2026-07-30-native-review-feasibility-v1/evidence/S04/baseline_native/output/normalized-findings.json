@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "As the database grows, every placement copies all previously stored orders (and all pending events), making insertion of N orders \u0398(N\u00b2) and generating substantial allocation and GC pressure. Since `database.mu` already excludes all internal readers and writers, updating both maps while holding that lock can preserve the intended atomic visibility without copying the complete history.",
+      "end_line": 50,
+      "path": "place.go",
+      "priority": 2,
+      "start_line": 49,
+      "title": "Avoid cloning the full order history on every save"
+    }
+  ],
+  "schema_version": 1
+}

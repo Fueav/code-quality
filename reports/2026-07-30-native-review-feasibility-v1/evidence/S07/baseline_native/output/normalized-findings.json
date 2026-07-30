@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When two tenants use the same resource ID, any authenticated tenant can now update the first matching row regardless of ownership because `authenticatedTenant` is discarded. The route contract explicitly permits tenant-local IDs to repeat and exposes this write operation to every authenticated tenant, so this enables cross-tenant modification; retain `TenantID == authenticatedTenant` in the lookup.",
+      "end_line": 16,
+      "path": "update.go",
+      "priority": 1,
+      "start_line": 16,
+      "title": "Keep tenant scope in the update predicate"
+    }
+  ],
+  "schema_version": 1
+}

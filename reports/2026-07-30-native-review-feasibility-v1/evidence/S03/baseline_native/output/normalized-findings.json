@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When `ledger.WriteDebit` returns an error, such as when `ledger.Unavailable` is true, `CommitDebit` has already reduced the account balance. `Transfer` therefore reports failure while leaving a debit behind, violating the transaction contract and the existing check in `main`; commit the debit only after the ledger write succeeds.",
+      "end_line": 27,
+      "path": "transfer.go",
+      "priority": 1,
+      "start_line": 26,
+      "title": "Preserve the balance when the ledger write fails"
+    }
+  ],
+  "schema_version": 1
+}

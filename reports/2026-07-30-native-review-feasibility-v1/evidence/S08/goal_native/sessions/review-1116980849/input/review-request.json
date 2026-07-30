@@ -1,0 +1,11 @@
+{
+  "repository": "repo",
+  "target_branch": "DETACHED",
+  "base_commit": "e1cf2943f8692fc86a72e94b2436f04f488cc957",
+  "target_commit": "bce9261f143bd183544fb9d69712ef545391b8d1",
+  "diff_selection_reason": "frozen_goal_feasibility_v1",
+  "changed_files": [
+    "handler.go"
+  ],
+  "affected_entries": []
+}

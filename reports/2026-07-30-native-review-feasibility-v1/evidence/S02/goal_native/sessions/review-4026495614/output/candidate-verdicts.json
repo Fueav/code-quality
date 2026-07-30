@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change introduces a cache lookup but unconditionally calls authority.Current(user) first. Therefore cache hits cannot avoid that lookup or its latency/load, making the new caching path ineffective at optimizing authority access; the candidate is actionable."}]}

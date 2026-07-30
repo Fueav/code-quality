@@ -1,0 +1,6 @@
+The outbox behavior is functionally coherent, but saving orders now has quadratic cumulative cost because each write copies the entire order history. This is a meaningful performance regression for a growing database.
+
+Review comment:
+
+- [P2] Avoid cloning the full order history on every save — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/runs/R07/repo/place.go:49-50
+  As the database grows, every placement copies all previously stored orders (and all pending events), making insertion of N orders Θ(N²) and generating substantial allocation and GC pressure. Since `database.mu` already excludes all internal readers and writers, updating both maps while holding that lock can preserve the intended atomic visibility without copying the complete history.

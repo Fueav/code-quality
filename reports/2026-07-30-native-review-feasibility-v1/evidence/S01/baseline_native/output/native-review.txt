@@ -1,0 +1,6 @@
+The patch routes a production checkout debit through a deliberately non-authoritative analytics price, causing the annual plan to be charged at 100 cents instead of 10,000 cents.
+
+Review comment:
+
+- [P1] Keep checkout on the authoritative price source — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/runs/R02/repo/price.go:24-24
+  For `annual-plan`, this changes the irreversible production charge from the authoritative 10,000 cents to the analytics value of 100 cents. The added configuration explicitly marks analytics as non-authoritative reporting-only and permits 24 hours of lag, so `ChargeOrder` will undercharge customers or use stale prices; checkout should continue using `AuthoritativePrice`.

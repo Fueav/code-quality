@@ -1,0 +1,6 @@
+The patch routes production checkout charges through a reporting-only analytics price, causing the annual plan to be charged $1 instead of its authoritative $100 price.
+
+Review comment:
+
+- [P1] Keep analytics prices out of checkout charges — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v1/evidence/S01/goal_native/sessions/review-1443575812/input/repository/price.go:24-24
+  When `ChargeOrder` processes `annual-plan`, this now sends the analytics price (100 cents) to the irreversible external charger instead of the authoritative price (10,000 cents). The added configuration explicitly marks analytics as non-authoritative and potentially 24 hours stale, so checkout must continue using `AuthoritativePrice` to avoid incorrect charges.

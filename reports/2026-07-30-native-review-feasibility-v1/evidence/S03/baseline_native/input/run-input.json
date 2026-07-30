@@ -1,0 +1,12 @@
+{
+  "base_commit": "2efee2371de799f214b8364c68d16ea07434ce46",
+  "diff_sha256": "0d4be0cee7903f781175dd5b736e6ff0f0e1ef327cb1364a92164095d3cf93ce",
+  "goal": null,
+  "lane": "baseline_native",
+  "model": "gpt-5.6-sol",
+  "opaque_id": "S03",
+  "reasoning_effort": "high",
+  "run_id": "R11",
+  "schema_version": 1,
+  "target_commit": "beecff13c2ba519c768918e4a1e8c3e424b9e254"
+}

@@ -1,0 +1,39 @@
+diff --git a/transfer.go b/transfer.go
+index 69e06ba..a21658a 100644
+--- a/transfer.go
++++ b/transfer.go
+@@ -6,28 +6,28 @@ import (
+ )
+ 
+ var ErrLedgerUnavailable = errors.New("ledger unavailable")
+ 
+ type Account struct{ BalanceCents int64 }
+ 
++func (account *Account) CommitDebit(amountCents int64) {
++	account.BalanceCents -= amountCents
++}
++
+ type Ledger struct{ Unavailable bool }
+ 
+ func (ledger *Ledger) WriteDebit(int64) error {
+ 	if ledger.Unavailable {
+ 		return ErrLedgerUnavailable
+ 	}
+ 	return nil
+ }
+ 
+ func Transfer(account *Account, ledger *Ledger, amountCents int64) error {
+-	stagedBalance := account.BalanceCents - amountCents
+-	if err := ledger.WriteDebit(amountCents); err != nil {
+-		return err
+-	}
+-	account.BalanceCents = stagedBalance
+-	return nil
++	account.CommitDebit(amountCents)
++	return ledger.WriteDebit(amountCents)
+ }
+ 
+ func main() {
+ 	account := &Account{BalanceCents: 10_000}
+ 	err := Transfer(account, &Ledger{Unavailable: true}, 5_000)
+ 	if !errors.Is(err, ErrLedgerUnavailable) || account.BalanceCents != 10_000 {

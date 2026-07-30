@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When `Current` performs the remote or storage lookup this cache is intended to optimize, it is completed before `cache.Get`, so every cache hit still incurs the full latency and backend load and remains blocked by authority outages. Cache freshness must be established without completing the expensive `Current` call before returning the cached decision.",
+      "end_line": 17,
+      "path": "cache.go",
+      "priority": 1,
+      "start_line": 17,
+      "title": "Avoid the authoritative lookup on cache hits"
+    }
+  ],
+  "schema_version": 1
+}

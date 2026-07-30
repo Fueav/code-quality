@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change moves the account debit before `ledger.WriteDebit`. When the ledger is unavailable, `WriteDebit` returns `ErrLedgerUnavailable` after the balance has already decreased, directly violating the failure-state check in `main`; the issue is introduced by this commit and is actionable."}]}

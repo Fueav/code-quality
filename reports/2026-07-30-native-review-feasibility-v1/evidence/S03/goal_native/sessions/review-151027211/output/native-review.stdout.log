@@ -1,0 +1,6 @@
+The refactor breaks atomic failure behavior by applying the account debit before the ledger operation can fail. A ledger outage now leaves account and ledger state inconsistent.
+
+Review comment:
+
+- [P1] Commit the debit only after the ledger write succeeds — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v1/evidence/S03/goal_native/sessions/review-151027211/input/repository/transfer.go:26-26
+  When `ledger.Unavailable` is true, this mutates the account before `WriteDebit` returns `ErrLedgerUnavailable`, so a failed transfer leaves the account debited despite no ledger entry. This violates the atomic failure contract and causes the existing failure check in `main` to exit with status 2; defer or roll back the account mutation unless the ledger write succeeds.

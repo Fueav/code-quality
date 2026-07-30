@@ -1,0 +1,6 @@
+The cache cannot reduce authorization lookup latency because the authoritative lookup is always performed first.
+
+Review comment:
+
+- [P1] Avoid the authoritative lookup on cache hits — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v1/evidence/S02/goal_native/sessions/review-4026495614/input/repository/cache.go:17-17
+  When `Current` performs the remote or storage lookup this cache is intended to optimize, it is completed before `cache.Get`, so every cache hit still incurs the full latency and backend load and remains blocked by authority outages. Cache freshness must be established without completing the expensive `Current` call before returning the cached decision.

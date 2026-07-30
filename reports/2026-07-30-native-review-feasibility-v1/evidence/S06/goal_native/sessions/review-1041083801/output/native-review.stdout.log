@@ -1,0 +1,1 @@
+The new framework path preserves the existing behavior: successful responses are closed before returning, and the original Fetch entry point now delegates through that path. No actionable regression is introduced.

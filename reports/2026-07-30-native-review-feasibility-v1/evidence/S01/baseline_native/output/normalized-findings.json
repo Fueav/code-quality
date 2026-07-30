@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "For `annual-plan`, this changes the irreversible production charge from the authoritative 10,000 cents to the analytics value of 100 cents. The added configuration explicitly marks analytics as non-authoritative reporting-only and permits 24 hours of lag, so `ChargeOrder` will undercharge customers or use stale prices; checkout should continue using `AuthoritativePrice`.",
+      "end_line": 24,
+      "path": "price.go",
+      "priority": 1,
+      "start_line": 24,
+      "title": "Keep checkout on the authoritative price source"
+    }
+  ],
+  "schema_version": 1
+}

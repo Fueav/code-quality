@@ -1,0 +1,6 @@
+The legacy function retains its behavior, but the newly exported Framework API cannot be initialized by consumers of the package and therefore is unusable as introduced.
+
+Review comment:
+
+- [P2] Make Framework constructible by external callers — /private/var/folders/xg/zvk2hrzx57s65nj22g15z1900000gn/T/native-review-feasibility-execution-a6z5m031/runs/R03/repo/fetch.go:13-13
+  Because `transport` is unexported and no constructor or setter is provided, callers outside package `fetch` cannot create a usable `Framework`; the only constructible zero value panics when `Fetch` dereferences its nil transport. The new test misses this because it invokes the legacy package-level `Fetch` function rather than `Framework.Fetch`. Export the dependency field or add a constructor.

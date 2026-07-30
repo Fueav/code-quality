@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "body": "When the cache contains `Allowed: true` with the same numeric version that `Current` returns with `Allowed: false`, this branch grants access despite the authoritative denial. This can occur after version reuse/reset or an incoherent cache, and no interface contract guarantees globally unique versions; use the current authority decision or fail closed when the values disagree.",
+      "end_line": 19,
+      "path": "cache.go",
+      "priority": 1,
+      "start_line": 18,
+      "title": "Refuse cache entries that contradict the authority"
+    }
+  ],
+  "schema_version": 1
+}

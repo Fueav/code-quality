@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "repo",
+    "target_branch": "DETACHED",
+    "base_commit": "2efee2371de799f214b8364c68d16ea07434ce46",
+    "target_commit": "beecff13c2ba519c768918e4a1e8c3e424b9e254",
+    "diff_selection_reason": "frozen_goal_feasibility_v1",
+    "changed_files": [
+      "transfer.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Refactor transfer persistence while preserving atomic account and ledger outcomes under failure.",
+  "directions": [
+    {
+      "id": "data-business-correctness",
+      "prompt": "Trace value, state, identity, ordering, and precision changes through their real business effects."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Commit the debit only after the ledger write succeeds",
+      "body": "When `ledger.Unavailable` is true, this mutates the account before `WriteDebit` returns `ErrLedgerUnavailable`, so a failed transfer leaves the account debited despite no ledger entry. This violates the atomic failure contract and causes the existing failure check in `main` to exit with status 2; defer or roll back the account mutation unless the ledger write succeeds.",
+      "priority": 1,
+      "code_location": {
+        "path": "transfer.go",
+        "start_line": 26,
+        "end_line": 26
+      }
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 2,
+    "verifier_status": "complete",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "1 native finding(s) require manual review"
+    ]
+  }
+}

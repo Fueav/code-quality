@@ -1,0 +1,9 @@
+Although the basic outbox behavior works, the implementation introduces unbounded full-store copying in both the order-placement and reconciliation paths. These regressions can make normal production growth or a delivery backlog stall the service or exhaust memory.
+
+Full review comments:
+
+- [P1] Avoid cloning the full database on every order — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v1/evidence/S04/goal_native/sessions/review-3670807343/input/repository/place.go:49-50
+  Once the database contains many historical orders, every placement copies all existing orders and all pending events while holding the global mutex. Because orders are never removed, inserting N orders now performs O(N²) work and allocations, causing steadily increasing request latency and blocking reconciliation; the atomic update needs an O(1) transactional representation rather than full-store cloning.
+
+- [P2] Process large outbox backlogs in bounded batches — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-feasibility-v1/evidence/S04/goal_native/sessions/review-3670807343/input/repository/place.go:71-72
+  After provider downtime or another delivery backlog, this clones the entire outbox under the database mutex before delivering anything. A sufficiently large backlog therefore doubles its memory footprint and blocks every `Place` call for the full traversal, potentially exhausting memory before reconciliation can make progress; snapshotting bounded batches would avoid this failure mode.
