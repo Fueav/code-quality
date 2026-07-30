@@ -162,22 +162,21 @@ class HistoricalPilotTest(unittest.TestCase):
                     text=True,
                 )
                 prepared = json.loads(prepared_raw.stdout)
+                empty_review = {
+                    "activated_rule_families": [],
+                    "inactive_rule_families": [
+                        {"id": dimension, "reason": "No bottom-line issue in this test observation."}
+                        for dimension in ("D1", "D2", "D3", "D4")
+                    ],
+                    "findings": [],
+                    "uninspected_scope": [],
+                    "missing_context": [],
+                    "inspected_context": [
+                        {"path": "input/trusted.diff", "purpose": "Reviewed the committed test change."}
+                    ],
+                }
                 pathlib.Path(prepared["main_review_path"]).write_text(
-                    json.dumps(
-                        {
-                            "activated_rule_families": [],
-                            "inactive_rule_families": [
-                                {"id": dimension, "reason": "No bottom-line issue in this test observation."}
-                                for dimension in ("D1", "D2", "D3", "D4")
-                            ],
-                            "findings": [],
-                            "uninspected_scope": [],
-                            "missing_context": [],
-                            "inspected_context": [
-                                {"path": "input/trusted.diff", "purpose": "Reviewed the committed test change."}
-                            ],
-                        }
-                    ),
+                    json.dumps(empty_review),
                     encoding="utf-8",
                 )
                 finalized_raw = subprocess.run(
@@ -188,6 +187,20 @@ class HistoricalPilotTest(unittest.TestCase):
                     text=True,
                 )
                 finalized = json.loads(finalized_raw.stdout)
+                if finalized["status"] == "REREVIEW_REQUIRED":
+                    pathlib.Path(finalized["next_review_path"]).write_text(
+                        json.dumps(empty_review),
+                        encoding="utf-8",
+                    )
+                    finalized_raw = subprocess.run(
+                        [str(workspace / "quality-review"), "finalize", "--session", prepared["session_dir"]],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    finalized = json.loads(finalized_raw.stdout)
+                self.assertEqual(finalized["status"], "COMPLETE")
                 run_root = workspace / "sessions" / first["run_id"]
                 operator_root = run_root / "operator"
                 operator_root.mkdir()
