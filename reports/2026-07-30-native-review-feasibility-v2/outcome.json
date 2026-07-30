@@ -1,0 +1,188 @@
+{
+  "actual_model_calls": 22,
+  "blocked_cases": [
+    "S04"
+  ],
+  "conditions": {
+    "all_hashes_match": true,
+    "all_sessions_complete": true,
+    "goal_counterexample_passes_at_least_three": false,
+    "goal_not_worse_on_counterexample": true,
+    "goal_not_worse_on_positive": true,
+    "goal_positive_passes_at_least_three": true,
+    "no_blocked_cases": false
+  },
+  "expand_to_40": false,
+  "generated_at": "2026-07-30T08:44:33Z",
+  "maximum_model_calls": 24,
+  "profile": "native_review_goal_feasibility_v2",
+  "records": [
+    {
+      "blind_label": "Output 1",
+      "case_id": "DES-004-positive",
+      "kind": "positive",
+      "lane": "goal_native",
+      "opaque_id": "S01",
+      "reason": "Identifies the reporting-only analytics source, the authoritative value it replaced, and the concrete 99 percent undercharge.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 2",
+      "case_id": "DES-004-positive",
+      "kind": "positive",
+      "lane": "baseline_native",
+      "opaque_id": "S01",
+      "reason": "Identifies the analytics value reaching the irreversible charger instead of the authoritative value and explains the incorrect-charge impact.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 1",
+      "case_id": "DES-004-counterexample",
+      "kind": "counterexample",
+      "lane": "baseline_native",
+      "opaque_id": "S02",
+      "reason": "Reports no actionable introduced finding, matching the frozen counterexample contract.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 2",
+      "case_id": "DES-004-counterexample",
+      "kind": "counterexample",
+      "lane": "goal_native",
+      "opaque_id": "S02",
+      "reason": "The authorization can linearize at the authoritative Version read; a revocation after that read overlaps the in-flight call, just as it could overlap any decision read. The frozen contract does not require a second freshness read after Cache.Get, so the hypothetical delay is not a concrete introduced violation.",
+      "verdict": "fail"
+    },
+    {
+      "blind_label": "Output 1",
+      "case_id": "COR-004-positive",
+      "kind": "positive",
+      "lane": "goal_native",
+      "opaque_id": "S03",
+      "reason": "Identifies the debit-before-ledger-write root and the concrete changed balance without a ledger entry after failure.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 2",
+      "case_id": "COR-004-positive",
+      "kind": "positive",
+      "lane": "baseline_native",
+      "opaque_id": "S03",
+      "reason": "Identifies commit before ErrLedgerUnavailable and the concrete failed-transfer-with-debit-left-behind impact.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 1",
+      "case_id": "COR-004-counterexample",
+      "kind": "counterexample",
+      "lane": "goal_native",
+      "opaque_id": "S04",
+      "reason": "The base permits a Database with orders initialized and outbox nil. The target writes the order before panicking on the nil outbox assignment, creating the exact partial commit the counterexample claims to prevent. This genuine introduced defect invalidates admission.",
+      "verdict": "blocked"
+    },
+    {
+      "blind_label": "Output 2",
+      "case_id": "COR-004-counterexample",
+      "kind": "counterexample",
+      "lane": "baseline_native",
+      "opaque_id": "S04",
+      "reason": "Correctly identifies that no constructor initializes the unexported maps and that Save can mutate orders before a nil-outbox panic. This genuine atomicity defect invalidates the benchmark case.",
+      "verdict": "blocked"
+    },
+    {
+      "blind_label": "Output 1",
+      "case_id": "REL-004-positive",
+      "kind": "positive",
+      "lane": "goal_native",
+      "opaque_id": "S05",
+      "reason": "Identifies the return-before-defer root and the concrete pool exhaustion after repeated invalid requests.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 2",
+      "case_id": "REL-004-positive",
+      "kind": "positive",
+      "lane": "baseline_native",
+      "opaque_id": "S05",
+      "reason": "Identifies that invalid requests leave pool.inUse incremented and explains the resulting ErrExhausted failure.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 1",
+      "case_id": "REL-004-counterexample",
+      "kind": "counterexample",
+      "lane": "goal_native",
+      "opaque_id": "S06",
+      "reason": "Reports no actionable introduced finding, matching the frozen counterexample root.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 2",
+      "case_id": "REL-004-counterexample",
+      "kind": "counterexample",
+      "lane": "baseline_native",
+      "opaque_id": "S06",
+      "reason": "The existing public Fetch function remains the usable package API, constructs Framework internally, and exercises Framework.Fetch in the lifecycle test. No contract requires direct external Framework construction, so this is not an actionable regression.",
+      "verdict": "fail"
+    },
+    {
+      "blind_label": "Output 1",
+      "case_id": "SEC-001-positive",
+      "kind": "positive",
+      "lane": "baseline_native",
+      "opaque_id": "S07",
+      "reason": "Identifies the missing tenant predicate and the concrete cross-tenant update enabled by repeated tenant-local IDs.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 2",
+      "case_id": "SEC-001-positive",
+      "kind": "positive",
+      "lane": "goal_native",
+      "opaque_id": "S07",
+      "reason": "Identifies that the verified tenant is discarded and explains the resulting cross-tenant overwrite.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 1",
+      "case_id": "SEC-001-counterexample",
+      "kind": "counterexample",
+      "lane": "baseline_native",
+      "opaque_id": "S08",
+      "reason": "Reports no actionable introduced finding, matching the frozen counterexample root.",
+      "verdict": "pass"
+    },
+    {
+      "blind_label": "Output 2",
+      "case_id": "SEC-001-counterexample",
+      "kind": "counterexample",
+      "lane": "goal_native",
+      "opaque_id": "S08",
+      "reason": "Reports no actionable introduced finding, matching the frozen counterexample root.",
+      "verdict": "pass"
+    }
+  ],
+  "schema_version": 1,
+  "totals": {
+    "baseline_native": {
+      "counterexample": {
+        "fail": 1,
+        "pass": 2
+      },
+      "positive": {
+        "fail": 0,
+        "pass": 4
+      }
+    },
+    "goal_native": {
+      "counterexample": {
+        "fail": 1,
+        "pass": 2
+      },
+      "positive": {
+        "fail": 0,
+        "pass": 4
+      }
+    }
+  }
+}
