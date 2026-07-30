@@ -1,0 +1,143 @@
+{
+  "cases": [
+    {
+      "expected_root": "Checkout selects the reporting-only analytics price instead of the authoritative price and sends the divergent value to the charger.",
+      "kind": "positive",
+      "opaque_id": "S01",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "reason": "Identifies the reporting-only analytics source, the authoritative source it replaced, and the concrete undercharge or stale-price impact.",
+          "verdict": "pass"
+        },
+        {
+          "label": "Output 2",
+          "reason": "Identifies the divergent analytics value reaching the irreversible charger and explains the concrete incorrect-charge impact.",
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "expected_root": "No actionable defect: only a version-matched cached decision is used, and misses or mismatches synchronously fall back to the authority.",
+      "kind": "counterexample",
+      "opaque_id": "S02",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "reason": "The input performs authority.Current before consulting the cache, so every hit still pays the full authoritative lookup and the change cannot meet its frozen latency goal. This is a genuine introduced design defect missed by admission.",
+          "verdict": "blocked"
+        },
+        {
+          "label": "Output 2",
+          "reason": "The frozen fixture defines equal versions as the cache-validity contract. A contradictory same-version decision requires unsupported version reuse or cache incoherence, so this is speculative rather than an actionable introduced defect.",
+          "verdict": "fail"
+        }
+      ]
+    },
+    {
+      "expected_root": "The debit commits before a stable ledger-write failure and no rollback, compensation, or reconciliation restores the balance.",
+      "kind": "positive",
+      "opaque_id": "S03",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "reason": "Identifies that the balance mutation precedes the failing ledger write and explains the concrete partial-debit outcome.",
+          "verdict": "pass"
+        },
+        {
+          "label": "Output 2",
+          "reason": "Identifies the commit-before-write root and the concrete failed-transfer-with-debit-left-behind impact.",
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "expected_root": "No actionable defect: order and outbox commit together, persisted events are reconciled, and event-keyed delivery is idempotent.",
+      "kind": "counterexample",
+      "opaque_id": "S04",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "reason": "The run is operationally incomplete and retained no findings, so the frozen contract requires a lane failure rather than a semantic pass.",
+          "verdict": "fail"
+        },
+        {
+          "label": "Output 2",
+          "reason": "Save clones the complete order and outbox histories while holding the database lock on every insertion, causing linear work per write and quadratic cumulative growth. This is a genuine introduced scalability defect missed by admission.",
+          "verdict": "blocked"
+        }
+      ]
+    },
+    {
+      "expected_root": "The changed invalid-input return occurs after connection acquisition but before release, leaking one connection per normal invalid request.",
+      "kind": "positive",
+      "opaque_id": "S05",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "reason": "Identifies the return-before-defer root and the concrete pool exhaustion after repeated invalid requests.",
+          "verdict": "pass"
+        },
+        {
+          "label": "Output 2",
+          "reason": "Identifies that the opened connection remains counted on the invalid path and explains the resulting ErrExhausted failure.",
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "expected_root": "No actionable defect: the framework path retains a deferred close and its test proves the response body is closed.",
+      "kind": "counterexample",
+      "opaque_id": "S06",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "reason": "The public Fetch function remains externally usable, constructs Framework internally, and directly executes Framework.Fetch; the test therefore covers that lifecycle path. No contract requires callers to construct Framework directly, so this is not an actionable introduced defect.",
+          "verdict": "fail"
+        },
+        {
+          "label": "Output 2",
+          "reason": "Reports no actionable introduced finding, matching the frozen counterexample root.",
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "expected_root": "The target removes the authenticated-tenant predicate from a public update, allowing a repeated tenant-local ID to select another tenant's resource.",
+      "kind": "positive",
+      "opaque_id": "S07",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "reason": "Identifies the missing tenant predicate and the concrete cross-tenant update enabled by repeated resource IDs.",
+          "verdict": "pass"
+        },
+        {
+          "label": "Output 2",
+          "reason": "Identifies that authenticatedTenant is discarded and explains the resulting cross-tenant modification impact.",
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "expected_root": "No actionable defect: signed gateway identity, the editor-role check, and tenant-scoped lookup are all enforced.",
+      "kind": "counterexample",
+      "opaque_id": "S08",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "reason": "Reports no actionable introduced finding, matching the frozen counterexample root.",
+          "verdict": "pass"
+        },
+        {
+          "label": "Output 2",
+          "reason": "Reports no actionable introduced finding, matching the frozen counterexample root.",
+          "verdict": "pass"
+        }
+      ]
+    }
+  ],
+  "profile": "native_review_goal_feasibility_v1",
+  "schema_version": 1,
+  "status": "adjudicated"
+}

@@ -1,0 +1,110 @@
+{
+  "cases": [
+    {
+      "opaque_id": "S01",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "lane": "goal_native"
+        },
+        {
+          "label": "Output 2",
+          "lane": "baseline_native"
+        }
+      ]
+    },
+    {
+      "opaque_id": "S02",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "lane": "goal_native"
+        },
+        {
+          "label": "Output 2",
+          "lane": "baseline_native"
+        }
+      ]
+    },
+    {
+      "opaque_id": "S03",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "lane": "goal_native"
+        },
+        {
+          "label": "Output 2",
+          "lane": "baseline_native"
+        }
+      ]
+    },
+    {
+      "opaque_id": "S04",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "lane": "goal_native"
+        },
+        {
+          "label": "Output 2",
+          "lane": "baseline_native"
+        }
+      ]
+    },
+    {
+      "opaque_id": "S05",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "lane": "goal_native"
+        },
+        {
+          "label": "Output 2",
+          "lane": "baseline_native"
+        }
+      ]
+    },
+    {
+      "opaque_id": "S06",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "lane": "baseline_native"
+        },
+        {
+          "label": "Output 2",
+          "lane": "goal_native"
+        }
+      ]
+    },
+    {
+      "opaque_id": "S07",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "lane": "goal_native"
+        },
+        {
+          "label": "Output 2",
+          "lane": "baseline_native"
+        }
+      ]
+    },
+    {
+      "opaque_id": "S08",
+      "outputs": [
+        {
+          "label": "Output 1",
+          "lane": "goal_native"
+        },
+        {
+          "label": "Output 2",
+          "lane": "baseline_native"
+        }
+      ]
+    }
+  ],
+  "profile": "native_review_goal_feasibility_v1",
+  "schema_version": 1
+}
