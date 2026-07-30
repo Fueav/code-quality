@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "checkpoint_commit": "37a3078e7dfaed0d464f0e05ac830849df2e0918",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "high",
+  "maximum_total_model_calls": 4,
+  "shared_goal": "Assess the downstream request-context refactor for production safety.",
+  "cases": [
+    {
+      "id": "REL-002-positive",
+      "fixture": "pilot/fixtures/rel-002-positive",
+      "kind": "positive",
+      "expected_semantic_result": "MANUAL_REVIEW",
+      "expected_root_cause": "The changed production handler discards the caller deadline and can retain requests forever when the downstream never responds.",
+      "fixture_sha256": {
+        "base/client.go": "34760dcabe4242ba4b59da19626faf2de5694133562b45bb7a718bcfd321067d",
+        "target/client.go": "e69f0ddcd268c026473ae365f1e07cc8b44be42343b274215e779e9a19101a68",
+        "target/deployment-contract.json": "3ebb47f39c6814f068c1b94ed4325fab719c336e80c73c4fae54a42848fd8c41"
+      }
+    },
+    {
+      "id": "REL-002-counterexample",
+      "fixture": "pilot/fixtures/rel-002-counterexample",
+      "kind": "counterexample",
+      "expected_semantic_result": "PASS",
+      "expected_root_cause": "none; the changed handler creates a two-second timeout, which is shorter than the former five-second caller deadline.",
+      "fixture_sha256": {
+        "base/client.go": "0d2dc207538f98d172d6442f8cedcbff0365f9129c5ba674cadf75dcc8390c1f",
+        "target/client.go": "207da9b707524e39be3cf5ff154954b45b33728f6b7adbb8c343a7a8971e974f"
+      }
+    }
+  ],
+  "acceptance": {
+    "no_case_is_incomplete": true,
+    "positive_final_finding_matches_expected_root_cause": true,
+    "counterexample_final_finding_count": 0,
+    "all_final_paths_are_changed_files": true,
+    "retain_raw_native_verifier_and_final_outputs": true
+  }
+}

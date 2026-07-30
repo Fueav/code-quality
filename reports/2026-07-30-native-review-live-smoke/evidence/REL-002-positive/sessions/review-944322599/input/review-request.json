@@ -1,0 +1,12 @@
+{
+  "repository": "REL-002-positive-repo",
+  "target_branch": "main",
+  "base_commit": "66107d3c0ac8b520a1967defd549ae67a6a9a16d",
+  "target_commit": "3f863e80e543c4d76ea0e2048c25a57e1a478586",
+  "diff_selection_reason": "frozen_REL-002-positive",
+  "changed_files": [
+    "client.go",
+    "deployment-contract.json"
+  ],
+  "affected_entries": []
+}

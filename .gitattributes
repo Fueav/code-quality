@@ -1,0 +1,4 @@
+# Retained live-smoke artifacts are byte-preserved evidence, not source text.
+reports/2026-07-30-native-review-live-smoke/evidence/**/input/trusted.diff -diff
+reports/2026-07-30-native-review-live-smoke/evidence/**/output/*.log -diff
+reports/2026-07-30-native-review-live-smoke/evidence/**/output/*.md -diff

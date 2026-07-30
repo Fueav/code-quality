@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "REL-002-positive-repo",
+    "target_branch": "main",
+    "base_commit": "66107d3c0ac8b520a1967defd549ae67a6a9a16d",
+    "target_commit": "3f863e80e543c4d76ea0e2048c25a57e1a478586",
+    "diff_selection_reason": "frozen_REL-002-positive",
+    "changed_files": [
+      "client.go",
+      "deployment-contract.json"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Assess the downstream request-context refactor for production safety.",
+  "directions": [
+    {
+      "id": "reliability-lifecycle",
+      "prompt": "Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path."
+    },
+    {
+      "id": "contracts-rollout",
+      "prompt": "Check whether changed interfaces, schemas, configuration, migrations, and rollout order remain compatible."
+    },
+    {
+      "id": "data-business-correctness",
+      "prompt": "Trace value, state, identity, ordering, and precision changes through their real business effects."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Propagate the caller context to the downstream call",
+      "body": "When the downstream response never arrives, as specified by the production deployment contract, `context.Background()` is never canceled, so all 20,000 active requests remain blocked past their five-second caller deadlines. This exceeds the stated retained-request capacity of 1,000 and makes the service unavailable; pass the supplied request context to `client.Do` so deadlines and cancellation release these calls.",
+      "priority": 0,
+      "code_location": {
+        "path": "client.go",
+        "start_line": 24,
+        "end_line": 24
+      }
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 2,
+    "verifier_status": "complete",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "1 native finding(s) require manual review"
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+{"decisions":[{"index":1,"keep":true,"reason":"The change replaces the supplied context with context.Background() before applying the timeout, demonstrably dropping caller cancellation, earlier deadlines, and request-scoped values. Deriving the timeout from ctx is an actionable fix."}]}

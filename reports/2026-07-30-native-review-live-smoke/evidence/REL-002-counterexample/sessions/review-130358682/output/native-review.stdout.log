@@ -1,0 +1,6 @@
+The refactor discards the incoming request context, breaking cancellation, earlier deadlines, and propagation of request-scoped values to the downstream client.
+
+Review comment:
+
+- [P1] Preserve the caller context when adding the timeout — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-live-smoke/evidence/REL-002-counterexample/sessions/review-130358682/input/repository/client.go:17-18
+  Whenever the caller cancels the request, has an earlier deadline, or supplies request-scoped values, deriving from `context.Background()` severs that context chain. `client.Do` can therefore continue for up to two seconds after cancellation and loses metadata such as tracing or authentication; derive the timeout from the supplied `ctx` instead.

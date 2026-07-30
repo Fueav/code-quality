@@ -1,0 +1,6 @@
+The refactor discards the request context, preventing caller deadlines and cancellation from terminating downstream waits. Under the committed production conditions, this causes indefinite request retention and service unavailability.
+
+Review comment:
+
+- [P0] Propagate the caller context to the downstream call — /Users/chris/AiProject/code-quality-review-hybrid-vnext/reports/2026-07-30-native-review-live-smoke/evidence/REL-002-positive/sessions/review-944322599/input/repository/client.go:24-24
+  When the downstream response never arrives, as specified by the production deployment contract, `context.Background()` is never canceled, so all 20,000 active requests remain blocked past their five-second caller deadlines. This exceeds the stated retained-request capacity of 1,000 and makes the service unavailable; pass the supplied request context to `client.Do` so deadlines and cancellation release these calls.

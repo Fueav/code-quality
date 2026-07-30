@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "checkpoint_commit": "37a3078e7dfaed0d464f0e05ac830849df2e0918",
+  "post_run_fix_commit": "1dcea57153a62c45484d5cee88cf60d7618d3715",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "high",
+  "maximum_total_model_calls": 4,
+  "actual_total_model_calls": 4,
+  "call_ceiling_respected": true,
+  "overall_acceptance_passed": false,
+  "cases": [
+    {
+      "id": "REL-002-positive",
+      "main_review_call": 1,
+      "verifier_call": 2,
+      "final_semantic_result": "MANUAL_REVIEW",
+      "verifier_status": "complete",
+      "finding_count": 1,
+      "expected_root_cause_matched": true,
+      "evidence_result": "evidence/REL-002-positive/sessions/review-944322599/output/review-result-reconciled.json",
+      "note": "The already-correct native text was reused after the adapter fix; the main review was not rerun."
+    },
+    {
+      "id": "REL-002-counterexample",
+      "main_review_call": 3,
+      "verifier_call": 4,
+      "final_semantic_result": "MANUAL_REVIEW",
+      "verifier_status": "failed_open",
+      "finding_count": 1,
+      "expected_pass_matched": false,
+      "frozen_label_valid": false,
+      "evidence_result": "evidence/REL-002-counterexample/sessions/review-130358682/output/review-result.json",
+      "note": "The fixture still replaces the caller context with context.Background(), so it drops cancellation, earlier deadlines, and request-scoped values. Both calls kept this actionable defect. The verifier emitted one-based index 1 for the sole zero-based candidate and was correctly failed open."
+    }
+  ],
+  "acceptance": {
+    "no_final_case_is_incomplete": true,
+    "positive_final_finding_matches_expected_root_cause": true,
+    "counterexample_final_finding_count_is_zero": false,
+    "all_final_paths_are_changed_files": true,
+    "raw_native_verifier_and_final_outputs_retained": true
+  },
+  "post_run_corrections": [
+    "Parse Codex native review text instead of assuming review output-schema JSON.",
+    "Remove confidence from the native finding contract because native review does not emit it.",
+    "Pass explicit zero-based candidate indexes and require the verifier to copy them exactly."
+  ],
+  "model_rerun_after_post_run_corrections": false
+}

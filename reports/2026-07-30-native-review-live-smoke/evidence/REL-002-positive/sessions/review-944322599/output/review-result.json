@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "REL-002-positive-repo",
+    "target_branch": "main",
+    "base_commit": "66107d3c0ac8b520a1967defd549ae67a6a9a16d",
+    "target_commit": "3f863e80e543c4d76ea0e2048c25a57e1a478586",
+    "diff_selection_reason": "frozen_REL-002-positive",
+    "changed_files": [
+      "client.go",
+      "deployment-contract.json"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Assess the downstream request-context refactor for production safety.",
+  "directions": [
+    {
+      "id": "reliability-lifecycle",
+      "prompt": "Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path."
+    },
+    {
+      "id": "contracts-rollout",
+      "prompt": "Check whether changed interfaces, schemas, configuration, migrations, and rollout order remain compatible."
+    },
+    {
+      "id": "data-business-correctness",
+      "prompt": "Trace value, state, identity, ordering, and precision changes through their real business effects."
+    }
+  ],
+  "findings": [],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 1,
+    "verifier_status": "not_needed",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "INCOMPLETE",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "native review output is invalid: invalid character 'T' looking for beginning of value"
+    ]
+  }
+}

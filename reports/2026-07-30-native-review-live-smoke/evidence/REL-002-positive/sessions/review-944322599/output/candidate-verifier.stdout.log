@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change replaces the caller context with context.Background(), so client.Do no longer observes the five-second deadline. With a downstream response that never arrives, the committed deployment contract confirms that 20,000 requests remain blocked against a capacity of 1,000; propagating ctx is an actionable fix."}]}

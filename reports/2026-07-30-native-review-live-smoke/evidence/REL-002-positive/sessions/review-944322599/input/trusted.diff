@@ -1,0 +1,39 @@
+diff --git a/client.go b/client.go
+index 1edafd6..66660fe 100644
+--- a/client.go
++++ b/client.go
+@@ -17,14 +17,14 @@ func (client Client) Do(ctx context.Context) error {
+ 		return nil
+ 	case <-ctx.Done():
+ 		return ctx.Err()
+ 	}
+ }
+ 
+-func HandleProductionRequest(ctx context.Context, client Client) error {
+-	return client.Do(ctx)
++func HandleProductionRequest(_ context.Context, client Client) error {
++	return client.Do(context.Background())
+ }
+ 
+ func main() {
+ 	ctx, cancel := context.WithTimeout(context.Background(), requestDeadline)
+ 	defer cancel()
+ 	_ = HandleProductionRequest(ctx, Client{response: make(chan struct{})})
+diff --git a/deployment-contract.json b/deployment-contract.json
+new file mode 100644
+index 0000000..9dd7931
+--- /dev/null
++++ b/deployment-contract.json
+@@ -0,0 +1,12 @@
++{
++  "approved": true,
++  "environment": "production",
++  "deployment_status": "active",
++  "route": "/v1/downstream",
++  "entry": "HandleProductionRequest",
++  "current_concurrent_requests": 20000,
++  "caller_deadline_seconds": 5,
++  "downstream_response": "never arrives",
++  "retained_request_capacity": 1000,
++  "capacity_effect": "service unavailable"
++}
