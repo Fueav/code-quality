@@ -1,0 +1,65 @@
+package membership
+
+import "testing"
+
+type authorityStub struct {
+	version      int
+	current      Snapshot
+	versionCalls int
+	currentCalls int
+}
+
+func (authority *authorityStub) Version(string) int {
+	authority.versionCalls++
+	return authority.version
+}
+
+func (authority *authorityStub) Current(string) Snapshot {
+	authority.currentCalls++
+	return authority.current
+}
+
+type cacheStub struct {
+	snapshot Snapshot
+	present  bool
+}
+
+func (cache cacheStub) Get(string) (Snapshot, bool) {
+	return cache.snapshot, cache.present
+}
+
+func TestMatchingCacheAvoidsAuthoritativeDecisionLookup(t *testing.T) {
+	authority := &authorityStub{
+		version: 7,
+		current: Snapshot{Version: 7, Allowed: false},
+	}
+	cache := cacheStub{snapshot: Snapshot{Version: 7, Allowed: true}, present: true}
+
+	if !Authorize(authority, cache, "member") {
+		t.Fatal("matching cached decision was not used")
+	}
+	if authority.versionCalls != 1 || authority.currentCalls != 0 {
+		t.Fatalf("authority calls: version=%d current=%d", authority.versionCalls, authority.currentCalls)
+	}
+}
+
+func TestCacheMissAndVersionMismatchUseAuthoritativeDecision(t *testing.T) {
+	for name, cache := range map[string]cacheStub{
+		"miss":     {},
+		"mismatch": {snapshot: Snapshot{Version: 6, Allowed: false}, present: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			authority := &authorityStub{
+				version: 7,
+				current: Snapshot{Version: 7, Allowed: true},
+			}
+
+			if !Authorize(authority, cache, "member") {
+				t.Fatal("authoritative decision was not returned")
+			}
+			if authority.versionCalls != 1 || authority.currentCalls != 1 {
+				t.Fatalf("authority calls: version=%d current=%d", authority.versionCalls, authority.currentCalls)
+			}
+		})
+	}
+}

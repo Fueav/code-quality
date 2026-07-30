@@ -71,6 +71,7 @@ class NativeReviewAdmissionTest(unittest.TestCase):
         self.assertIn("errors.Is(err, ErrDuplicate)", cor_002_target)
 
         for case_id, contract in (
+            ("des-004-counterexample", "cache-contract.json"),
             ("cor-002-counterexample", "store-contract.json"),
             ("cor-004-counterexample", "outbox-contract.json"),
         ):

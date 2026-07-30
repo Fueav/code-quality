@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -133,6 +134,49 @@ Overall assessment: the change needs both fixes before release.
 	}
 }
 
+func TestReadNativeOutputReplaysV1FullReviewComments(t *testing.T) {
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not locate test source")
+	}
+	path := filepath.Join(
+		filepath.Dir(source),
+		"..", "..", "reports", "2026-07-30-native-review-feasibility-v1", "evidence",
+		"S04", "goal_native", "output", "native-review.txt",
+	)
+
+	result, err := readNativeOutput(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 2 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+	if result.Findings[0].Title != "Avoid cloning the full database on every order" {
+		t.Fatalf("first finding = %#v", result.Findings[0])
+	}
+}
+
+func TestNativeOutputAcceptsObservedCandidateHeadingGrammar(t *testing.T) {
+	for _, heading := range []string{
+		"Review comment:",
+		"Review comments:",
+		"Full review comment:",
+		"Full review comments:",
+	} {
+		t.Run(heading, func(t *testing.T) {
+			input := heading + "\n\n- [P1] Preserve ownership — /private/tmp/review/app.go:12\n  The new branch drops the tenant check.\n"
+			result, err := parseNativeReviewText(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 1 {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
+	}
+}
+
 func TestReadNativeOutputAcceptsNativeZeroCandidateNarrative(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "native-review.txt")
 	if err := os.WriteFile(path, []byte("The derived timeout context preserves parent cancellation, earlier deadlines, and request-scoped values while enforcing the approved two-second limit.\n"), 0o600); err != nil {
@@ -161,12 +205,28 @@ func TestReadNativeOutputRejectsOrphanFindingHeader(t *testing.T) {
 
 func TestNativeOutputRejectsEmptyResults(t *testing.T) {
 	for name, input := range map[string]string{
-		"empty output":            "\n\t\n",
-		"empty candidate section": "Review comment:\n",
+		"empty output":                 "\n\t\n",
+		"empty candidate section":      "Review comment:\n",
+		"empty full candidate section": "Full review comments:\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseNativeReviewText(input); err == nil {
 				t.Fatal("invalid native output was accepted as zero candidates")
+			}
+		})
+	}
+}
+
+func TestNativeOutputRejectsNoFindingsFollowedByAnyCandidateHeading(t *testing.T) {
+	for _, heading := range []string{
+		"Review comment:",
+		"Review comments:",
+		"Full review comment:",
+		"Full review comments:",
+	} {
+		t.Run(heading, func(t *testing.T) {
+			if _, err := parseNativeReviewText("No findings.\n\n" + heading + "\n"); err == nil {
+				t.Fatal("contradictory native output was accepted")
 			}
 		})
 	}
