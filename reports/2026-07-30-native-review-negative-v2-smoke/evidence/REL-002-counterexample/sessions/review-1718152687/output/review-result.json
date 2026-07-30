@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "evaluation_rubric_version": "1.2.0",
+  "request": {
+    "repository": "REL-002-counterexample-v2-repo",
+    "target_branch": "main",
+    "base_commit": "be298dc424a08459b524184c57f55639109992bb",
+    "target_commit": "f9abe82b9f77616ae70a3771d56bd65ce43b5eb5",
+    "diff_selection_reason": "frozen_REL-002-counterexample-v2",
+    "changed_files": [
+      "client.go"
+    ],
+    "affected_entries": []
+  },
+  "review_goal": "Assess the downstream request-context refactor for production safety.",
+  "directions": [
+    {
+      "id": "reliability-lifecycle",
+      "prompt": "Trace errors, timeouts, retries, cancellation, concurrency, and resource lifecycle across the changed path."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Preserve the caller's longer deadline",
+      "body": "When the parent context allows more than two seconds—such as the declared five-second caller deadline—this derived context cancels every `Client.Do` call at two seconds. Operations that legitimately complete within the caller's remaining budget now fail with `context.DeadlineExceeded`, whereas the previous implementation allowed them to finish; use the caller's deadline or an operation-specific timeout consistent with the intended SLA.",
+      "priority": 1,
+      "code_location": {
+        "path": "client.go",
+        "start_line": 18,
+        "end_line": 18
+      }
+    }
+  ],
+  "execution": {
+    "host": "codex",
+    "review_mode": "native_review",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "model_calls": 2,
+    "verifier_status": "complete",
+    "adapter_drops": []
+  },
+  "adjudication": {
+    "semantic_result": "MANUAL_REVIEW",
+    "rollout_mode": "report_only",
+    "ci_action": "publish_report",
+    "reasons": [
+      "1 native finding(s) require manual review"
+    ]
+  }
+}

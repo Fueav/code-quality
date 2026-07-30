@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "freeze_commit": "17c53252bfaf4021c223d552d73bca3dccca9a58",
+  "maximum_total_model_calls": 2,
+  "actual_total_model_calls": 2,
+  "call_ceiling_respected": true,
+  "overall_acceptance_passed": false,
+  "case": {
+    "id": "REL-002-counterexample",
+    "final_semantic_result": "MANUAL_REVIEW",
+    "final_finding_count": 1,
+    "verifier_status": "complete",
+    "verifier_index_contract_passed": true,
+    "expected_pass_matched": false,
+    "evidence_result": "evidence/REL-002-counterexample/sessions/review-1718152687/output/review-result.json"
+  },
+  "label_assessment": {
+    "status": "unqualified",
+    "reason": "The private eval facts call two seconds an approved downstream budget, but that contract was absent from the repository and the generic review goal. The visible repository instead declared a five-second caller deadline, so both review calls reasonably treated unconditional two-second cancellation as a regression."
+  },
+  "next_contract": "Make the approved downstream timeout and context-preservation requirement visible in the reviewed repository, and pass the actual change intent through --goal before freezing another negative smoke."
+}

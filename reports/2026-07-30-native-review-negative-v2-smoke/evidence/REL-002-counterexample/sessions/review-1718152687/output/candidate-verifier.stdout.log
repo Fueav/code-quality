@@ -1,0 +1,1 @@
+{"decisions":[{"index":0,"keep":true,"reason":"The change introduces context.WithTimeout(ctx, 2*time.Second), so Client.Do is now canceled after two seconds even when the parent context has a later deadline; the prior implementation passed the parent context through unchanged, and the five-second callerDeadline constant reinforces that longer operations are expected."}]}
