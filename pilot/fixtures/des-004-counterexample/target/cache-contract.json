@@ -1,0 +1,6 @@
+{
+  "cache_hit": "a matching version returns the cached decision without Authority.Current",
+  "coherence": "equal versions identify the same authoritative decision",
+  "fallback": "a miss or version mismatch synchronously returns Authority.Current",
+  "version_lookup": "Authority.Version is a cheap coherence read and does not fetch the decision"
+}

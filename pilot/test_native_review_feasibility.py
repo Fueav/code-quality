@@ -92,21 +92,22 @@ class NativeReviewFeasibilityTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory) / "opaque-repo"
             root.mkdir()
-            raw = f"""Assessment.\n\nReview comment:\n\n- [P1] Preserve ownership — {root}/handler.go:10-12\n  The change drops the tenant predicate and can update another tenant.\n"""
-            findings = normalize_native_review(raw, root)
-            self.assertEqual(
-                findings,
-                [
-                    {
-                        "title": "Preserve ownership",
-                        "body": "The change drops the tenant predicate and can update another tenant.",
-                        "priority": 1,
-                        "path": "handler.go",
-                        "start_line": 10,
-                        "end_line": 12,
-                    }
-                ],
-            )
+            for heading in ("Review comment:", "Review comments:", "Full review comment:", "Full review comments:"):
+                raw = f"""Assessment.\n\n{heading}\n\n- [P1] Preserve ownership — {root}/handler.go:10-12\n  The change drops the tenant predicate and can update another tenant.\n"""
+                findings = normalize_native_review(raw, root)
+                self.assertEqual(
+                    findings,
+                    [
+                        {
+                            "title": "Preserve ownership",
+                            "body": "The change drops the tenant predicate and can update another tenant.",
+                            "priority": 1,
+                            "path": "handler.go",
+                            "start_line": 10,
+                            "end_line": 12,
+                        }
+                    ],
+                )
             self.assertEqual(normalize_native_review("The change is safe.\n", root), [])
 
     def test_blind_packet_hides_lanes_and_frozen_judgments_drive_gate(self) -> None:

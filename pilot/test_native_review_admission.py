@@ -85,7 +85,16 @@ class NativeReviewAdmissionTest(unittest.TestCase):
             SOURCE_ROOT / "pilot" / "fixtures" / "cor-004-counterexample" / "target" / "place.go"
         ).read_text(encoding="utf-8")
         self.assertIn("func ReconcileOutbox", cor_004_target)
-        self.assertIn("delete(database.outbox, id)", cor_004_target)
+        self.assertIn("nextOutboxBatch", cor_004_target)
+        self.assertIn("delete(database.outbox, item.id)", cor_004_target)
+        self.assertNotIn("cloneOrders", cor_004_target)
+        self.assertNotIn("cloneEvents", cor_004_target)
+
+        des_004_target = (
+            SOURCE_ROOT / "pilot" / "fixtures" / "des-004-counterexample" / "target" / "cache.go"
+        ).read_text(encoding="utf-8")
+        self.assertIn("version := authority.Version(user)", des_004_target)
+        self.assertIn("return authority.Current(user).Allowed", des_004_target)
 
 
 if __name__ == "__main__":

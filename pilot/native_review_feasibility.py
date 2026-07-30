@@ -28,6 +28,12 @@ MODEL = "gpt-5.6-sol"
 REASONING_EFFORT = "high"
 LANES = ("baseline_native", "goal_native")
 NATIVE_HEADER = re.compile(r"^- \[P([0-3])\] (.+?) — (.+):(\d+)(?:-(\d+))?$")
+NATIVE_HEADINGS = {
+    "Review comment:",
+    "Review comments:",
+    "Full review comment:",
+    "Full review comments:",
+}
 FORBIDDEN_GOAL_TERMS = ("positive", "counterexample", "expected", "finding", "defect", "bug", "pass", "fail")
 
 
@@ -392,7 +398,7 @@ def build_goal_command(
         "--target",
         target_commit,
         "--diff-reason",
-        "frozen_goal_feasibility_v1",
+        "frozen_goal_feasibility_v2",
         "--goal",
         goal,
         "--model",
@@ -406,7 +412,7 @@ def build_goal_command(
 
 def normalize_native_review(raw: str, repository_root: pathlib.Path) -> list[dict[str, Any]]:
     lines = raw.replace("\r\n", "\n").splitlines()
-    heading = next((index for index, line in enumerate(lines) if line.strip() == "Review comment:"), -1)
+    heading = next((index for index, line in enumerate(lines) if line.strip() in NATIVE_HEADINGS), -1)
     if heading < 0:
         if any(NATIVE_HEADER.match(line.strip()) for line in lines):
             raise ValueError("native finding appears without a Review comment section")

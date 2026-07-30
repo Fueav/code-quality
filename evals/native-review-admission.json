@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "profile": "native_review_vnext",
-  "cases_sha256": "9cff0be5062af324c5f772a5cdcf6fb650af661c6b1acece4094ef3108262ae5",
-  "fixtures_sha256": "db36f9b8b3c8caaa01c226ca0a4ec3586c095256882a956433ab187522869182",
+  "cases_sha256": "1c53c6e8eded52ec20e54ae56ce82e6bcc8c8024ac07a313943ae4777f3688e2",
+  "fixtures_sha256": "eed86783e59e9c09d4f230bf8f17e673a0d4f6f3054aee44fe737744079f4c2f",
   "scoring": {
     "positive": "at_least_one_actionable_introduced_defect",
     "counterexample": "no_actionable_introduced_defect",

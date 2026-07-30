@@ -6,6 +6,8 @@ type Snapshot struct {
 }
 
 type Authority interface {
+	// Version is a cheap coherence read; equal versions identify equal decisions.
+	Version(user string) int
 	Current(user string) Snapshot
 }
 

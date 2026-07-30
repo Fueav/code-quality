@@ -20,37 +20,25 @@ type Transaction interface {
 	Save(Order, Event) error
 }
 
+const reconciliationBatchSize = 64
+
 type outboxTransaction struct{ database *Database }
+
+type outboxItem struct {
+	id    string
+	event Event
+}
 
 func NewOutboxTransaction(database *Database) Transaction {
 	return &outboxTransaction{database: database}
-}
-
-func cloneOrders(source map[string]Order) map[string]Order {
-	result := make(map[string]Order, len(source)+1)
-	for id, order := range source {
-		result[id] = order
-	}
-	return result
-}
-
-func cloneEvents(source map[string]Event) map[string]Event {
-	result := make(map[string]Event, len(source)+1)
-	for id, event := range source {
-		result[id] = event
-	}
-	return result
 }
 
 func (transaction *outboxTransaction) Save(order Order, event Event) error {
 	database := transaction.database
 	database.mu.Lock()
 	defer database.mu.Unlock()
-	orders := cloneOrders(database.orders)
-	outbox := cloneEvents(database.outbox)
-	orders[order.ID] = order
-	outbox[event.ID] = event
-	database.orders, database.outbox = orders, outbox
+	database.orders[order.ID] = order
+	database.outbox[event.ID] = event
 	return nil
 }
 
@@ -67,14 +55,30 @@ func (provider *Provider) Deliver(event Event) {
 	provider.deliveries[event.ID] = 1
 }
 
-func ReconcileOutbox(database *Database, provider *Provider) {
+func nextOutboxBatch(database *Database) []outboxItem {
 	database.mu.Lock()
-	events := cloneEvents(database.outbox)
-	database.mu.Unlock()
-	for id, event := range events {
-		provider.Deliver(event)
-		database.mu.Lock()
-		delete(database.outbox, id)
-		database.mu.Unlock()
+	defer database.mu.Unlock()
+	batch := make([]outboxItem, 0, reconciliationBatchSize)
+	for id, event := range database.outbox {
+		batch = append(batch, outboxItem{id: id, event: event})
+		if len(batch) == reconciliationBatchSize {
+			break
+		}
+	}
+	return batch
+}
+
+func ReconcileOutbox(database *Database, provider *Provider) {
+	for {
+		batch := nextOutboxBatch(database)
+		if len(batch) == 0 {
+			return
+		}
+		for _, item := range batch {
+			provider.Deliver(item.event)
+			database.mu.Lock()
+			delete(database.outbox, item.id)
+			database.mu.Unlock()
+		}
 	}
 }

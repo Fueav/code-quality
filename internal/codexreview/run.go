@@ -304,7 +304,7 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	if strings.TrimSpace(lines[first]) == "No findings." {
 		for _, line := range lines[first+1:] {
 			trimmed := strings.TrimSpace(line)
-			if trimmed == "Review comment:" || strings.HasPrefix(trimmed, "- [P") {
+			if isNativeReviewHeading(trimmed) || strings.HasPrefix(trimmed, "- [P") {
 				return nativeEnvelope{}, errors.New("native review contradicts its no-findings result")
 			}
 		}
@@ -313,7 +313,7 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 
 	heading := -1
 	for index := first; index < len(lines); index++ {
-		if strings.TrimSpace(lines[index]) == "Review comment:" {
+		if isNativeReviewHeading(lines[index]) {
 			heading = index
 			break
 		}
@@ -389,6 +389,15 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 		return nativeEnvelope{}, errors.New("native review comment section contains no findings")
 	}
 	return nativeEnvelope{Findings: findings}, nil
+}
+
+func isNativeReviewHeading(line string) bool {
+	switch strings.TrimSpace(line) {
+	case "Review comment:", "Review comments:", "Full review comment:", "Full review comments:":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstNonBlankLine(lines []string) int {
