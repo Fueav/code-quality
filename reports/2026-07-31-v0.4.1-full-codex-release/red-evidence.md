@@ -15,3 +15,13 @@ Observed failures before implementation:
 - The shipped Skill still promised `codex exec review` and did not expose the raw freeze path.
 
 These failures prove that v0.4.0 plus the earlier hardening commits did not implement the owner-approved `full Codex discovery -> immutable raw evidence -> deterministic classification` release contract.
+
+## Candidate review RED
+
+The first real `quality-review v0.4.1` candidate smoke completed one full `gpt-5.6-sol/max` call and froze all three raw artifacts. It correctly returned `MANUAL_REVIEW` with three actionable release findings:
+
+- standalone or localized strict finding lists were rejected by an English-introduction check;
+- angle-bracket Markdown destinations used for paths containing spaces were not parsed;
+- the freeze manifest was closed but not atomically installed and synced before artifact locking.
+
+Regression tests for the first two parser findings failed before their fixes with `agent finding appears without a findings introduction` and `agent finding has no Markdown code location`. The original candidate smoke remains diagnostic evidence and is not treated as release acceptance.

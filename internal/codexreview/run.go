@@ -432,7 +432,7 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 
 var (
 	agentListPrefixPattern  = regexp.MustCompile(`^(?:[-*]|[0-9]+\.)[ \t]+`)
-	markdownLocationPattern = regexp.MustCompile(`\[[^\]\n]+\]\(([^)\n]+):([0-9]+)(?:-([0-9]+))?\)`)
+	markdownLocationPattern = regexp.MustCompile(`\[[^\]\n]+\]\(<?([^)>\n]+):([0-9]+)(?:-([0-9]+))?>?\)`)
 )
 
 func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
@@ -445,10 +445,6 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 	}
 	if firstCandidate < 0 {
 		return nativeEnvelope{}, errors.New("native review output has no explicit no-findings result or recognized findings")
-	}
-	intro := strings.ToLower(strings.Join(lines[first:firstCandidate], " "))
-	if !strings.Contains(intro, "finding") && !strings.Contains(intro, "actionable defect") {
-		return nativeEnvelope{}, errors.New("agent finding appears without a findings introduction")
 	}
 	findings := []nativeFinding{}
 	body := []string{}

@@ -238,6 +238,16 @@ func TestAgentOutputParsesObservedMarkdownFormats(t *testing.T) {
 
 - **[P2] Reject invalid integer prompt input** — [prompt.go:97](/private/tmp/review/x/gov/client/cli/prompt.go:97). Invalid input is silently replaced with zero.
 `,
+		"standalone localized list": `- [P1] 保留调用方上下文 — [client.go:17](/private/tmp/review/client.go:17)
+
+  新分支丢失了调用方的取消信号。
+`,
+		"angle bracket destination": `## Findings
+
+- [P2] Preserve paths containing spaces — [client.go:12](</private/tmp/My Repo/client.go:12>)
+
+  The current parser rejects the closing angle bracket.
+`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			result, err := parseNativeReviewText(input)
@@ -377,14 +387,38 @@ func TestReadNativeOutputRejectsAmbiguousZeroCandidateNarrative(t *testing.T) {
 	}
 }
 
-func TestReadNativeOutputRejectsOrphanFindingHeader(t *testing.T) {
+func TestReadNativeOutputAcceptsStandaloneAgentFinding(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "native-review.txt")
-	if err := os.WriteFile(path, []byte("- [P1] Preserve cancellation — /private/tmp/review/client.go:17-18\n  The new context drops caller cancellation.\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)\n\n  The new context drops caller cancellation.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := readNativeOutput(path); err == nil {
-		t.Fatal("orphan native finding header was accepted as zero candidates")
+	result, err := readNativeOutput(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/private/tmp/review/client.go" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestFreezeManifestDoesNotOverwriteExistingEvidence(t *testing.T) {
+	prepared, _ := nativeFixture(t)
+	layout := reviewsession.NewLayout(prepared.SessionDir)
+	for _, artifact := range []string{layout.NativeReviewPath, layout.NativeStdoutPath, layout.NativeStderrPath} {
+		if err := os.WriteFile(artifact, []byte("raw"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(layout.NativeFreezePath, []byte("sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := freezeNativeArtifacts(layout); err == nil {
+		t.Fatal("existing freeze manifest was overwritten")
+	}
+	raw, err := os.ReadFile(layout.NativeFreezePath)
+	if err != nil || string(raw) != "sentinel" {
+		t.Fatalf("freeze manifest = %q, error = %v", raw, err)
 	}
 }
 
