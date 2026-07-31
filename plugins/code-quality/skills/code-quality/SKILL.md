@@ -8,6 +8,6 @@ description: Use when asked to review a committed change for actionable defects,
 
 Use the product's native-review path; do not reproduce review logic in the host prompt.
 
-1. Run `quality-review run-codex --repo <repo>`. Add `--goal <intent>` only when the user supplied change intent or a specific concern; add baseline flags only when the user supplied all three.
+1. Run `quality-review run-codex --repo <repo>`. Add `--goal <intent>` only when the user supplied change intent or a specific concern. When the user supplies both endpoints, pass `--base <base> --target <target>`; add `--diff-reason <reason>` only when the user supplied that reason. Never pass only one endpoint.
 2. The CLI resolves and isolates the committed scope, then invokes exactly one native `codex exec review`; the optional goal is a focus, not a review boundary.
-3. Report status, semantic result, model-call count, and final report paths. Never delete the session directory or reports. The review never changes CI success.
+3. Report status, semantic result, model-call count, metrics path, and final report paths. Never delete the session directory or reports. The review never changes CI success.

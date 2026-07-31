@@ -15,7 +15,7 @@ Report-only 代码质量审查组件。它对一个**已提交的代码增量**�
 # 最新版
 curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
 # 指定版本
-curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.4.0
+curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.4.1
 ```
 
 确认：`quality-review version`
@@ -24,10 +24,10 @@ curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/instal
 
 ```sh
 # Codex
-codex plugin marketplace add Fueav/code-quality --ref v0.4.0 && codex plugin add code-quality@fueav-code-quality
+codex plugin marketplace add Fueav/code-quality --ref v0.4.1 && codex plugin add code-quality@fueav-code-quality
 
 # Claude Code
-claude plugin marketplace add Fueav/code-quality@v0.4.0 && claude plugin install code-quality@fueav-code-quality
+claude plugin marketplace add Fueav/code-quality@v0.4.1 && claude plugin install code-quality@fueav-code-quality
 ```
 
 仓库根目录同时提供 Codex 的 `.agents/plugins/marketplace.json` 与 Claude Code 的 `.claude-plugin/marketplace.json`，两端共用 `plugins/code-quality/` 的同一份 Skill。
@@ -40,7 +40,11 @@ claude plugin marketplace add Fueav/code-quality@v0.4.0 && claude plugin install
 quality-review run-codex --repo . --goal "这次改动的意图或额外关注点"
 ```
 
+显式范围只需同时传 `--base <base> --target <target>`；`--diff-reason` 是可选审计说明，未提供时使用确定性的 `explicit_commit_range`。
+
 默认链路只有一次语义调用：确定性固定并隔离 base→target；执行一次 `codex exec review`；确定性适配原生结果并发布报告。`--goal` 只在用户显式提供时加入，作为可选关注点而不是审查边界。系统不再自动选择方向，也不追加验证器、复审或重试。
+
+每次运行同时保留 Codex JSONL 事件和 `native-run-metrics.json`，记录耗时、可用的 token 用量、变更文件数与 trusted diff 大小；这些观测数据不改变审查语义结果。
 
 20 条 V1.2 底线保留为离线评测量尺，不注入运行时 Prompt。历史合成样本只用于回归和校准，不作为产品优越性门槛；未来 A/B 必须使用独立资格审查后的冻结样本，并把新发现的合理缺陷标记为争议样本而不是直接计作误报。
 

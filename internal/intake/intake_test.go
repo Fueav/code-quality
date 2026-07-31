@@ -30,10 +30,37 @@ func TestExplicitBaseline(t *testing.T) {
 	}
 }
 
-func TestExplicitBaselineRequiresAllArguments(t *testing.T) {
+func TestExplicitBaselineDerivesReasonWhenOnlyRangeIsSupplied(t *testing.T) {
+	repo, base, target := fixtureRepository(t)
+	result, err := Discover(Options{
+		RepositoryPath: repo,
+		Base:           base,
+		Target:         target,
+		Environment:    map[string]string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Request.BaseCommit != base || result.Request.TargetCommit != target {
+		t.Fatalf("baseline = %s..%s", result.Request.BaseCommit, result.Request.TargetCommit)
+	}
+	if result.Request.DiffSelectionReason != "explicit_commit_range" || result.DetectionSource != "explicit" {
+		t.Fatalf("selection = %#v", result)
+	}
+}
+
+func TestExplicitBaselineRequiresBothEndpoints(t *testing.T) {
 	repo, base, _ := fixtureRepository(t)
 	_, err := Discover(Options{RepositoryPath: repo, Base: base, Environment: map[string]string{}})
 	if err == nil || !strings.Contains(err.Error(), "must be provided together") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestExplicitReasonRequiresRange(t *testing.T) {
+	repo, _, _ := fixtureRepository(t)
+	_, err := Discover(Options{RepositoryPath: repo, DiffReason: "manual", Environment: map[string]string{}})
+	if err == nil || !strings.Contains(err.Error(), "requires --base and --target") {
 		t.Fatalf("error = %v", err)
 	}
 }

@@ -119,19 +119,22 @@ type baseline struct {
 }
 
 func selectBaseline(root string, options Options, environment map[string]string) (baseline, error) {
-	explicitCount := 0
-	for _, value := range []string{options.Base, options.Target, options.DiffReason} {
-		if strings.TrimSpace(value) != "" {
-			explicitCount++
-		}
+	baseProvided := strings.TrimSpace(options.Base) != ""
+	targetProvided := strings.TrimSpace(options.Target) != ""
+	reason := strings.TrimSpace(options.DiffReason)
+	if baseProvided != targetProvided {
+		return baseline{}, errors.New("--base and --target must be provided together")
 	}
-	if explicitCount > 0 {
-		if explicitCount != 3 {
-			return baseline{}, errors.New("--base, --target, and --diff-reason must be provided together")
+	if !baseProvided && reason != "" {
+		return baseline{}, errors.New("--diff-reason requires --base and --target")
+	}
+	if baseProvided {
+		if reason == "" {
+			reason = "explicit_commit_range"
 		}
 		branch := currentBranch(root)
 		return baseline{
-			base: options.Base, target: options.Target, reason: options.DiffReason,
+			base: options.Base, target: options.Target, reason: reason,
 			targetBranch: branch, source: "explicit",
 		}, nil
 	}

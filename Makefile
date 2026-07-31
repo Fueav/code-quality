@@ -8,15 +8,19 @@ LIVE_DATA_ROOT ?= $(HOME)/AiProject/code-quality-live
 LIVE_WATCH_CRON ?= 17 2 * * *
 LIVE_ADJUDICATE_CRON ?= 43 3 * * 1
 
-.PHONY: build test live-test mining-test release-check live-install live-uninstall dist clean
+.PHONY: build test qualification-test live-test mining-test release-check live-install live-uninstall dist clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
 
 test:
 	go test ./...
+	$(MAKE) qualification-test
 	$(MAKE) live-test
 	$(MAKE) mining-test
+
+qualification-test:
+	python3 -m unittest discover -s pilot -p 'test_*.py' -v
 
 live-test:
 	python3 -m unittest discover -s pilot/live -p 'test_*.py' -v

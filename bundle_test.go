@@ -73,6 +73,7 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"model-review.schema.json",
 		"review-result.schema.json",
 		"review-result-v3.schema.json",
+		"native-run-metrics.schema.json",
 	} {
 		schema, err := Schema(name)
 		if err != nil || len(schema) == 0 {

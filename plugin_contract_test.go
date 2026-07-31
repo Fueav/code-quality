@@ -60,14 +60,17 @@ func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 	for _, required := range []string{
 		"quality-review run-codex",
 		"--goal",
+		"--base",
+		"--target",
 		"exactly one native `codex exec review`",
+		"metrics path",
 		"Never delete the session directory",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("Skill is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"candidate-only verifier", "risk direction", "rereview_scope", "REVIEW_INVALID", "activated_rule_families", "20 rules", "rm -rf .code-quality"} {
+	for _, forbidden := range []string{"candidate-only verifier", "risk direction", "rereview_scope", "REVIEW_INVALID", "activated_rule_families", "20 rules", "rm -rf .code-quality", "all three"} {
 		if strings.Contains(skill, forbidden) {
 			t.Fatalf("Skill retains obsolete runtime guidance %q", forbidden)
 		}
@@ -127,6 +130,7 @@ func TestMakefileReleaseGateCoversShippedComponents(t *testing.T) {
 		"go vet ./...",
 		"$(MAKE) live-test",
 		"$(MAKE) mining-test",
+		"$(MAKE) qualification-test",
 		"git diff --check",
 		"dist: release-check",
 	} {

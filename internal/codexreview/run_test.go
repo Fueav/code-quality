@@ -25,6 +25,9 @@ func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
 	if !strings.Contains(args, "exec --sandbox read-only --ignore-user-config --ignore-rules --ephemeral review") {
 		t.Fatalf("native review args = %q", args)
 	}
+	if !strings.Contains(args, "--json") {
+		t.Fatalf("native review does not retain machine-readable usage events: %q", args)
+	}
 	for _, forbidden := range []string{"--base", "--commit", "--uncommitted", "--output-schema"} {
 		if strings.Contains(args, forbidden) {
 			t.Fatalf("custom target is combined with %s: %q", forbidden, args)
@@ -39,6 +42,80 @@ func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
 		if strings.Contains(invocation.Stdin, forbidden) {
 			t.Fatalf("prompt contains automatic direction or private protocol %q:\n%s", forbidden, invocation.Stdin)
 		}
+	}
+}
+
+func TestAdaptFindingsAcceptsCanonicalEquivalentCheckoutRoots(t *testing.T) {
+	root := t.TempDir()
+	realRepository := filepath.Join(root, "real-repository")
+	aliasRepository := filepath.Join(root, "alias-repository")
+	if err := os.MkdirAll(realRepository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realRepository, "app.go"), []byte("package app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realRepository, aliasRepository); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "preserve behavior", Body: "The changed branch returns the wrong value.", Priority: 1,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: filepath.Join(realRepository, "app.go"),
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, aliasRepository, []string{"app.go"})
+	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "app.go" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
+func TestAdaptFindingsRejectsCanonicalSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "app.go"), []byte("package app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(repository, "linked")); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "outside candidate", Body: "This location resolves outside the checkout.", Priority: 1,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: filepath.Join(repository, "linked", "app.go"),
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, repository, []string{"linked/app.go"})
+	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location is outside the isolated checkout" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
+func TestReadCodexUsageUsesLastCompletedTurn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	contents := strings.Join([]string{
+		`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}`,
+		`{"type":"item.completed","item":{"type":"agent_message"}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":30,"output_tokens":7}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input, output, err := readCodexUsage(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input == nil || *input != 30 || output == nil || *output != 7 {
+		t.Fatalf("input = %v, output = %v", input, output)
 	}
 }
 

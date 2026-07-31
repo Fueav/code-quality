@@ -57,6 +57,7 @@ done
 test -n "$output"
 cat > "$FAKE_CODEX_PROMPT_PATH"
 printf '%s\n' 'No findings.' > "$output"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_tokens":45}}'
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -82,6 +83,27 @@ printf '%s\n' 'No findings.' > "$output"
 	}
 	if summary.SchemaVersion != 3 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ModelCalls != 1 {
 		t.Fatalf("summary = %#v", summary)
+	}
+	var summaryDocument struct {
+		MetricsPath string `json:"metrics_path"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &summaryDocument); err != nil {
+		t.Fatal(err)
+	}
+	if summaryDocument.MetricsPath == "" {
+		t.Fatal("native summary does not expose metrics_path")
+	}
+	metrics := readJSON[struct {
+		SchemaVersion    int    `json:"schema_version"`
+		DurationMS       int64  `json:"duration_ms"`
+		InputTokens      *int64 `json:"input_tokens"`
+		OutputTokens     *int64 `json:"output_tokens"`
+		ChangedFileCount int    `json:"changed_file_count"`
+		TrustedDiffBytes int64  `json:"trusted_diff_bytes"`
+	}](t, summaryDocument.MetricsPath)
+	if metrics.SchemaVersion != 1 || metrics.DurationMS < 0 || metrics.InputTokens == nil || *metrics.InputTokens != 123 ||
+		metrics.OutputTokens == nil || *metrics.OutputTokens != 45 || metrics.ChangedFileCount != 1 || metrics.TrustedDiffBytes < 1 {
+		t.Fatalf("metrics = %#v", metrics)
 	}
 	count, err := os.ReadFile(countPath)
 	if err != nil || strings.TrimSpace(string(count)) != "1" {

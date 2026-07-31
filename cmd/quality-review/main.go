@@ -78,6 +78,7 @@ type codexRunSummary struct {
 	SessionDir     string `json:"session_dir"`
 	ResultPath     string `json:"result_path"`
 	MarkdownPath   string `json:"markdown_path"`
+	MetricsPath    string `json:"metrics_path"`
 	ModelCalls     int    `json:"model_calls"`
 }
 
@@ -159,7 +160,8 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 	summary := codexRunSummary{
 		SchemaVersion: 3, Status: status, SemanticResult: result.Adjudication.SemanticResult,
 		SessionDir: prepared.SessionDir, ResultPath: prepared.ResultPath, MarkdownPath: prepared.MarkdownPath,
-		ModelCalls: result.Execution.ModelCalls,
+		MetricsPath: prepared.NativeMetricsPath,
+		ModelCalls:  result.Execution.ModelCalls,
 	}
 	if err := quality.EncodeJSON(stdout, summary); err != nil {
 		fmt.Fprintf(stderr, "quality-review: encode native review summary: %v\n", err)

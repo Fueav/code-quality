@@ -1,7 +1,9 @@
 package codexreview
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
@@ -87,11 +90,33 @@ type nativeLineRange struct {
 	End   int
 }
 
+type NativeRunMetrics struct {
+	SchemaVersion    int    `json:"schema_version"`
+	DurationMS       int64  `json:"duration_ms"`
+	InputTokens      *int64 `json:"input_tokens"`
+	OutputTokens     *int64 `json:"output_tokens"`
+	UsageAvailable   bool   `json:"usage_available"`
+	UsageError       string `json:"usage_error,omitempty"`
+	ChangedFileCount int    `json:"changed_file_count"`
+	TrustedDiffBytes int64  `json:"trusted_diff_bytes"`
+}
+
+type codexEvent struct {
+	Type  string      `json:"type"`
+	Usage *codexUsage `json:"usage,omitempty"`
+}
+
+type codexUsage struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+}
+
 func Run(ctx context.Context, options Options) (quality.NativeReviewResult, error) {
 	if err := normalizeOptions(&options); err != nil {
 		return quality.NativeReviewResult{}, err
 	}
-	if _, err := reviewsession.ReadRegularFile(options.Prepared.DiffPath, maxNativeOutputBytes); err != nil {
+	trustedDiff, err := reviewsession.ReadRegularFile(options.Prepared.DiffPath, maxNativeOutputBytes)
+	if err != nil {
 		return quality.NativeReviewResult{}, fmt.Errorf("read trusted diff: %w", err)
 	}
 	result := newResult(options)
@@ -101,8 +126,14 @@ func Run(ctx context.Context, options Options) (quality.NativeReviewResult, erro
 	}
 
 	result.Execution.ModelCalls = 1
-	if err := executor.Run(ctx, buildReviewInvocation(options)); err != nil {
-		markIncomplete(&result, "native review failed: "+err.Error())
+	started := time.Now()
+	runErr := executor.Run(ctx, buildReviewInvocation(options))
+	metrics := collectRunMetrics(options, time.Since(started), int64(len(trustedDiff)))
+	if err := writeExclusiveJSON(reviewsession.NewLayout(options.Prepared.SessionDir).NativeMetricsPath, metrics); err != nil {
+		return quality.NativeReviewResult{}, fmt.Errorf("write native run metrics: %w", err)
+	}
+	if runErr != nil {
+		markIncomplete(&result, "native review failed: "+runErr.Error())
 		return result, nil
 	}
 	rawReview, err := readNativeOutput(options.Prepared.NativeReviewPath)
@@ -182,6 +213,7 @@ func buildReviewInvocation(options Options) Invocation {
 	args := []string{"exec", "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "review"}
 	args = appendModelOptions(args, options)
 	args = append(args,
+		"--json",
 		"--output-last-message", options.Prepared.NativeReviewPath,
 		"-",
 	)
@@ -190,6 +222,59 @@ func buildReviewInvocation(options Options) Invocation {
 		Stdin: buildReviewPrompt(options), OutputPath: options.Prepared.NativeReviewPath,
 		StdoutPath: layout.NativeStdoutPath, StderrPath: layout.NativeStderrPath,
 	}
+}
+
+func collectRunMetrics(options Options, duration time.Duration, trustedDiffBytes int64) NativeRunMetrics {
+	metrics := NativeRunMetrics{
+		SchemaVersion: 1, DurationMS: duration.Milliseconds(),
+		ChangedFileCount: len(options.Request.ChangedFiles), TrustedDiffBytes: trustedDiffBytes,
+	}
+	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
+	inputTokens, outputTokens, err := readCodexUsage(layout.NativeStdoutPath)
+	if err != nil {
+		metrics.UsageError = err.Error()
+		return metrics
+	}
+	metrics.InputTokens = inputTokens
+	metrics.OutputTokens = outputTokens
+	metrics.UsageAvailable = inputTokens != nil && outputTokens != nil
+	return metrics
+}
+
+func readCodexUsage(path string) (*int64, *int64, error) {
+	raw, err := reviewsession.ReadRegularFile(path, maxNativeOutputBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(raw)))
+	scanner.Buffer(make([]byte, 64<<10), int(maxNativeOutputBytes))
+	var latest *codexUsage
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var event codexEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			return nil, nil, fmt.Errorf("decode Codex JSONL event: %w", err)
+		}
+		if event.Type == "turn.completed" && event.Usage != nil {
+			if event.Usage.InputTokens < 0 || event.Usage.OutputTokens < 0 {
+				return nil, nil, errors.New("Codex usage tokens must be non-negative")
+			}
+			copy := *event.Usage
+			latest = &copy
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, nil, fmt.Errorf("scan Codex JSONL events: %w", err)
+	}
+	if latest == nil {
+		return nil, nil, errors.New("Codex JSONL has no turn.completed usage event")
+	}
+	inputTokens := latest.InputTokens
+	outputTokens := latest.OutputTokens
+	return &inputTokens, &outputTokens, nil
 }
 
 func buildReviewPrompt(options Options) string {
@@ -394,18 +479,28 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 	}
 	findings := make([]quality.NativeFinding, 0, len(raw))
 	drops := []quality.AdapterDrop{}
+	canonicalRepository, repositoryErr := canonicalPath(repository)
 	for index, candidate := range raw {
 		reason := validateNativeCandidate(candidate)
 		relative := ""
 		if reason == "" {
-			var err error
-			relative, err = filepath.Rel(repository, filepath.Clean(candidate.CodeLocation.AbsoluteFilePath))
-			if err != nil || relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-				reason = "code location is outside the isolated checkout"
+			if repositoryErr != nil {
+				reason = "isolated checkout path cannot be canonicalized"
+			}
+		}
+		if reason == "" {
+			canonicalCandidate, err := canonicalPath(candidate.CodeLocation.AbsoluteFilePath)
+			if err != nil {
+				reason = "code location cannot be canonicalized"
 			} else {
-				relative = filepath.ToSlash(relative)
-				if _, exists := changed[relative]; !exists {
-					reason = "code location is not in a changed file"
+				relative, err = filepath.Rel(canonicalRepository, canonicalCandidate)
+				if err != nil || relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+					reason = "code location is outside the isolated checkout"
+				} else {
+					relative = filepath.ToSlash(relative)
+					if _, exists := changed[relative]; !exists {
+						reason = "code location is not in a changed file"
+					}
 				}
 			}
 		}
@@ -422,6 +517,33 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 		})
 	}
 	return findings, drops
+}
+
+func canonicalPath(path string) (string, error) {
+	clean := filepath.Clean(path)
+	if !filepath.IsAbs(clean) {
+		return "", errors.New("path must be absolute")
+	}
+	existing := clean
+	suffix := []string{}
+	for {
+		resolved, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			for index := len(suffix) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, suffix[index])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(existing))
+		existing = parent
+	}
 }
 
 func validateNativeCandidate(candidate nativeFinding) string {

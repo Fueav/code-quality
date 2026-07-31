@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "duration_ms", "input_tokens", "output_tokens", "usage_available", "changed_file_count", "trusted_diff_bytes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "duration_ms": {"type": "integer", "minimum": 0},
+    "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+    "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+    "usage_available": {"type": "boolean"},
+    "usage_error": {"type": "string", "minLength": 1},
+    "changed_file_count": {"type": "integer", "minimum": 0},
+    "trusted_diff_bytes": {"type": "integer", "minimum": 0}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"usage_available": {"const": true}}},
+      "then": {
+        "properties": {
+          "input_tokens": {"type": "integer", "minimum": 0},
+          "output_tokens": {"type": "integer", "minimum": 0}
+        }
+      },
+      "else": {
+        "required": ["usage_error"],
+        "properties": {
+          "input_tokens": {"type": "null"},
+          "output_tokens": {"type": "null"}
+        }
+      }
+    }
+  ]
+}
