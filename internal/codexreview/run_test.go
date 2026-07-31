@@ -287,6 +287,54 @@ func TestAdaptFindingsFallsBackFromUnchangedAliasToChangedTarget(t *testing.T) {
 	}
 }
 
+func TestAdaptFindingsResolvesDanglingAliasToDeletedChangedTarget(t *testing.T) {
+	repository := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repository, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repository, "versions"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasPath := filepath.Join(repository, "config", "current")
+	if err := os.Symlink(filepath.Join("..", "versions", "v2"), aliasPath); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "preserve deleted target handling", Body: "The unchanged alias still exposes the deleted target.", Priority: 2,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: aliasPath,
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, repository, []string{"versions/v2"})
+	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "versions/v2" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
+func TestAdaptFindingsRejectsChangedDanglingSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	if err := os.MkdirAll(filepath.Join(repository, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasPath := filepath.Join(repository, "config", "current")
+	if err := os.Symlink(filepath.Join(root, "outside", "missing"), aliasPath); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "reject escaped target", Body: "The changed link points outside the checkout.", Priority: 1,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: aliasPath,
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, repository, []string{"config/current"})
+	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location is outside the isolated checkout" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
 func TestReadCodexUsageUsesLastCompletedTurn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	contents := strings.Join([]string{
@@ -385,6 +433,53 @@ func TestAgentOutputParsesObservedMarkdownFormats(t *testing.T) {
 				t.Fatalf("findings = %#v", result.Findings)
 			}
 		})
+	}
+}
+
+func TestAgentOutputAcceptsAllCommonMarkListMarkers(t *testing.T) {
+	for name, marker := range map[string]string{"plus bullet": "+", "parenthesized order": "1)"} {
+		t.Run(name, func(t *testing.T) {
+			input := marker + " [P2] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)\n\n" +
+				"  The new branch drops caller cancellation.\n"
+			result, err := parseNativeReviewText(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 1 {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
+	}
+}
+
+func TestIndentedAgentPriorityBulletRemainsBodyText(t *testing.T) {
+	input := `- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
+
+  The new branch drops caller cancellation.
+  - [P2] Quoted counterexample — [other.go:8](/private/tmp/review/other.go:8)
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || !strings.Contains(result.Findings[0].Body, "Quoted counterexample") {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestIndentedNativePriorityBulletRemainsBodyText(t *testing.T) {
+	input := `Review comment:
+
+- [P1] Preserve cancellation — /private/tmp/review/client.go:17
+  The new branch drops caller cancellation.
+  - [P2] Quoted counterexample — /private/tmp/review/other.go:8
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || !strings.Contains(result.Findings[0].Body, "Quoted counterexample") {
+		t.Fatalf("findings = %#v", result.Findings)
 	}
 }
 

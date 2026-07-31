@@ -474,6 +474,19 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 	}
 
 	for _, line := range lines[heading+1:] {
+		trimmed := strings.TrimSpace(line)
+		if isIndentedLine(line) {
+			if trimmed == "" {
+				continue
+			}
+			if current == nil {
+				return nativeEnvelope{}, fmt.Errorf("unexpected indented text in native review comment section: %q", trimmed)
+			}
+			if !trailingAssessment {
+				body = append(body, trimmed)
+			}
+			continue
+		}
 		finding, recognized, err := parseNativeFindingHeader(line)
 		if err != nil {
 			return nativeEnvelope{}, err
@@ -488,7 +501,7 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 			current = &finding
 			continue
 		}
-		if strings.TrimSpace(line) == "" {
+		if trimmed == "" {
 			continue
 		}
 		if isExplicitNoFindings(line) {
@@ -496,13 +509,6 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 		}
 		if current == nil {
 			return nativeEnvelope{}, fmt.Errorf("unexpected text in native review comment section: %q", strings.TrimSpace(line))
-		}
-		if line[0] == ' ' || line[0] == '\t' {
-			if trailingAssessment {
-				continue
-			}
-			body = append(body, strings.TrimSpace(line))
-			continue
 		}
 		if len(body) == 0 {
 			return nativeEnvelope{}, fmt.Errorf("native finding %d has no body", len(findings))
@@ -519,7 +525,7 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 }
 
 var (
-	agentListPrefixPattern     = regexp.MustCompile(`^(?:[-*]|[0-9]+\.)[ \t]+`)
+	agentListPrefixPattern     = regexp.MustCompile(`^(?:[-*+]|[0-9]+[.)])[ \t]+`)
 	markdownDestinationPattern = regexp.MustCompile(`^(.+):([0-9]+)(?:-([0-9]+))?$`)
 )
 
@@ -534,7 +540,7 @@ type markdownLocationMatch struct {
 func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 	firstCandidate := -1
 	for index := first; index < len(lines); index++ {
-		if containsPriorityMarker(lines[index]) && agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
+		if !isIndentedLine(lines[index]) && containsPriorityMarker(lines[index]) && agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
 			firstCandidate = index
 			break
 		}
@@ -561,6 +567,19 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 	}
 
 	for _, line := range lines[firstCandidate:] {
+		trimmed := strings.TrimSpace(line)
+		if isIndentedLine(line) {
+			if trimmed == "" {
+				continue
+			}
+			if current == nil {
+				return nativeEnvelope{}, fmt.Errorf("unexpected indented text in agent findings: %q", trimmed)
+			}
+			if !trailingAssessment {
+				body = append(body, trimmed)
+			}
+			continue
+		}
 		finding, initialBody, recognized, err := parseAgentFindingHeader(line)
 		if err != nil {
 			return nativeEnvelope{}, err
@@ -578,7 +597,6 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 			}
 			continue
 		}
-		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
@@ -586,12 +604,6 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 			return nativeEnvelope{}, errors.New("agent findings contradict a trailing no-findings result")
 		}
 		if current != nil {
-			if line[0] == ' ' || line[0] == '\t' {
-				if !trailingAssessment {
-					body = append(body, trimmed)
-				}
-				continue
-			}
 			if containsPriorityMarker(line) {
 				return nativeEnvelope{}, fmt.Errorf("unrecognized agent finding header: %q", trimmed)
 			}
@@ -818,6 +830,10 @@ func nextNonBlankLine(lines []string, start int) int {
 	return -1
 }
 
+func isIndentedLine(line string) bool {
+	return len(line) > 0 && (line[0] == ' ' || line[0] == '\t')
+}
+
 func parseNativeFindingHeader(line string) (nativeFinding, bool, error) {
 	trimmed := strings.TrimSpace(line)
 	if !strings.HasPrefix(trimmed, "- [P") {
@@ -945,6 +961,7 @@ func canonicalPath(path string) (string, error) {
 	}
 	existing := clean
 	suffix := []string{}
+	seenSymlinks := map[string]struct{}{}
 	for {
 		resolved, err := filepath.EvalSymlinks(existing)
 		if err == nil {
@@ -955,6 +972,25 @@ func canonicalPath(path string) (string, error) {
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", err
+		}
+		info, lstatErr := os.Lstat(existing)
+		if lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			if _, seen := seenSymlinks[existing]; seen {
+				return "", errors.New("symlink cycle")
+			}
+			seenSymlinks[existing] = struct{}{}
+			target, err := os.Readlink(existing)
+			if err != nil {
+				return "", err
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(existing), target)
+			}
+			existing = filepath.Clean(target)
+			continue
+		}
+		if lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist) {
+			return "", lstatErr
 		}
 		parent := filepath.Dir(existing)
 		if parent == existing {

@@ -76,3 +76,13 @@ The sixth fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 608,259
 - native-format trailing no-findings text was not contradictory.
 
 All three reported cases plus the indented priority-reference parser failure reproduced before implementation. The no-findings pre-scan now rejects preceding candidates, logical symlink paths are preferred only when changed and otherwise fall back to a changed canonical target, both grammars reject trailing no-findings contradictions, and indented body text may quote priority markers without becoming a header. The sixth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Seventh candidate review RED
+
+The seventh fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 997,047 ms with 6,996,598 input tokens and 56,119 output tokens. Independent hashes matched all three `0400` frozen raw artifacts, the recursion marker was absent after completion, and deterministic classification retained all three candidates with zero adapter drops. The review found:
+
+- indented priority bullets could be promoted from body text into top-level findings in both grammars;
+- dangling symlinks were treated as missing path components before resolving their targets;
+- CommonMark `+` bullets and `N)` ordered markers were not recognized.
+
+All three cases reproduced before implementation. Header recognition now requires top-level indentation while nested bullets remain body text, dangling symlinks are resolved with `Lstat` and `Readlink` before missing-leaf fallback with cycle protection, and every ordinary CommonMark unordered/ordered list marker has regression coverage. Existing-target, deleted-target, changed-alias, and outside-escape symlink cases all remain covered. The seventh candidate smoke remains diagnostic evidence and is not release acceptance.
