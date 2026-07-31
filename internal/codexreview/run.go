@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -128,7 +129,12 @@ func Run(ctx context.Context, options Options) (quality.NativeReviewResult, erro
 	result.Execution.ModelCalls = 1
 	started := time.Now()
 	runErr := executor.Run(ctx, buildReviewInvocation(options))
-	metrics := collectRunMetrics(options, time.Since(started), int64(len(trustedDiff)))
+	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
+	frozen, err := freezeNativeArtifacts(layout)
+	if err != nil {
+		return quality.NativeReviewResult{}, err
+	}
+	metrics := collectRunMetricsFromJSONL(options, time.Since(started), int64(len(trustedDiff)), frozen.Stdout)
 	if err := writeExclusiveJSON(reviewsession.NewLayout(options.Prepared.SessionDir).NativeMetricsPath, metrics); err != nil {
 		return quality.NativeReviewResult{}, fmt.Errorf("write native run metrics: %w", err)
 	}
@@ -136,7 +142,11 @@ func Run(ctx context.Context, options Options) (quality.NativeReviewResult, erro
 		markIncomplete(&result, "native review failed: "+runErr.Error())
 		return result, nil
 	}
-	rawReview, err := readNativeOutput(options.Prepared.NativeReviewPath)
+	if len(frozen.FinalMessage) == 0 {
+		markIncomplete(&result, "native review output is missing or empty")
+		return result, nil
+	}
+	rawReview, err := parseNativeReviewText(string(frozen.FinalMessage))
 	if err != nil {
 		markIncomplete(&result, "native review output is invalid: "+err.Error())
 		return result, nil
@@ -174,8 +184,11 @@ func normalizeOptions(options *Options) error {
 	if len(options.Goal) > 4000 {
 		return errors.New("review goal exceeds 4000 bytes")
 	}
+	if options.Model == "" {
+		options.Model = "gpt-5.6-sol"
+	}
 	if options.ReasoningEffort == "" {
-		options.ReasoningEffort = "high"
+		options.ReasoningEffort = "max"
 	}
 	validEffort := map[string]bool{"minimal": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true, "ultra": true}
 	if !validEffort[options.ReasoningEffort] {
@@ -210,7 +223,10 @@ func newResult(options Options) quality.NativeReviewResult {
 
 func buildReviewInvocation(options Options) Invocation {
 	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
-	args := []string{"exec", "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "review"}
+	args := []string{
+		"exec", "--sandbox", "workspace-write",
+		"--config", "sandbox_workspace_write.network_access=true",
+	}
 	args = appendModelOptions(args, options)
 	args = append(args,
 		"--json",
@@ -225,12 +241,20 @@ func buildReviewInvocation(options Options) Invocation {
 }
 
 func collectRunMetrics(options Options, duration time.Duration, trustedDiffBytes int64) NativeRunMetrics {
+	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
+	raw, err := reviewsession.ReadRegularFile(layout.NativeStdoutPath, maxNativeOutputBytes)
+	if err != nil {
+		return unavailableRunMetrics(options, duration, trustedDiffBytes, err)
+	}
+	return collectRunMetricsFromJSONL(options, duration, trustedDiffBytes, raw)
+}
+
+func collectRunMetricsFromJSONL(options Options, duration time.Duration, trustedDiffBytes int64, raw []byte) NativeRunMetrics {
 	metrics := NativeRunMetrics{
 		SchemaVersion: 1, DurationMS: duration.Milliseconds(),
 		ChangedFileCount: len(options.Request.ChangedFiles), TrustedDiffBytes: trustedDiffBytes,
 	}
-	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
-	inputTokens, outputTokens, err := readCodexUsage(layout.NativeStdoutPath)
+	inputTokens, outputTokens, err := decodeCodexUsage(raw)
 	if err != nil {
 		metrics.UsageError = err.Error()
 		return metrics
@@ -241,11 +265,23 @@ func collectRunMetrics(options Options, duration time.Duration, trustedDiffBytes
 	return metrics
 }
 
+func unavailableRunMetrics(options Options, duration time.Duration, trustedDiffBytes int64, err error) NativeRunMetrics {
+	return NativeRunMetrics{
+		SchemaVersion: 1, DurationMS: duration.Milliseconds(),
+		ChangedFileCount: len(options.Request.ChangedFiles), TrustedDiffBytes: trustedDiffBytes,
+		UsageError: err.Error(),
+	}
+}
+
 func readCodexUsage(path string) (*int64, *int64, error) {
 	raw, err := reviewsession.ReadRegularFile(path, maxNativeOutputBytes)
 	if err != nil {
 		return nil, nil, err
 	}
+	return decodeCodexUsage(raw)
+}
+
+func decodeCodexUsage(raw []byte) (*int64, *int64, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(raw)))
 	scanner.Buffer(make([]byte, 64<<10), int(maxNativeOutputBytes))
 	var latest *codexUsage
@@ -282,12 +318,10 @@ func readCodexUsage(path string) (*int64, *int64, error) {
 
 func buildReviewPrompt(options Options) string {
 	var prompt strings.Builder
-	fmt.Fprintf(&prompt, "Review the committed change %s..%s in the current repository.\n", options.Request.BaseCommit, options.Request.TargetCommit)
-	fmt.Fprintf(&prompt, "Use `git diff --no-ext-diff --unified=6 %s %s --` as the exact review scope.\n", options.Request.BaseCommit, options.Request.TargetCommit)
+	fmt.Fprintf(&prompt, "Review the changes introduced by %s relative to %s for actionable defects.\n", options.Request.TargetCommit, options.Request.BaseCommit)
 	if options.Goal != "" {
-		fmt.Fprintf(&prompt, "User-supplied optional focus: %s. This is not a review boundary; report actionable defects outside it too.\n", strconv.Quote(options.Goal))
+		fmt.Fprintf(&prompt, "User-supplied context: %s\n", strconv.Quote(options.Goal))
 	}
-	prompt.WriteString("Do not modify files.\n")
 	return prompt.String()
 }
 
@@ -313,10 +347,9 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	if first < 0 {
 		return nativeEnvelope{}, errors.New("native review output is empty")
 	}
-	if strings.TrimSpace(lines[first]) == "No findings." {
+	if isExplicitNoFindings(lines[first]) {
 		for _, line := range lines[first+1:] {
-			trimmed := strings.TrimSpace(line)
-			if isNativeReviewHeading(trimmed) || strings.HasPrefix(trimmed, "- [P") {
+			if isNativeReviewHeading(line) || containsPriorityMarker(line) {
 				return nativeEnvelope{}, errors.New("native review contradicts its no-findings result")
 			}
 		}
@@ -331,18 +364,12 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 		}
 	}
 	if heading < 0 {
-		for _, line := range lines[first:] {
-			_, recognized, err := parseNativeFindingHeader(line)
-			if err != nil {
-				return nativeEnvelope{}, err
-			}
-			if recognized {
-				return nativeEnvelope{}, errors.New("native finding appears without a review comment section")
-			}
-		}
-		return nativeEnvelope{Findings: []nativeFinding{}}, nil
+		return parseAgentReviewText(lines, first)
 	}
+	return parseNativeReviewSection(lines, heading)
+}
 
+func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, error) {
 	findings := []nativeFinding{}
 	body := []string{}
 	var current *nativeFinding
@@ -401,6 +428,160 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 		return nativeEnvelope{}, errors.New("native review comment section contains no findings")
 	}
 	return nativeEnvelope{Findings: findings}, nil
+}
+
+var (
+	agentListPrefixPattern  = regexp.MustCompile(`^(?:[-*]|[0-9]+\.)[ \t]+`)
+	markdownLocationPattern = regexp.MustCompile(`\[[^\]\n]+\]\(([^)\n]+):([0-9]+)(?:-([0-9]+))?\)`)
+)
+
+func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
+	firstCandidate := -1
+	for index := first; index < len(lines); index++ {
+		if containsPriorityMarker(lines[index]) && agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
+			firstCandidate = index
+			break
+		}
+	}
+	if firstCandidate < 0 {
+		return nativeEnvelope{}, errors.New("native review output has no explicit no-findings result or recognized findings")
+	}
+	intro := strings.ToLower(strings.Join(lines[first:firstCandidate], " "))
+	if !strings.Contains(intro, "finding") && !strings.Contains(intro, "actionable defect") {
+		return nativeEnvelope{}, errors.New("agent finding appears without a findings introduction")
+	}
+	findings := []nativeFinding{}
+	body := []string{}
+	var current *nativeFinding
+	flush := func() error {
+		if current == nil {
+			return nil
+		}
+		current.Body = strings.TrimSpace(strings.Join(body, "\n"))
+		if current.Body == "" {
+			return fmt.Errorf("agent finding %d has no body", len(findings))
+		}
+		findings = append(findings, *current)
+		current = nil
+		body = nil
+		return nil
+	}
+
+	for _, line := range lines[firstCandidate:] {
+		finding, initialBody, recognized, err := parseAgentFindingHeader(line)
+		if err != nil {
+			return nativeEnvelope{}, err
+		}
+		if recognized {
+			if err := flush(); err != nil {
+				return nativeEnvelope{}, err
+			}
+			current = &finding
+			if initialBody != "" {
+				body = append(body, initialBody)
+			}
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if containsPriorityMarker(line) {
+			return nativeEnvelope{}, fmt.Errorf("unrecognized agent finding header: %q", trimmed)
+		}
+		if current != nil {
+			body = append(body, trimmed)
+		}
+	}
+	if err := flush(); err != nil {
+		return nativeEnvelope{}, err
+	}
+	if len(findings) == 0 {
+		return nativeEnvelope{}, errors.New("agent findings introduction contains no findings")
+	}
+	return nativeEnvelope{Findings: findings}, nil
+}
+
+func parseAgentFindingHeader(line string) (nativeFinding, string, bool, error) {
+	trimmed := strings.TrimSpace(line)
+	prefix := agentListPrefixPattern.FindString(trimmed)
+	if prefix == "" {
+		return nativeFinding{}, "", false, nil
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+	bold := strings.HasPrefix(rest, "**")
+	if bold {
+		rest = strings.TrimPrefix(rest, "**")
+	}
+	if len(rest) < 5 || rest[0] != '[' || rest[1] != 'P' || rest[3] != ']' || rest[2] < '0' || rest[2] > '3' {
+		return nativeFinding{}, "", false, nil
+	}
+	priority := int(rest[2] - '0')
+	rest = strings.TrimSpace(rest[4:])
+	location := markdownLocationPattern.FindStringSubmatchIndex(rest)
+	if location == nil {
+		return nativeFinding{}, "", true, errors.New("agent finding has no Markdown code location")
+	}
+	path := strings.Trim(strings.TrimSpace(rest[location[2]:location[3]]), "<>")
+	start, err := strconv.Atoi(rest[location[4]:location[5]])
+	if err != nil || start < 1 {
+		return nativeFinding{}, "", true, errors.New("agent finding start line must be positive")
+	}
+	end := start
+	if location[6] >= 0 {
+		end, err = strconv.Atoi(rest[location[6]:location[7]])
+		if err != nil || end < start {
+			return nativeFinding{}, "", true, errors.New("agent finding end line is invalid")
+		}
+	}
+
+	beforeLocation := strings.TrimSpace(rest[:location[0]])
+	afterLocation := strings.TrimSpace(rest[location[1]:])
+	title := ""
+	initialBody := ""
+	if bold {
+		closing := strings.Index(beforeLocation, "**")
+		if closing < 1 {
+			return nativeFinding{}, "", true, errors.New("agent finding has an unclosed bold title")
+		}
+		title = strings.TrimSpace(beforeLocation[:closing])
+		initialBody = cleanAgentBody(beforeLocation[closing+2:] + " " + afterLocation)
+	} else {
+		title = strings.TrimSpace(strings.TrimSuffix(beforeLocation, "—"))
+		initialBody = cleanAgentBody(afterLocation)
+	}
+	if title == "" {
+		return nativeFinding{}, "", true, errors.New("agent finding title is empty")
+	}
+	return nativeFinding{
+		Title: title, Priority: priority,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: path,
+			LineRange:        nativeLineRange{Start: start, End: end},
+		},
+	}, initialBody, true, nil
+}
+
+func cleanAgentBody(raw string) string {
+	return strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(raw), "—. "))
+}
+
+func isExplicitNoFindings(line string) bool {
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "no findings.", "no actionable findings.", "no actionable defects found.":
+		return true
+	default:
+		return false
+	}
+}
+
+func containsPriorityMarker(line string) bool {
+	for priority := 0; priority <= 3; priority++ {
+		if strings.Contains(line, fmt.Sprintf("[P%d]", priority)) {
+			return true
+		}
+	}
+	return false
 }
 
 func isNativeReviewHeading(line string) bool {

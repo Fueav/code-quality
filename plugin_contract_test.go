@@ -62,7 +62,8 @@ func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 		"--goal",
 		"--base",
 		"--target",
-		"exactly one native `codex exec review`",
+		"exactly one full `codex exec`",
+		"raw freeze path",
 		"metrics path",
 		"Never delete the session directory",
 	} {
@@ -151,8 +152,6 @@ func TestReadmeProvidesCopyPastePluginInstallCommands(t *testing.T) {
 		"codex plugin marketplace add Fueav/code-quality",
 		"--ref v" + quality.SkillVersion,
 		"codex plugin add code-quality@" + marketplaceName,
-		"claude plugin marketplace add Fueav/code-quality@v" + quality.SkillVersion,
-		"claude plugin install code-quality@" + marketplaceName,
 	} {
 		if !strings.Contains(readme, command) {
 			t.Errorf("README is missing %q", command)

@@ -1,7 +1,7 @@
 {
   "name": "code-quality",
   "version": "0.4.1",
-  "description": "Runs a Codex-native report-only review with the V1.2 rubric retained for offline evaluation.",
+  "description": "Runs a full-capability Codex review, freezes its raw output, then publishes a report-only classification; V1.2 remains offline-only.",
   "author": {
     "name": "Fueav",
     "url": "https://github.com/Fueav"
@@ -15,8 +15,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Code Quality",
-    "shortDescription": "Run a thin Codex-native code review",
-    "longDescription": "Review a trusted committed Git increment with exactly one native Codex review and an optional user-supplied goal.",
+    "shortDescription": "Run a full Codex review with frozen evidence",
+    "longDescription": "Review a trusted committed Git increment with one full Codex Agent call, immutable raw evidence, and deterministic post-classification.",
     "developerName": "Fueav",
     "category": "Developer Tools",
     "capabilities": [
@@ -25,7 +25,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Run the Codex-native report-only review for this committed change; use V1.2 only as the offline evaluation rubric."
+      "Run the full Codex report-only review for this committed change and report the retained raw freeze and result paths."
     ]
   }
 }

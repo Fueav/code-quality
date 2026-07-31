@@ -1,10 +1,10 @@
 # code-quality (`quality-review`)
 
-Report-only 代码质量审查组件。它对一个**已提交的代码增量**调用 Codex 原生 review，发现本次改动引入或加重的可执行缺陷，输出结构化报告——**只给建议，不阻断合并、不改 CI**。
+Report-only 代码质量审查组件。它让完整 Codex Agent 审查一个**已提交的代码增量**，冻结原始输出后再做薄的确定性分类——**只给建议，不阻断合并、不改 CI**。
 
 ## 形态
 
-- **`quality-review`** — 静态 Go CLI，固定审查范围并调用本机已登录的 Codex CLI 原生 review 模式。
+- **`quality-review`** — 静态 Go CLI，固定审查范围并调用本机已登录的完整 Codex Agent。
 - **`plugins/code-quality/`** — 薄 Skill，只负责触发 CLI，不复制审查方法论。
 
 ## 安装
@@ -26,11 +26,9 @@ curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/instal
 # Codex
 codex plugin marketplace add Fueav/code-quality --ref v0.4.1 && codex plugin add code-quality@fueav-code-quality
 
-# Claude Code
-claude plugin marketplace add Fueav/code-quality@v0.4.1 && claude plugin install code-quality@fueav-code-quality
 ```
 
-仓库根目录同时提供 Codex 的 `.agents/plugins/marketplace.json` 与 Claude Code 的 `.claude-plugin/marketplace.json`，两端共用 `plugins/code-quality/` 的同一份 Skill。
+v0.4.1 只对 Codex 路径做发布资格验证；Claude Code 兼容继续延后，不属于本版本能力声明。
 
 ## 使用
 
@@ -42,9 +40,9 @@ quality-review run-codex --repo . --goal "这次改动的意图或额外关注�
 
 显式范围只需同时传 `--base <base> --target <target>`；`--diff-reason` 是可选审计说明，未提供时使用确定性的 `explicit_commit_range`。
 
-默认链路只有一次语义调用：确定性固定并隔离 base→target；执行一次 `codex exec review`；确定性适配原生结果并发布报告。`--goal` 只在用户显式提供时加入，作为可选关注点而不是审查边界。系统不再自动选择方向，也不追加验证器、复审或重试。
+默认链路只有一次语义调用：确定性固定并隔离 base→target；以 `gpt-5.6-sol` / `max` 执行一次普通 `codex exec`，保留正常配置、规则、Skills、工具与 shell 网络；原始最终回复和 JSONL 先写入冻结清单并设为只读，随后才进行确定性分类和报告发布。`--goal` 只在用户显式提供时作为用户上下文加入。系统不注入 rubric、风险方向、输出 schema、验证器、复审或重试。
 
-每次运行同时保留 Codex JSONL 事件和 `native-run-metrics.json`，记录耗时、可用的 token 用量、变更文件数与 trusted diff 大小；这些观测数据不改变审查语义结果。
+每次运行保留 `native-review.txt`、JSONL、stderr、`native-review-freeze.json` 和 `native-run-metrics.json`。分类器只接受已观测且可机械解析的 Codex finding 格式；无法确认的输出返回 `INCOMPLETE`，不会静默变成 `PASS`。
 
 20 条 V1.2 底线保留为离线评测量尺，不注入运行时 Prompt。历史合成样本只用于回归和校准，不作为产品优越性门槛；未来 A/B 必须使用独立资格审查后的冻结样本，并把新发现的合理缺陷标记为争议样本而不是直接计作误报。
 

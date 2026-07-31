@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifacts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "artifacts": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path", "present", "bytes"],
+        "properties": {
+          "name": {"enum": ["final_message", "jsonl_stdout", "stderr"]},
+          "path": {"type": "string", "minLength": 1},
+          "present": {"type": "boolean"},
+          "bytes": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

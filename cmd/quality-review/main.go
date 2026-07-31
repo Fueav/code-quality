@@ -78,6 +78,7 @@ type codexRunSummary struct {
 	SessionDir     string `json:"session_dir"`
 	ResultPath     string `json:"result_path"`
 	MarkdownPath   string `json:"markdown_path"`
+	FreezePath     string `json:"freeze_path"`
 	MetricsPath    string `json:"metrics_path"`
 	ModelCalls     int    `json:"model_calls"`
 }
@@ -90,8 +91,8 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 	target := flags.String("target", "", "target commit")
 	reason := flags.String("diff-reason", "", "diff selection reason")
 	goal := flags.String("goal", "", "optional change intent or extra review concern")
-	model := flags.String("model", "", "optional Codex model override")
-	reasoningEffort := flags.String("reasoning-effort", "high", "Codex reasoning effort")
+	model := flags.String("model", "gpt-5.6-sol", "Codex model")
+	reasoningEffort := flags.String("reasoning-effort", "max", "Codex reasoning effort")
 	outputRoot := flags.String("output-root", ".code-quality", "session output root")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -160,8 +161,8 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 	summary := codexRunSummary{
 		SchemaVersion: 3, Status: status, SemanticResult: result.Adjudication.SemanticResult,
 		SessionDir: prepared.SessionDir, ResultPath: prepared.ResultPath, MarkdownPath: prepared.MarkdownPath,
-		MetricsPath: prepared.NativeMetricsPath,
-		ModelCalls:  result.Execution.ModelCalls,
+		FreezePath: prepared.NativeFreezePath, MetricsPath: prepared.NativeMetricsPath,
+		ModelCalls: result.Execution.ModelCalls,
 	}
 	if err := quality.EncodeJSON(stdout, summary); err != nil {
 		fmt.Fprintf(stderr, "quality-review: encode native review summary: %v\n", err)

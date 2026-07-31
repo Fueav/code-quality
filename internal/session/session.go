@@ -42,6 +42,7 @@ type Layout struct {
 	NativeReviewPath    string
 	NativeStdoutPath    string
 	NativeStderrPath    string
+	NativeFreezePath    string
 	NativeMetricsPath   string
 	RereviewPath        string
 	ReviewInvalidPath   string
@@ -64,6 +65,7 @@ type Prepared struct {
 	MetadataPath        string       `json:"metadata_path"`
 	MainReviewPath      string       `json:"main_review_path"`
 	NativeReviewPath    string       `json:"native_review_path,omitempty"`
+	NativeFreezePath    string       `json:"native_freeze_path,omitempty"`
 	NativeMetricsPath   string       `json:"native_metrics_path,omitempty"`
 	ResultPath          string       `json:"result_path,omitempty"`
 	MarkdownPath        string       `json:"markdown_path,omitempty"`
@@ -201,6 +203,7 @@ func prepare(ctx context.Context, options Options, native bool) (Prepared, error
 		result.ModelSchemaPath = ""
 		result.MainReviewPath = ""
 		result.NativeReviewPath = layout.NativeReviewPath
+		result.NativeFreezePath = layout.NativeFreezePath
 		result.NativeMetricsPath = layout.NativeMetricsPath
 	}
 	return result, nil
@@ -231,6 +234,7 @@ func NewLayout(directory string) Layout {
 		NativeReviewPath:    filepath.Join(output, "native-review.txt"),
 		NativeStdoutPath:    filepath.Join(output, "native-review.stdout.log"),
 		NativeStderrPath:    filepath.Join(output, "native-review.stderr.log"),
+		NativeFreezePath:    filepath.Join(output, "native-review-freeze.json"),
 		NativeMetricsPath:   filepath.Join(output, "native-run-metrics.json"),
 		RereviewPath:        filepath.Join(output, "rereview.json"),
 		ReviewInvalidPath:   filepath.Join(output, ".review-invalid-attempted"),

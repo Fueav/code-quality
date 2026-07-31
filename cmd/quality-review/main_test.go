@@ -86,12 +86,13 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	}
 	var summaryDocument struct {
 		MetricsPath string `json:"metrics_path"`
+		FreezePath  string `json:"freeze_path"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &summaryDocument); err != nil {
 		t.Fatal(err)
 	}
-	if summaryDocument.MetricsPath == "" {
-		t.Fatal("native summary does not expose metrics_path")
+	if summaryDocument.MetricsPath == "" || summaryDocument.FreezePath == "" {
+		t.Fatalf("native summary does not expose retained evidence paths: %#v", summaryDocument)
 	}
 	metrics := readJSON[struct {
 		SchemaVersion    int    `json:"schema_version"`
@@ -130,6 +131,9 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	}
 	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "output", "native-review.txt")); err != nil {
 		t.Fatalf("native review text is unavailable: %v", err)
+	}
+	if _, err := os.Lstat(summaryDocument.FreezePath); err != nil {
+		t.Fatalf("raw freeze manifest is unavailable: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "repository")); !os.IsNotExist(err) {
 		t.Fatalf("isolated checkout was not removed: %v", err)

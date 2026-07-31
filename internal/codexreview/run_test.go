@@ -2,6 +2,9 @@ package codexreview
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,34 +18,90 @@ import (
 	"github.com/Fueav/code-quality/quality"
 )
 
-func TestNativeReviewInvocationUsesOneCustomTarget(t *testing.T) {
+func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	options := Options{
 		Prepared: prepared, Request: request, Goal: "protect settlement correctness",
-		Model: "gpt-5.6-sol", ReasoningEffort: "high",
+	}
+	if err := normalizeOptions(&options); err != nil {
+		t.Fatal(err)
 	}
 	invocation := buildReviewInvocation(options)
-	args := strings.Join(invocation.Args, " ")
-	if !strings.Contains(args, "exec --sandbox read-only --ignore-user-config --ignore-rules --ephemeral review") {
-		t.Fatalf("native review args = %q", args)
+	want := []string{
+		"exec", "--sandbox", "workspace-write",
+		"--config", "sandbox_workspace_write.network_access=true",
+		"--model", "gpt-5.6-sol", "--config", `model_reasoning_effort="max"`,
+		"--json", "--output-last-message", prepared.NativeReviewPath, "-",
 	}
-	if !strings.Contains(args, "--json") {
-		t.Fatalf("native review does not retain machine-readable usage events: %q", args)
+	if strings.Join(invocation.Args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("full Codex args = %#v, want %#v", invocation.Args, want)
 	}
-	for _, forbidden := range []string{"--base", "--commit", "--uncommitted", "--output-schema"} {
-		if strings.Contains(args, forbidden) {
-			t.Fatalf("custom target is combined with %s: %q", forbidden, args)
+	for _, forbidden := range []string{"review", "--ignore-user-config", "--ignore-rules", "--ephemeral", "read-only", "--output-schema"} {
+		for _, argument := range invocation.Args {
+			if argument == forbidden {
+				t.Fatalf("full Codex invocation contains %q: %#v", forbidden, invocation.Args)
+			}
 		}
 	}
-	for _, required := range []string{request.BaseCommit, request.TargetCommit, "protect settlement correctness", "optional focus", "not a review boundary"} {
-		if !strings.Contains(invocation.Stdin, required) {
-			t.Fatalf("prompt is missing %q:\n%s", required, invocation.Stdin)
-		}
+	wantPrompt := fmt.Sprintf(
+		"Review the changes introduced by %s relative to %s for actionable defects.\nUser-supplied context: %q\n",
+		request.TargetCommit, request.BaseCommit, "protect settlement correctness",
+	)
+	if invocation.Stdin != wantPrompt {
+		t.Fatalf("prompt = %q, want %q", invocation.Stdin, wantPrompt)
 	}
-	for _, forbidden := range []string{"Potential risk directions", "security boundaries", "reliability lifecycle", "first nonblank line exactly"} {
-		if strings.Contains(invocation.Stdin, forbidden) {
-			t.Fatalf("prompt contains automatic direction or private protocol %q:\n%s", forbidden, invocation.Stdin)
-		}
+	if options.Model != "gpt-5.6-sol" || options.ReasoningEffort != "max" {
+		t.Fatalf("defaults = model %q, effort %q", options.Model, options.ReasoningEffort)
+	}
+}
+
+func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
+	prepared, request := nativeFixture(t)
+	raw := agentFindingOutput(filepath.Join(prepared.RepositoryDir, "app.go"), "preserve the result", "The changed branch returns the wrong value.", 1)
+	executor := &scriptedExecutor{outputs: []string{raw}}
+
+	result, err := Run(context.Background(), Options{Prepared: prepared, Request: request, Executor: executor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	layout := reviewsession.NewLayout(prepared.SessionDir)
+	var manifest struct {
+		SchemaVersion int `json:"schema_version"`
+		Artifacts     []struct {
+			Name    string `json:"name"`
+			Present bool   `json:"present"`
+			Bytes   int    `json:"bytes"`
+			SHA256  string `json:"sha256"`
+		} `json:"artifacts"`
+	}
+	encoded, err := os.ReadFile(layout.NativeFreezePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SchemaVersion != 1 || len(manifest.Artifacts) != 3 {
+		t.Fatalf("freeze manifest = %#v", manifest)
+	}
+	digest := sha256.Sum256([]byte(raw))
+	wantSHA := hex.EncodeToString(digest[:])
+	if manifest.Artifacts[0].Name != "final_message" || !manifest.Artifacts[0].Present ||
+		manifest.Artifacts[0].Bytes != len(raw) || manifest.Artifacts[0].SHA256 != wantSHA {
+		t.Fatalf("frozen final message = %#v", manifest.Artifacts[0])
+	}
+	info, err := os.Stat(prepared.NativeReviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o222 != 0 {
+		t.Fatalf("raw review remains writable: %o", info.Mode().Perm())
+	}
+	if err := os.WriteFile(prepared.NativeReviewPath, []byte("changed"), 0o600); err == nil {
+		t.Fatal("frozen raw review was overwritten")
 	}
 }
 
@@ -148,18 +207,47 @@ func TestCollectRunMetricsMarksZeroCountersUnavailable(t *testing.T) {
 
 func TestNativeReviewPromptOmitsUnsuppliedGoal(t *testing.T) {
 	prepared, request := nativeFixture(t)
-	options := Options{Prepared: prepared, Request: request, ReasoningEffort: "high"}
+	options := Options{Prepared: prepared, Request: request}
 	if err := normalizeOptions(&options); err != nil {
 		t.Fatal(err)
 	}
 	if options.Goal != "" {
 		t.Fatalf("wrapper invented goal %q", options.Goal)
 	}
-	prompt := buildReviewPrompt(options)
-	for _, forbidden := range []string{"Review goal", "optional focus", "Find actionable defects introduced"} {
-		if strings.Contains(prompt, forbidden) {
-			t.Fatalf("prompt contains invented goal text %q:\n%s", forbidden, prompt)
-		}
+	want := fmt.Sprintf("Review the changes introduced by %s relative to %s for actionable defects.\n", request.TargetCommit, request.BaseCommit)
+	if prompt := buildReviewPrompt(options); prompt != want {
+		t.Fatalf("prompt = %q, want %q", prompt, want)
+	}
+}
+
+func TestAgentOutputParsesObservedMarkdownFormats(t *testing.T) {
+	for name, input := range map[string]string{
+		"findings heading": `## Findings
+
+- [P2] Guard the pagination end calculation against overflow — [filtered_pagination.go:79](/private/tmp/review/types/query/filtered_pagination.go:79)
+
+  Offset and Limit are user-controlled, so their sum can wrap.
+`,
+		"numbered bold": `Findings, ordered by severity:
+
+1. **[P1] Refuse to overwrite existing drafts** — [prompt.go:292](/private/tmp/review/x/gov/client/cli/prompt.go:292)
+
+   The command silently truncates previously edited drafts.
+`,
+		"inline bold": `Found one actionable defect.
+
+- **[P2] Reject invalid integer prompt input** — [prompt.go:97](/private/tmp/review/x/gov/client/cli/prompt.go:97). Invalid input is silently replaced with zero.
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := parseNativeReviewText(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 1 || result.Findings[0].Priority < 1 || result.Findings[0].Body == "" {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
 	}
 }
 
@@ -278,18 +366,14 @@ func TestNativeOutputAcceptsObservedCandidateHeadingGrammar(t *testing.T) {
 	}
 }
 
-func TestReadNativeOutputAcceptsNativeZeroCandidateNarrative(t *testing.T) {
+func TestReadNativeOutputRejectsAmbiguousZeroCandidateNarrative(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "native-review.txt")
 	if err := os.WriteFile(path, []byte("The derived timeout context preserves parent cancellation, earlier deadlines, and request-scoped values while enforcing the approved two-second limit.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := readNativeOutput(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 0 {
-		t.Fatalf("findings = %#v", result.Findings)
+	if _, err := readNativeOutput(path); err == nil {
+		t.Fatal("ambiguous prose was accepted as PASS evidence")
 	}
 }
 
@@ -335,7 +419,7 @@ func TestNativeOutputRejectsNoFindingsFollowedByAnyCandidateHeading(t *testing.T
 
 func TestZeroFindingsCompletesAfterOneNativeCall(t *testing.T) {
 	prepared, request := nativeFixture(t)
-	executor := &scriptedExecutor{outputs: []string{"The target preserves cancellation and enforces the approved timeout.\n"}}
+	executor := &scriptedExecutor{outputs: []string{"No actionable defects found.\n"}}
 
 	result, err := Run(context.Background(), Options{
 		Prepared: prepared, Request: request, Goal: "review the change",
@@ -405,6 +489,12 @@ func (executor *scriptedExecutor) Run(_ context.Context, invocation Invocation) 
 	if index >= len(executor.outputs) {
 		return errors.New("unexpected invocation")
 	}
+	if err := os.WriteFile(invocation.StdoutPath, []byte(`{"type":"turn.completed","usage":{"input_tokens":123,"output_tokens":45}}`+"\n"), 0o600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(invocation.StderrPath, nil, 0o600); err != nil {
+		return err
+	}
 	return os.WriteFile(invocation.OutputPath, []byte(executor.outputs[index]), 0o600)
 }
 
@@ -440,4 +530,8 @@ func nativeFixture(t *testing.T) (reviewsession.Prepared, quality.ReviewRequest)
 
 func nativeFindingOutput(path, title, body string, priority int) string {
 	return fmt.Sprintf("Review comment:\n\n- [P%d] %s — %s:2-2\n  %s\n", priority, title, path, body)
+}
+
+func agentFindingOutput(path, title, body string, priority int) string {
+	return fmt.Sprintf("## Findings\n\n- [P%d] %s — [app.go:2](%s:2)\n\n  %s\n", priority, title, path, body)
 }

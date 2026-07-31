@@ -1,62 +1,58 @@
-# Code Quality v0.4.1 Codex Quality Hardening Specification
+# Code Quality v0.4.1 Full Codex Review Specification
 
-Status: approved by owner on 2026-07-31
+Status: approved and authorized for release by the owner on 2026-07-31
 
 ## Scope
 
-This patch release hardens the Codex-only native-review path before any further quality claim. Claude Code compatibility is explicitly deferred. The one-call, report-only architecture and result schema v3 remain unchanged.
+This Codex-focused patch release replaces the capability-restricting review wrapper with one full Codex Agent review, freezes its raw evidence, and applies only deterministic post-classification. Claude Code compatibility work remains deferred. The product stays report-only and makes exactly one semantic model call.
 
-## Product contracts
+## Discovery contract
 
-### Trusted finding locations
+- The default provider is ordinary `codex exec`, not `codex exec review`.
+- The default model is `gpt-5.6-sol` with `max` reasoning. Explicit CLI overrides remain available.
+- Codex inherits the invoking user's normal authentication, `CODEX_HOME`, configuration, rules, Skills, and native tools.
+- The isolated committed checkout runs with `workspace-write` and shell network access enabled through `sandbox_workspace_write.network_access=true`.
+- The model receives the complete target checkout and Git context available from that checkout.
+- The only default review instruction is: `Review the changes introduced by <target> relative to <base> for actionable defects.`
+- A user-supplied `--goal` may be appended as user context, but the product adds no rubric, risk directions, output schema, defect hint, evidence packet, verifier, retry, or second model call.
+- The invocation must not pass `--ignore-user-config`, `--ignore-rules`, `--ephemeral`, `read-only`, or the `review` subcommand.
 
-- A native finding is inside the isolated checkout when its canonical filesystem location is inside the canonical checkout root.
-- Equivalent macOS paths such as `/tmp/...` and `/private/tmp/...` must map to the same changed file.
-- A path that resolves through a symlink outside the checkout must remain rejected.
-- A run with native candidates must not become `PASS`; if every candidate is invalid it remains `INCOMPLETE`.
+## Raw evidence freeze
 
-### Explicit review range
+- After the Codex process exits and before any parser or classifier runs, the product reads the final message, JSONL stdout, and stderr as regular non-symlink files.
+- It writes one exclusive freeze manifest containing each artifact's presence, byte length, and SHA-256.
+- Present raw artifacts become read-only after the manifest is durable.
+- Classification consumes the exact frozen final-message bytes already held in memory; it must not rewrite or replace the raw artifact.
+- The session summary exposes the freeze manifest path, and the session remains retained after checkout cleanup.
 
-- `--base` and `--target` form the explicit range and must be supplied together.
-- `--diff-reason` is optional for an explicit range. When absent, the deterministic reason is `explicit_commit_range`.
-- A supplied reason is preserved unchanged.
-- Supplying only one endpoint, or a reason without both endpoints, fails closed.
-- The Codex Skill passes an explicitly supplied base/target pair and does not silently fall back to the local baseline merely because the user did not provide an internal reason string.
+## Thin deterministic classification
 
-### Release gate
+- The classifier accepts the previously observed native bullet format and ordinary Agent Markdown bullet or numbered finding formats.
+- Each recognized candidate is either retained inside the trusted changed-file scope or recorded as an indexed adapter exclusion.
+- Explicit no-finding text may become `PASS`.
+- Empty, ambiguous, contradictory, or unrecognized non-finding prose becomes `INCOMPLETE`, never `PASS`.
+- If candidates exist but none map to trusted changed files, the result is `INCOMPLETE`.
+- Classification performs no model call and does not edit the frozen source.
 
-- `make release-check` runs the root Python qualification suite in addition to Go, live-watch/live-adjudication, mining, vet, formatting, and diff checks.
-- The gate remains free of model calls.
+## Existing hardening retained
 
-### Native execution observability
-
-- Native Codex review emits JSONL events to the retained stdout log.
-- Each run writes `native-run-metrics.json` schema v1 beside the raw native output.
-- Metrics record wall duration, input/output tokens when a valid final `turn.completed` event exists, changed-file count, and trusted-diff bytes.
-- An all-zero token counter on a completed nonempty review is treated as unavailable rather than as a credible zero-cost measurement.
-- Missing usage events are represented explicitly and do not change the semantic review result.
-- The CLI summary exposes the metrics path. `review-result.json` remains schema v3.
+- Canonically equivalent macOS paths map to the same isolated checkout; symlink escapes remain rejected.
+- `--base` and `--target` are supplied together. `--diff-reason` is optional for an explicit range and defaults to `explicit_commit_range`.
+- Each run retains JSONL-derived duration and token metrics. Missing or all-zero usage remains explicitly unavailable.
+- `make release-check` covers Go, root qualification, live, mining, vet, formatting, and diff checks without model calls.
 
 ## Non-goals
 
-- No Claude Code compatibility work.
-- No new review directions, rubric injection, verifier, rereview, retry, or automatic file exclusion.
-- No change to `PASS`, `MANUAL_REVIEW`, or `INCOMPLETE` semantics.
-- No release, tag, push, installation, or marketplace mutation without a later owner request.
+- No Claude Code execution-path work.
+- No prompt framework, review-direction selector, verifier, rereview, retry, or automatic source exclusion.
+- No claim that three public historical probes establish population-level review quality.
+- No CI blocking or source-repository modification.
 
 ## Acceptance evidence
 
-1. RED tests reproduce the macOS-equivalent-root rejection, the base/target-without-reason rejection, the missing root Python release gate, and absent native JSON metrics.
-2. Focused tests pass after implementation.
-3. `make release-check VERSION=v0.4.1 VERIFY_COMPARE_REF=v0.4.0` passes from a clean candidate checkout.
-4. A candidate binary verifies its version and completes a deterministic fake native-review smoke with one model call and retained metrics.
-
-## Capability evaluation gate
-
-After all product acceptance evidence is GREEN, evaluate the candidate on the eight real historical changes frozen in `pilot/historical-pilot-seed.json`: four defect-introducing commits and their four safe fixes.
-
-- Materialize each committed range in an isolated repository with no answer key in the model-visible tree.
-- Use one fresh, ephemeral, authentication-only Codex session per case, `gpt-5.6-sol`, reasoning `high`, no goal, and no retry.
-- Freeze all eight raw outputs and metrics before reading or applying `ground_truth` and `label_note`.
-- Report severe-case hit rate, safe-fix false-positive rate, completion rate, adapter drops, duration, and token use.
-- Treat the eight-case result as sample-specific. It cannot establish population-level superiority.
+1. RED tests prove the old invocation suppresses normal Codex context, raw evidence has no pre-classification freeze, ordinary Agent output is not losslessly classified, and ambiguous prose can become `PASS`.
+2. Focused tests and `make release-check VERSION=v0.4.1 VERIFY_COMPARE_REF=v0.4.0` pass from the clean release worktree.
+3. A deterministic fake Codex smoke proves one call, full invocation controls, frozen hashes, metrics, classification, retained reports, and checkout cleanup.
+4. A real candidate-binary smoke uses the release contract and preserves raw evidence before adjudication.
+5. A fresh full-capability Codex review of the release diff has no unresolved actionable finding.
+6. Release assets are built from the tagged commit, checksummed, published, downloaded, and version-verified.
