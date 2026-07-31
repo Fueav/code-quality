@@ -33,6 +33,7 @@ This patch release hardens the Codex-only native-review path before any further 
 - Native Codex review emits JSONL events to the retained stdout log.
 - Each run writes `native-run-metrics.json` schema v1 beside the raw native output.
 - Metrics record wall duration, input/output tokens when a valid final `turn.completed` event exists, changed-file count, and trusted-diff bytes.
+- An all-zero token counter on a completed nonempty review is treated as unavailable rather than as a credible zero-cost measurement.
 - Missing usage events are represented explicitly and do not change the semantic review result.
 - The CLI summary exposes the metrics path. `review-result.json` remains schema v3.
 

@@ -19,3 +19,13 @@ Observed failures before implementation:
 - `TestMakefileReleaseGateCoversShippedComponents`: the root Python qualification suite was absent from the release gate.
 
 No unrelated focused-test failure was observed.
+
+## Evaluation follow-up
+
+The first frozen real-history evaluation exposed an additional observability defect. Codex CLI 0.145.0 emitted an all-zero `turn.completed.usage` object for every nonempty review, and v0.4.1 initially marked those counters as available. Before the follow-up implementation, this command failed as expected:
+
+```sh
+go test ./internal/codexreview -run TestReadCodexUsageRejectsAllZeroCounters -count=1
+```
+
+`TestReadCodexUsageRejectsAllZeroCounters` observed non-nil zero counters and no error. The corrected contract records this upstream all-zero response as explicitly unavailable, without changing review semantics.

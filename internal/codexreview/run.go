@@ -272,6 +272,9 @@ func readCodexUsage(path string) (*int64, *int64, error) {
 	if latest == nil {
 		return nil, nil, errors.New("Codex JSONL has no turn.completed usage event")
 	}
+	if latest.InputTokens == 0 && latest.OutputTokens == 0 {
+		return nil, nil, errors.New("Codex JSONL reported zero token usage; counters are unavailable")
+	}
 	inputTokens := latest.InputTokens
 	outputTokens := latest.OutputTokens
 	return &inputTokens, &outputTokens, nil

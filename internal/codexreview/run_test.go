@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
@@ -116,6 +117,32 @@ func TestReadCodexUsageUsesLastCompletedTurn(t *testing.T) {
 	}
 	if input == nil || *input != 30 || output == nil || *output != 7 {
 		t.Fatalf("input = %v, output = %v", input, output)
+	}
+}
+
+func TestReadCodexUsageRejectsAllZeroCounters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	contents := `{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}` + "\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input, output, err := readCodexUsage(path)
+	if err == nil || !strings.Contains(err.Error(), "zero token usage") || input != nil || output != nil {
+		t.Fatalf("input = %v, output = %v, error = %v", input, output, err)
+	}
+}
+
+func TestCollectRunMetricsMarksZeroCountersUnavailable(t *testing.T) {
+	prepared, request := nativeFixture(t)
+	stdout := reviewsession.NewLayout(prepared.SessionDir).NativeStdoutPath
+	contents := `{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}` + "\n"
+	if err := os.WriteFile(stdout, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	metrics := collectRunMetrics(Options{Prepared: prepared, Request: request}, 25*time.Millisecond, 42)
+	if metrics.UsageAvailable || metrics.InputTokens != nil || metrics.OutputTokens != nil ||
+		!strings.Contains(metrics.UsageError, "zero token usage") {
+		t.Fatalf("metrics = %#v", metrics)
 	}
 }
 
