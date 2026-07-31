@@ -231,6 +231,35 @@ func TestAdaptFindingsRejectsCanonicalSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestAdaptFindingsRejectsParentTraversalBeforeSymlinkResolution(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(outside, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "app.go"), []byte("package app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "nested"), filepath.Join(repository, "escape")); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "reject escaped traversal", Body: "The location crosses the symlink boundary before returning to app.go.", Priority: 1,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: repository + string(filepath.Separator) + "escape" + string(filepath.Separator) + ".." + string(filepath.Separator) + "app.go",
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, repository, []string{"app.go"})
+	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location contains parent traversal" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
 func TestAdaptFindingsPreservesChangedSymlinkPath(t *testing.T) {
 	repository := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repository, "config"), 0o700); err != nil {
@@ -557,6 +586,20 @@ func TestNativeOutputAcceptsHeadedNoFindingsAfterIntroduction(t *testing.T) {
 	}
 	if len(result.Findings) != 0 {
 		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestNativeOutputRejectsIndentedNoFindingsExamples(t *testing.T) {
+	for name, input := range map[string]string{
+		"direct indented sentinel": "    No findings.\n",
+		"indented sentinel":        "Example:\n\n    No findings.\n",
+		"indented heading":         "Example:\n\n    ## Findings\nNo findings.\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseNativeReviewText(input); err == nil {
+				t.Fatal("indented example was accepted as a top-level no-findings result")
+			}
+		})
 	}
 }
 

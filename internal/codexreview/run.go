@@ -113,7 +113,29 @@ func installDiscoveryChildMarker(repositoryDir string) (string, error) {
 }
 
 func IsDiscoveryChildRepository(repositoryDir string) (bool, error) {
-	raw, err := reviewsession.ReadRegularFile(discoveryChildMarkerPath(repositoryDir), int64(len(discoveryChildMarkerContents)))
+	return isDiscoveryChildMarker(discoveryChildMarkerPath(repositoryDir))
+}
+
+func IsDiscoveryChildWorkingDirectory(workingDir string) (bool, error) {
+	current, err := filepath.Abs(workingDir)
+	if err != nil {
+		return false, err
+	}
+	for {
+		nested, err := isDiscoveryChildMarker(filepath.Join(current, DiscoveryChildMarkerName))
+		if err != nil || nested {
+			return nested, err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false, nil
+		}
+		current = parent
+	}
+}
+
+func isDiscoveryChildMarker(path string) (bool, error) {
+	raw, err := reviewsession.ReadRegularFile(path, int64(len(discoveryChildMarkerContents)))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -769,6 +791,9 @@ func cleanAgentBody(raw string) string {
 }
 
 func isExplicitNoFindings(line string) bool {
+	if isIndentedLine(line) {
+		return false
+	}
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "no findings.", "no actionable findings.", "no actionable defects found.":
 		return true
@@ -787,6 +812,9 @@ func containsPriorityMarker(line string) bool {
 }
 
 func isNativeReviewHeading(line string) bool {
+	if isIndentedLine(line) {
+		return false
+	}
 	switch strings.TrimSpace(line) {
 	case "Review comment:", "Review comments:", "Full review comment:", "Full review comments:":
 		return true
@@ -796,6 +824,9 @@ func isNativeReviewHeading(line string) bool {
 }
 
 func isFindingsContainerHeading(line string) bool {
+	if isIndentedLine(line) {
+		return false
+	}
 	if isNativeReviewHeading(line) {
 		return true
 	}
@@ -1011,10 +1042,22 @@ func validateNativeCandidate(candidate nativeFinding) string {
 	if !filepath.IsAbs(candidate.CodeLocation.AbsoluteFilePath) {
 		return "code location must be absolute"
 	}
+	if containsParentTraversal(candidate.CodeLocation.AbsoluteFilePath) {
+		return "code location contains parent traversal"
+	}
 	if candidate.CodeLocation.LineRange.Start < 1 || candidate.CodeLocation.LineRange.End < candidate.CodeLocation.LineRange.Start {
 		return "line range is invalid"
 	}
 	return ""
+}
+
+func containsParentTraversal(path string) bool {
+	for _, component := range strings.Split(path, string(filepath.Separator)) {
+		if component == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func markPass(result *quality.NativeReviewResult, reason string) {

@@ -11,7 +11,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 - The default provider is ordinary `codex exec`, not `codex exec review`.
 - The default model is `gpt-5.6-sol` with `max` reasoning. Explicit CLI overrides remain available.
 - Codex inherits the invoking user's normal authentication, `CODEX_HOME`, configuration, rules, Skills, and native tools.
-- The isolated checkout has a session-owned, read-only marker outside the Git root while Codex is running. The shipped Skill and CLI use it solely to prevent this product from invoking itself, then the executor removes it; the Codex environment policy, all other Skills, rules, configuration, and tools remain unchanged.
+- The isolated checkout has a session-owned, read-only marker outside the Git root while Codex is running. Before honoring any requested repository, the shipped Skill and CLI check the active working tree for that marker; they also check the requested repository. This prevents accidental cross-repository self-recursion without changing the Codex environment policy, other Skills, rules, configuration, or tools. The executor removes the marker after the child exits.
 - The isolated committed checkout runs with `workspace-write` and shell network access enabled through `sandbox_workspace_write.network_access=true`.
 - The model receives the complete target checkout and Git context available from that checkout.
 - The only default review instruction is: `Review the changes introduced by <target> relative to <base> for actionable defects.`
@@ -31,7 +31,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 - The classifier accepts the previously observed native bullet format and ordinary CommonMark `-`, `*`, `+`, `N.`, and `N)` Agent finding markers, including balanced parentheses in Markdown link destinations.
 - Each recognized candidate is either retained inside the trusted changed-file scope or recorded as an indexed adapter exclusion.
-- Explicit no-finding text, either standalone or immediately below the first recognized findings heading after optional introductory text, may become `PASS`.
+- Top-level explicit no-finding text, either standalone or immediately below the first top-level recognized findings heading after optional introductory text, may become `PASS`. Indented examples are never result sentinels or container headings.
 - Any priority candidate before that sentinel makes the output contradictory rather than allowing a later section to erase it.
 - Explicit no-finding text followed by any nonblank tail is not accepted as `PASS`.
 - Top-level text after a structured finding is not appended to its body, a trailing no-finding sentinel is contradictory in either accepted grammar, and indented priority text or nested bullets remain body text.
@@ -41,7 +41,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 ## Existing hardening retained
 
-- Canonically equivalent macOS paths map to the same isolated checkout; existing and dangling symlinks are resolved before containment so escapes remain rejected. A changed in-repository symlink keeps its logical path, while an unchanged alias to a changed or deleted target falls back to the canonical changed path.
+- Canonically equivalent macOS paths map to the same isolated checkout; existing and dangling symlinks are resolved before containment so escapes remain rejected. A changed in-repository symlink keeps its logical path, while an unchanged alias to a changed or deleted target falls back to the canonical changed path. Candidate paths containing an unresolved `..` component are rejected before cleaning or symlink resolution.
 - `--base` and `--target` are supplied together. `--diff-reason` is optional for an explicit range and defaults to `explicit_commit_range`.
 - Each run retains JSONL-derived duration and token metrics. Missing or all-zero usage remains explicitly unavailable in both runtime behavior and the published metrics schema.
 - `make release-check` covers Go, root qualification, live, mining, vet, formatting, and diff checks without model calls.

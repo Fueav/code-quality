@@ -86,3 +86,13 @@ The seventh fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 997,0
 - CommonMark `+` bullets and `N)` ordered markers were not recognized.
 
 All three cases reproduced before implementation. Header recognition now requires top-level indentation while nested bullets remain body text, dangling symlinks are resolved with `Lstat` and `Readlink` before missing-leaf fallback with cycle protection, and every ordinary CommonMark unordered/ordered list marker has regression coverage. Existing-target, deleted-target, changed-alias, and outside-escape symlink cases all remain covered. The seventh candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Eighth candidate review RED
+
+The eighth fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 695,363 ms with 3,009,275 input tokens and 36,483 output tokens. Independent SHA-256 checks matched the freeze manifest for all three `0400` raw artifacts, and deterministic classification retained all three candidates with zero adapter drops. The review found:
+
+- an indented findings heading could promote a code example into a top-level no-findings `PASS`;
+- recursion detection checked only the requested `--repo`, so a marked child could invoke the wrapper against another repository;
+- cleaning `..` before symlink resolution could turn an escaping model location into an accepted changed-file path.
+
+All three cases reproduced before implementation. Result headings and sentinels now require top-level content, the CLI checks the active working tree before honoring another repository, and candidate locations containing an unresolved parent-traversal component are rejected before cleaning or canonicalization. These guards change no Codex capability or semantic prompt. The eighth candidate smoke remains diagnostic evidence and is not release acceptance.

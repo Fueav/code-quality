@@ -101,6 +101,20 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "quality-review: run-codex accepts flags only")
 		return 2
 	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: inspect current working directory: %v\n", err)
+		return 1
+	}
+	nested, err := codexreview.IsDiscoveryChildWorkingDirectory(workingDirectory)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: inspect active discovery child marker: %v\n", err)
+		return 1
+	}
+	if nested {
+		fmt.Fprintln(stderr, "quality-review: nested Codex discovery is disabled; review directly in the current Codex agent")
+		return 1
+	}
 	discovered, err := intake.Discover(intake.Options{
 		RepositoryPath: *repository,
 		Base:           *base,
@@ -111,7 +125,7 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "quality-review: resolve review scope: %v\n", err)
 		return 1
 	}
-	nested, err := codexreview.IsDiscoveryChildRepository(discovered.RepositoryRoot)
+	nested, err = codexreview.IsDiscoveryChildRepository(discovered.RepositoryRoot)
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: inspect discovery child marker: %v\n", err)
 		return 1
