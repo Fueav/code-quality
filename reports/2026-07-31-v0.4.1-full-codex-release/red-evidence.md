@@ -25,3 +25,13 @@ The first real `quality-review v0.4.1` candidate smoke completed one full `gpt-5
 - the freeze manifest was closed but not atomically installed and synced before artifact locking.
 
 Regression tests for the first two parser findings failed before their fixes with `agent finding appears without a findings introduction` and `agent finding has no Markdown code location`. The original candidate smoke remains diagnostic evidence and is not treated as release acceptance.
+
+## Second candidate review RED
+
+The second fresh `gpt-5.6-sol/max` full-Agent smoke completed one model call, retained 4,954,785 input tokens and 42,653 output tokens, froze all three raw artifacts, and classified all three reported candidates without an adapter drop. It found:
+
+- the installed Skill could recursively invoke `quality-review` inside the child discovery run;
+- an explicit no-findings sentinel could ignore arbitrary trailing prose and incorrectly become `PASS`;
+- the legacy heading alone selected the bare-path grammar and rejected an ordinary Markdown-link finding.
+
+The new contract tests failed before implementation: the recursion marker/helper did not exist, the Skill lacked a child bypass, and the two parser examples reproduced the false pass and false incomplete paths. The second candidate smoke remains diagnostic evidence and is not release acceptance.

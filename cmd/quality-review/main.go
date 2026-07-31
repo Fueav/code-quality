@@ -84,6 +84,10 @@ type codexRunSummary struct {
 }
 
 func runCodex(args []string, stdout, stderr io.Writer) int {
+	if os.Getenv(codexreview.DiscoveryChildEnvironment) == "1" {
+		fmt.Fprintln(stderr, "quality-review: nested Codex discovery is disabled; review directly in the current Codex agent")
+		return 1
+	}
 	flags := flag.NewFlagSet("run-codex", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	repository := flags.String("repo", ".", "Git repository path")

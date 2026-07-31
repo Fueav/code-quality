@@ -11,6 +11,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 - The default provider is ordinary `codex exec`, not `codex exec review`.
 - The default model is `gpt-5.6-sol` with `max` reasoning. Explicit CLI overrides remain available.
 - Codex inherits the invoking user's normal authentication, `CODEX_HOME`, configuration, rules, Skills, and native tools.
+- The child process receives only `CODE_QUALITY_DISCOVERY_CHILD=1` as a recursion marker. The shipped Skill and CLI use it solely to prevent this product from invoking itself; all other Skills, rules, configuration, and tools remain active.
 - The isolated committed checkout runs with `workspace-write` and shell network access enabled through `sandbox_workspace_write.network_access=true`.
 - The model receives the complete target checkout and Git context available from that checkout.
 - The only default review instruction is: `Review the changes introduced by <target> relative to <base> for actionable defects.`
@@ -30,6 +31,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 - The classifier accepts the previously observed native bullet format and ordinary Agent Markdown bullet or numbered finding formats.
 - Each recognized candidate is either retained inside the trusted changed-file scope or recorded as an indexed adapter exclusion.
 - Explicit no-finding text may become `PASS`.
+- Explicit no-finding text followed by any nonblank tail is not accepted as `PASS`.
 - Empty, ambiguous, contradictory, or unrecognized non-finding prose becomes `INCOMPLETE`, never `PASS`.
 - If candidates exist but none map to trusted changed files, the result is `INCOMPLETE`.
 - Classification performs no model call and does not edit the frozen source.

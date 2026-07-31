@@ -55,6 +55,23 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 	}
 }
 
+func TestChildEnvironmentReplacesDiscoveryMarker(t *testing.T) {
+	environment := childEnvironment([]string{
+		"PATH=/usr/bin",
+		DiscoveryChildEnvironment + "=0",
+		"LANG=en_US.UTF-8",
+		DiscoveryChildEnvironment + "=stale",
+	})
+	want := []string{
+		"PATH=/usr/bin",
+		"LANG=en_US.UTF-8",
+		DiscoveryChildEnvironment + "=1",
+	}
+	if strings.Join(environment, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("child environment = %#v, want %#v", environment, want)
+	}
+}
+
 func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	raw := agentFindingOutput(filepath.Join(prepared.RepositoryDir, "app.go"), "preserve the result", "The changed branch returns the wrong value.", 1)
@@ -293,7 +310,7 @@ Review comment:
 
 func TestReadNativeOutputAcceptsExplicitNoFindingsText(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "native-review.txt")
-	if err := os.WriteFile(path, []byte("No findings.\n\nThe change preserves the existing deadline behavior.\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("No findings.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -302,6 +319,30 @@ func TestReadNativeOutputAcceptsExplicitNoFindingsText(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Findings) != 0 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestNativeOutputRejectsNoFindingsWithTrailingProse(t *testing.T) {
+	input := "No actionable defects found.\n\nHowever, this branch leaks credentials.\n"
+	if _, err := parseNativeReviewText(input); err == nil {
+		t.Fatal("unparsed prose after no-findings sentinel was accepted as PASS evidence")
+	}
+}
+
+func TestNativeHeadingFallsBackToAgentFindingGrammar(t *testing.T) {
+	input := `Review comments:
+
+- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
+
+  The new branch drops the caller's cancellation signal.
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" ||
+		result.Findings[0].CodeLocation.AbsoluteFilePath != "/private/tmp/review/client.go" {
 		t.Fatalf("findings = %#v", result.Findings)
 	}
 }

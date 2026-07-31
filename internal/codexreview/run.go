@@ -18,7 +18,10 @@ import (
 	"github.com/Fueav/code-quality/quality"
 )
 
-const maxNativeOutputBytes = int64(10 << 20)
+const (
+	maxNativeOutputBytes      = int64(10 << 20)
+	DiscoveryChildEnvironment = "CODE_QUALITY_DISCOVERY_CHILD"
+)
 
 type Options struct {
 	Prepared                reviewsession.Prepared
@@ -61,6 +64,7 @@ func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 
 	command := exec.CommandContext(ctx, invocation.Executable, invocation.Args...)
 	command.Dir = invocation.Dir
+	command.Env = childEnvironment(os.Environ())
 	command.Stdin = strings.NewReader(invocation.Stdin)
 	command.Stdout = stdout
 	command.Stderr = stderr
@@ -68,6 +72,18 @@ func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 		return fmt.Errorf("codex process: %w", err)
 	}
 	return nil
+}
+
+func childEnvironment(parent []string) []string {
+	prefix := DiscoveryChildEnvironment + "="
+	environment := make([]string, 0, len(parent)+1)
+	for _, entry := range parent {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		environment = append(environment, entry)
+	}
+	return append(environment, prefix+"1")
 }
 
 type nativeEnvelope struct {
@@ -349,9 +365,13 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	}
 	if isExplicitNoFindings(lines[first]) {
 		for _, line := range lines[first+1:] {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
 			if isNativeReviewHeading(line) || containsPriorityMarker(line) {
 				return nativeEnvelope{}, errors.New("native review contradicts its no-findings result")
 			}
+			return nativeEnvelope{}, fmt.Errorf("unexpected text after native no-findings result: %q", strings.TrimSpace(line))
 		}
 		return nativeEnvelope{Findings: []nativeFinding{}}, nil
 	}
@@ -366,7 +386,15 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	if heading < 0 {
 		return parseAgentReviewText(lines, first)
 	}
-	return parseNativeReviewSection(lines, heading)
+	nativeResult, nativeErr := parseNativeReviewSection(lines, heading)
+	if nativeErr == nil {
+		return nativeResult, nil
+	}
+	agentResult, agentErr := parseAgentReviewText(lines, first)
+	if agentErr == nil {
+		return agentResult, nil
+	}
+	return nativeEnvelope{}, fmt.Errorf("unrecognized review findings: native format: %v; agent format: %v", nativeErr, agentErr)
 }
 
 func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, error) {

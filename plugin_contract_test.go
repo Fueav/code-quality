@@ -66,6 +66,8 @@ func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 		"raw freeze path",
 		"metrics path",
 		"Never delete the session directory",
+		"CODE_QUALITY_DISCOVERY_CHILD=1",
+		"do not invoke `quality-review`",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("Skill is missing %q", required)

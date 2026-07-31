@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Fueav/code-quality/internal/codexreview"
 	evalrunner "github.com/Fueav/code-quality/internal/eval"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
@@ -36,6 +37,17 @@ func TestBareCommandPointsToNativeReview(t *testing.T) {
 	}
 }
 
+func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
+	t.Setenv(codexreview.DiscoveryChildEnvironment, "1")
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"run-codex"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "nested Codex discovery") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+}
+
 func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
 	directory := t.TempDir()
@@ -44,6 +56,7 @@ func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
 	scriptPath := filepath.Join(directory, "codex")
 	script := `#!/bin/sh
 set -eu
+test "${CODE_QUALITY_DISCOVERY_CHILD:-}" = '1'
 count=0
 if [ -f "$FAKE_CODEX_COUNT_PATH" ]; then count=$(cat "$FAKE_CODEX_COUNT_PATH"); fi
 count=$((count + 1))
