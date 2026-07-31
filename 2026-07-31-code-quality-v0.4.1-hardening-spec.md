@@ -30,7 +30,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 - The classifier accepts the previously observed native bullet format and ordinary Agent Markdown bullet or numbered finding formats.
 - Each recognized candidate is either retained inside the trusted changed-file scope or recorded as an indexed adapter exclusion.
-- Explicit no-finding text may become `PASS`.
+- Explicit no-finding text, either standalone or immediately below one recognized findings heading, may become `PASS`.
 - Explicit no-finding text followed by any nonblank tail is not accepted as `PASS`.
 - Empty, ambiguous, contradictory, or unrecognized non-finding prose becomes `INCOMPLETE`, never `PASS`.
 - If candidates exist but none map to trusted changed files, the result is `INCOMPLETE`.
@@ -40,7 +40,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 - Canonically equivalent macOS paths map to the same isolated checkout; symlink escapes remain rejected.
 - `--base` and `--target` are supplied together. `--diff-reason` is optional for an explicit range and defaults to `explicit_commit_range`.
-- Each run retains JSONL-derived duration and token metrics. Missing or all-zero usage remains explicitly unavailable.
+- Each run retains JSONL-derived duration and token metrics. Missing or all-zero usage remains explicitly unavailable in both runtime behavior and the published metrics schema.
 - `make release-check` covers Go, root qualification, live, mining, vet, formatting, and diff checks without model calls.
 
 ## Non-goals

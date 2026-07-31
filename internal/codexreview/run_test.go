@@ -330,6 +330,27 @@ func TestNativeOutputRejectsNoFindingsWithTrailingProse(t *testing.T) {
 	}
 }
 
+func TestNativeOutputAcceptsHeadedNoFindings(t *testing.T) {
+	for _, heading := range []string{"## Findings", "Review findings:", "Review comments:"} {
+		t.Run(heading, func(t *testing.T) {
+			result, err := parseNativeReviewText(heading + "\n\nNo findings.\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 0 {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
+	}
+}
+
+func TestNativeOutputRejectsHeadedNoFindingsWithTrailingProse(t *testing.T) {
+	input := "## Findings\n\nNo findings.\n\nHowever, this branch leaks credentials.\n"
+	if _, err := parseNativeReviewText(input); err == nil {
+		t.Fatal("unparsed prose after headed no-findings sentinel was accepted as PASS evidence")
+	}
+}
+
 func TestNativeHeadingFallsBackToAgentFindingGrammar(t *testing.T) {
 	input := `Review comments:
 
@@ -343,6 +364,22 @@ func TestNativeHeadingFallsBackToAgentFindingGrammar(t *testing.T) {
 	}
 	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" ||
 		result.Findings[0].CodeLocation.AbsoluteFilePath != "/private/tmp/review/client.go" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestAgentFindingAcceptsParenthesesInAngleBracketDestination(t *testing.T) {
+	input := `## Findings
+
+- [P2] Preserve copied checkout paths — [client.go:12](</tmp/My Repo (copy)/client.go:12>)
+
+  The parser must retain findings from valid angle-bracket Markdown destinations.
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/tmp/My Repo (copy)/client.go" {
 		t.Fatalf("findings = %#v", result.Findings)
 	}
 }

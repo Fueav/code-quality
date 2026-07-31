@@ -363,8 +363,12 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	if first < 0 {
 		return nativeEnvelope{}, errors.New("native review output is empty")
 	}
-	if isExplicitNoFindings(lines[first]) {
-		for _, line := range lines[first+1:] {
+	noFindingsLine := first
+	if isFindingsContainerHeading(lines[first]) {
+		noFindingsLine = nextNonBlankLine(lines, first+1)
+	}
+	if noFindingsLine >= 0 && isExplicitNoFindings(lines[noFindingsLine]) {
+		for _, line := range lines[noFindingsLine+1:] {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
@@ -459,9 +463,18 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 }
 
 var (
-	agentListPrefixPattern  = regexp.MustCompile(`^(?:[-*]|[0-9]+\.)[ \t]+`)
-	markdownLocationPattern = regexp.MustCompile(`\[[^\]\n]+\]\(<?([^)>\n]+):([0-9]+)(?:-([0-9]+))?>?\)`)
+	agentListPrefixPattern          = regexp.MustCompile(`^(?:[-*]|[0-9]+\.)[ \t]+`)
+	angleMarkdownLocationPattern    = regexp.MustCompile(`\[[^\]\n]+\]\(<([^\n>]+):([0-9]+)(?:-([0-9]+))?>\)`)
+	ordinaryMarkdownLocationPattern = regexp.MustCompile(`\[[^\]\n]+\]\(([^)>\n]+):([0-9]+)(?:-([0-9]+))?\)`)
 )
+
+type markdownLocationMatch struct {
+	fullStart int
+	fullEnd   int
+	path      string
+	start     string
+	end       string
+}
 
 func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 	firstCandidate := -1
@@ -542,25 +555,25 @@ func parseAgentFindingHeader(line string) (nativeFinding, string, bool, error) {
 	}
 	priority := int(rest[2] - '0')
 	rest = strings.TrimSpace(rest[4:])
-	location := markdownLocationPattern.FindStringSubmatchIndex(rest)
-	if location == nil {
+	location, found := findMarkdownLocation(rest)
+	if !found {
 		return nativeFinding{}, "", true, errors.New("agent finding has no Markdown code location")
 	}
-	path := strings.Trim(strings.TrimSpace(rest[location[2]:location[3]]), "<>")
-	start, err := strconv.Atoi(rest[location[4]:location[5]])
+	path := strings.TrimSpace(location.path)
+	start, err := strconv.Atoi(location.start)
 	if err != nil || start < 1 {
 		return nativeFinding{}, "", true, errors.New("agent finding start line must be positive")
 	}
 	end := start
-	if location[6] >= 0 {
-		end, err = strconv.Atoi(rest[location[6]:location[7]])
+	if location.end != "" {
+		end, err = strconv.Atoi(location.end)
 		if err != nil || end < start {
 			return nativeFinding{}, "", true, errors.New("agent finding end line is invalid")
 		}
 	}
 
-	beforeLocation := strings.TrimSpace(rest[:location[0]])
-	afterLocation := strings.TrimSpace(rest[location[1]:])
+	beforeLocation := strings.TrimSpace(rest[:location.fullStart])
+	afterLocation := strings.TrimSpace(rest[location.fullEnd:])
 	title := ""
 	initialBody := ""
 	if bold {
@@ -584,6 +597,30 @@ func parseAgentFindingHeader(line string) (nativeFinding, string, bool, error) {
 			LineRange:        nativeLineRange{Start: start, End: end},
 		},
 	}, initialBody, true, nil
+}
+
+func findMarkdownLocation(raw string) (markdownLocationMatch, bool) {
+	var selected markdownLocationMatch
+	found := false
+	for _, pattern := range []*regexp.Regexp{angleMarkdownLocationPattern, ordinaryMarkdownLocationPattern} {
+		indices := pattern.FindStringSubmatchIndex(raw)
+		if indices == nil || (found && indices[0] >= selected.fullStart) {
+			continue
+		}
+		end := ""
+		if indices[6] >= 0 {
+			end = raw[indices[6]:indices[7]]
+		}
+		selected = markdownLocationMatch{
+			fullStart: indices[0],
+			fullEnd:   indices[1],
+			path:      raw[indices[2]:indices[3]],
+			start:     raw[indices[4]:indices[5]],
+			end:       end,
+		}
+		found = true
+	}
+	return selected, found
 }
 
 func cleanAgentBody(raw string) string {
@@ -617,8 +654,34 @@ func isNativeReviewHeading(line string) bool {
 	}
 }
 
+func isFindingsContainerHeading(line string) bool {
+	if isNativeReviewHeading(line) {
+		return true
+	}
+	trimmed := strings.TrimSpace(line)
+	if strings.HasSuffix(trimmed, ":") {
+		trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, ":"))
+	}
+	hashes := 0
+	for hashes < len(trimmed) && trimmed[hashes] == '#' {
+		hashes++
+	}
+	if hashes > 0 {
+		if hashes > 6 || hashes == len(trimmed) || (trimmed[hashes] != ' ' && trimmed[hashes] != '\t') {
+			return false
+		}
+		trimmed = strings.TrimSpace(trimmed[hashes:])
+	}
+	return strings.EqualFold(trimmed, "findings") || strings.EqualFold(trimmed, "review findings")
+}
+
 func firstNonBlankLine(lines []string) int {
-	for index, line := range lines {
+	return nextNonBlankLine(lines, 0)
+}
+
+func nextNonBlankLine(lines []string, start int) int {
+	for index := start; index < len(lines); index++ {
+		line := lines[index]
 		if strings.TrimSpace(line) != "" {
 			return index
 		}

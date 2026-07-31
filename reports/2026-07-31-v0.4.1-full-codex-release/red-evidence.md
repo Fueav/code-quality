@@ -35,3 +35,14 @@ The second fresh `gpt-5.6-sol/max` full-Agent smoke completed one model call, re
 - the legacy heading alone selected the bare-path grammar and rejected an ordinary Markdown-link finding.
 
 The new contract tests failed before implementation: the recursion marker/helper did not exist, the Skill lacked a child bypass, and the two parser examples reproduced the false pass and false incomplete paths. The second candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Third candidate review RED
+
+The third fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 761,211 ms with 3,884,200 input tokens and 35,585 output tokens. The independently recomputed SHA-256 values matched the freeze manifest for all three `0400` raw artifacts, and deterministic classification retained all four candidates with zero adapter drops. The review found:
+
+- tests launched inside the marked discovery child inherited the recursion marker and rejected their own top-level fake smoke;
+- a terminal `No findings.` below an ordinary findings heading was not recognized;
+- an angle-bracket Markdown destination containing parentheses was not recognized;
+- the metrics schema permitted available all-zero usage even though runtime rejected it.
+
+All four cases reproduced before implementation. The marked full `go test ./...` path, headed no-findings parser cases, parenthesized angle-bracket location, and schema constraints now have dedicated regression coverage. This third candidate smoke remains diagnostic evidence and is not release acceptance.

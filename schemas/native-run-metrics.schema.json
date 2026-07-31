@@ -17,6 +17,11 @@
     {
       "if": {"properties": {"usage_available": {"const": true}}},
       "then": {
+        "not": {"required": ["usage_error"]},
+        "anyOf": [
+          {"properties": {"input_tokens": {"minimum": 1}}},
+          {"properties": {"output_tokens": {"minimum": 1}}}
+        ],
         "properties": {
           "input_tokens": {"type": "integer", "minimum": 0},
           "output_tokens": {"type": "integer", "minimum": 0}

@@ -89,6 +89,42 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 	}
 }
 
+func TestNativeMetricsSchemaRejectsAvailableAllZeroUsage(t *testing.T) {
+	raw, err := Schema("native-run-metrics.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		AllOf []struct {
+			Then struct {
+				Not struct {
+					Required []string `json:"required"`
+				} `json:"not"`
+				AnyOf []struct {
+					Properties map[string]struct {
+						Minimum int `json:"minimum"`
+					} `json:"properties"`
+				} `json:"anyOf"`
+			} `json:"then"`
+		} `json:"allOf"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if len(schema.AllOf) != 1 || !reflect.DeepEqual(schema.AllOf[0].Then.Not.Required, []string{"usage_error"}) {
+		t.Fatalf("available-usage branch does not forbid usage_error: %#v", schema.AllOf)
+	}
+	positiveCounters := map[string]int{}
+	for _, alternative := range schema.AllOf[0].Then.AnyOf {
+		for name, constraint := range alternative.Properties {
+			positiveCounters[name] = constraint.Minimum
+		}
+	}
+	if !reflect.DeepEqual(positiveCounters, map[string]int{"input_tokens": 1, "output_tokens": 1}) {
+		t.Fatalf("positive usage constraints = %#v", positiveCounters)
+	}
+}
+
 func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
 	for _, name := range []string{"review-result-v3.schema.json"} {
 		raw, err := Schema(name)

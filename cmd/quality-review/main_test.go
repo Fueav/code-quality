@@ -49,6 +49,7 @@ func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
 }
 
 func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
+	t.Setenv(codexreview.DiscoveryChildEnvironment, "")
 	repo, base, target := cliReviewFixture(t)
 	directory := t.TempDir()
 	countPath := filepath.Join(directory, "count")
