@@ -231,6 +231,34 @@ func TestAdaptFindingsRejectsCanonicalSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestAdaptFindingsPreservesChangedSymlinkPath(t *testing.T) {
+	repository := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repository, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repository, "versions"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "versions", "v2"), []byte("enabled=true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logicalPath := filepath.Join(repository, "config", "current")
+	if err := os.Symlink(filepath.Join("..", "versions", "v2"), logicalPath); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "preserve active configuration", Body: "The changed link selects the wrong version.", Priority: 2,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: logicalPath,
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, repository, []string{"config/current"})
+	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "config/current" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
 func TestReadCodexUsageUsesLastCompletedTurn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	contents := strings.Join([]string{
@@ -398,6 +426,17 @@ func TestNativeOutputAcceptsHeadedNoFindings(t *testing.T) {
 	}
 }
 
+func TestNativeOutputAcceptsHeadedNoFindingsAfterIntroduction(t *testing.T) {
+	input := "Review complete.\n\n## Findings\n\nNo findings.\n"
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
 func TestNativeOutputRejectsHeadedNoFindingsWithTrailingProse(t *testing.T) {
 	input := "## Findings\n\nNo findings.\n\nHowever, this branch leaks credentials.\n"
 	if _, err := parseNativeReviewText(input); err == nil {
@@ -451,6 +490,40 @@ func TestAgentFindingAcceptsBalancedParenthesesInOrdinaryDestination(t *testing.
 	}
 	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/app/(auth)/page.tsx" {
 		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestAgentFindingStopsBeforeTrailingTopLevelSection(t *testing.T) {
+	input := `## Findings
+
+- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
+
+  The new branch drops caller cancellation.
+
+## Verification
+
+All focused tests pass.
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].Body != "The new branch drops caller cancellation." {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestAgentFindingRejectsTrailingNoFindingsContradiction(t *testing.T) {
+	input := `## Findings
+
+- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
+
+  The new branch drops caller cancellation.
+
+No findings.
+`
+	if _, err := parseNativeReviewText(input); err == nil {
+		t.Fatal("trailing no-findings contradiction was accepted as finding body")
 	}
 }
 

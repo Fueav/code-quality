@@ -56,3 +56,13 @@ The fourth fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 996,23
 - the freeze schema did not require each artifact identity exactly once or require a digest when present.
 
 Local Codex 0.145.0 plus the official Codex configuration contract confirmed that environment `set` values are still subject to the final `include_only` filter. The implementation therefore removes the environment injection entirely and uses a session-owned, read-only marker outside the Git root; the Skill recognizes it and the CLI independently blocks recursion. Dedicated marker lifecycle, balanced-link, and schema-invariant tests now cover all three cases. The fourth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Fifth candidate review RED
+
+The fifth fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 577,688 ms with 2,411,895 input tokens and 32,519 output tokens. Independent hashes matched all three `0400` frozen raw artifacts, the recursion marker was absent after process completion, and classification retained all three candidates with zero adapter drops. The review found:
+
+- a recognized findings heading after introductory prose did not enable a terminal no-findings result;
+- canonical symlink validation replaced an in-repository changed symlink's logical path before scope membership;
+- unindented trailing sections, including a contradictory no-findings sentinel, were appended to the prior finding body.
+
+All three cases reproduced before implementation. The classifier now locates the first recognized findings container after optional introduction, separates indented list-body text from top-level trailing sections, rejects trailing no-findings contradictions, and uses canonical paths only for containment while retaining the logical in-repository path for changed-file matching. The fifth candidate smoke remains diagnostic evidence and is not release acceptance.

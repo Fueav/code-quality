@@ -404,9 +404,16 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	if first < 0 {
 		return nativeEnvelope{}, errors.New("native review output is empty")
 	}
-	noFindingsLine := first
-	if isFindingsContainerHeading(lines[first]) {
-		noFindingsLine = nextNonBlankLine(lines, first+1)
+	noFindingsLine := -1
+	if isExplicitNoFindings(lines[first]) {
+		noFindingsLine = first
+	} else {
+		for index := first; index < len(lines); index++ {
+			if isFindingsContainerHeading(lines[index]) {
+				noFindingsLine = nextNonBlankLine(lines, index+1)
+				break
+			}
+		}
 	}
 	if noFindingsLine >= 0 && isExplicitNoFindings(lines[noFindingsLine]) {
 		for _, line := range lines[noFindingsLine+1:] {
@@ -530,6 +537,7 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 	findings := []nativeFinding{}
 	body := []string{}
 	var current *nativeFinding
+	trailingAssessment := false
 	flush := func() error {
 		if current == nil {
 			return nil
@@ -550,6 +558,9 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 			return nativeEnvelope{}, err
 		}
 		if recognized {
+			if trailingAssessment {
+				return nativeEnvelope{}, errors.New("agent finding appears after trailing review text")
+			}
 			if err := flush(); err != nil {
 				return nativeEnvelope{}, err
 			}
@@ -563,11 +574,23 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 		if trimmed == "" {
 			continue
 		}
+		if isExplicitNoFindings(trimmed) {
+			return nativeEnvelope{}, errors.New("agent findings contradict a trailing no-findings result")
+		}
 		if containsPriorityMarker(line) {
 			return nativeEnvelope{}, fmt.Errorf("unrecognized agent finding header: %q", trimmed)
 		}
 		if current != nil {
-			body = append(body, trimmed)
+			if line[0] == ' ' || line[0] == '\t' {
+				if !trailingAssessment {
+					body = append(body, trimmed)
+				}
+				continue
+			}
+			if len(body) == 0 {
+				return nativeEnvelope{}, fmt.Errorf("agent finding %d has no body", len(findings))
+			}
+			trailingAssessment = true
 		}
 	}
 	if err := flush(); err != nil {
@@ -844,7 +867,8 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 	}
 	findings := make([]quality.NativeFinding, 0, len(raw))
 	drops := []quality.AdapterDrop{}
-	canonicalRepository, repositoryErr := canonicalPath(repository)
+	logicalRepository := filepath.Clean(repository)
+	canonicalRepository, repositoryErr := canonicalPath(logicalRepository)
 	for index, candidate := range raw {
 		reason := validateNativeCandidate(candidate)
 		relative := ""
@@ -858,11 +882,16 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 			if err != nil {
 				reason = "code location cannot be canonicalized"
 			} else {
-				relative, err = filepath.Rel(canonicalRepository, canonicalCandidate)
-				if err != nil || relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				canonicalRelative, inside := repositoryRelativePath(canonicalRepository, canonicalCandidate)
+				if !inside {
 					reason = "code location is outside the isolated checkout"
 				} else {
-					relative = filepath.ToSlash(relative)
+					logicalCandidate := filepath.Clean(candidate.CodeLocation.AbsoluteFilePath)
+					if logicalRelative, logicalInside := repositoryRelativePath(logicalRepository, logicalCandidate); logicalInside {
+						relative = logicalRelative
+					} else {
+						relative = canonicalRelative
+					}
 					if _, exists := changed[relative]; !exists {
 						reason = "code location is not in a changed file"
 					}
@@ -882,6 +911,14 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 		})
 	}
 	return findings, drops
+}
+
+func repositoryRelativePath(repository, candidate string) (string, bool) {
+	relative, err := filepath.Rel(repository, candidate)
+	if err != nil || relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(relative), true
 }
 
 func canonicalPath(path string) (string, error) {
