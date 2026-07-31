@@ -66,3 +66,13 @@ The fifth fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 577,688
 - unindented trailing sections, including a contradictory no-findings sentinel, were appended to the prior finding body.
 
 All three cases reproduced before implementation. The classifier now locates the first recognized findings container after optional introduction, separates indented list-body text from top-level trailing sections, rejects trailing no-findings contradictions, and uses canonical paths only for containment while retaining the logical in-repository path for changed-file matching. The fifth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Sixth candidate review RED
+
+The sixth fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 608,259 ms with 2,840,756 input tokens and 25,801 output tokens. Independent hashes matched all three `0400` frozen raw artifacts and the recursion marker was absent after completion. The tool correctly returned `INCOMPLETE`: its raw output contained three real findings, but a priority marker quoted inside an indented body exposed an unrecognized classification edge. The raw review found:
+
+- a later headed no-findings sentinel could erase an earlier structured candidate;
+- an unchanged symlink alias to a changed canonical target could hide the finding;
+- native-format trailing no-findings text was not contradictory.
+
+All three reported cases plus the indented priority-reference parser failure reproduced before implementation. The no-findings pre-scan now rejects preceding candidates, logical symlink paths are preferred only when changed and otherwise fall back to a changed canonical target, both grammars reject trailing no-findings contradictions, and indented body text may quote priority markers without becoming a header. The sixth candidate smoke remains diagnostic evidence and is not release acceptance.

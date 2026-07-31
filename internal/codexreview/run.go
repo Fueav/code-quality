@@ -416,6 +416,11 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 		}
 	}
 	if noFindingsLine >= 0 && isExplicitNoFindings(lines[noFindingsLine]) {
+		for _, line := range lines[first:noFindingsLine] {
+			if containsPriorityMarker(line) {
+				return nativeEnvelope{}, errors.New("native review contradicts its no-findings result")
+			}
+		}
 		for _, line := range lines[noFindingsLine+1:] {
 			if strings.TrimSpace(line) == "" {
 				continue
@@ -485,6 +490,9 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 		}
 		if strings.TrimSpace(line) == "" {
 			continue
+		}
+		if isExplicitNoFindings(line) {
+			return nativeEnvelope{}, errors.New("native findings contradict a trailing no-findings result")
 		}
 		if current == nil {
 			return nativeEnvelope{}, fmt.Errorf("unexpected text in native review comment section: %q", strings.TrimSpace(line))
@@ -577,9 +585,6 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 		if isExplicitNoFindings(trimmed) {
 			return nativeEnvelope{}, errors.New("agent findings contradict a trailing no-findings result")
 		}
-		if containsPriorityMarker(line) {
-			return nativeEnvelope{}, fmt.Errorf("unrecognized agent finding header: %q", trimmed)
-		}
 		if current != nil {
 			if line[0] == ' ' || line[0] == '\t' {
 				if !trailingAssessment {
@@ -587,10 +592,17 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 				}
 				continue
 			}
+			if containsPriorityMarker(line) {
+				return nativeEnvelope{}, fmt.Errorf("unrecognized agent finding header: %q", trimmed)
+			}
 			if len(body) == 0 {
 				return nativeEnvelope{}, fmt.Errorf("agent finding %d has no body", len(findings))
 			}
 			trailingAssessment = true
+			continue
+		}
+		if containsPriorityMarker(line) {
+			return nativeEnvelope{}, fmt.Errorf("unrecognized agent finding header: %q", trimmed)
 		}
 	}
 	if err := flush(); err != nil {
@@ -887,8 +899,13 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 					reason = "code location is outside the isolated checkout"
 				} else {
 					logicalCandidate := filepath.Clean(candidate.CodeLocation.AbsoluteFilePath)
-					if logicalRelative, logicalInside := repositoryRelativePath(logicalRepository, logicalCandidate); logicalInside {
-						relative = logicalRelative
+					logicalRelative, logicalInside := repositoryRelativePath(logicalRepository, logicalCandidate)
+					if logicalInside {
+						if _, exists := changed[logicalRelative]; exists {
+							relative = logicalRelative
+						} else {
+							relative = canonicalRelative
+						}
 					} else {
 						relative = canonicalRelative
 					}

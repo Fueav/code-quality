@@ -32,15 +32,16 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 - The classifier accepts the previously observed native bullet format and ordinary Agent Markdown bullet or numbered finding formats, including balanced parentheses in Markdown link destinations.
 - Each recognized candidate is either retained inside the trusted changed-file scope or recorded as an indexed adapter exclusion.
 - Explicit no-finding text, either standalone or immediately below the first recognized findings heading after optional introductory text, may become `PASS`.
+- Any priority candidate before that sentinel makes the output contradictory rather than allowing a later section to erase it.
 - Explicit no-finding text followed by any nonblank tail is not accepted as `PASS`.
-- Top-level text after a structured finding is not appended to its body, and a trailing no-finding sentinel is contradictory.
+- Top-level text after a structured finding is not appended to its body, a trailing no-finding sentinel is contradictory in either accepted grammar, and priority text inside an indented body remains body text.
 - Empty, ambiguous, contradictory, or unrecognized non-finding prose becomes `INCOMPLETE`, never `PASS`.
 - If candidates exist but none map to trusted changed files, the result is `INCOMPLETE`.
 - Classification performs no model call and does not edit the frozen source.
 
 ## Existing hardening retained
 
-- Canonically equivalent macOS paths map to the same isolated checkout; symlink escapes remain rejected while an in-repository changed symlink keeps its logical path for scope membership and publication.
+- Canonically equivalent macOS paths map to the same isolated checkout; symlink escapes remain rejected. A changed in-repository symlink keeps its logical path, while an unchanged alias to a changed target falls back to the canonical changed path.
 - `--base` and `--target` are supplied together. `--diff-reason` is optional for an explicit range and defaults to `explicit_commit_range`.
 - Each run retains JSONL-derived duration and token metrics. Missing or all-zero usage remains explicitly unavailable in both runtime behavior and the published metrics schema.
 - `make release-check` covers Go, root qualification, live, mining, vet, formatting, and diff checks without model calls.
