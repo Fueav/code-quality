@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -122,6 +123,35 @@ func TestNativeMetricsSchemaRejectsAvailableAllZeroUsage(t *testing.T) {
 	}
 	if !reflect.DeepEqual(positiveCounters, map[string]int{"input_tokens": 1, "output_tokens": 1}) {
 		t.Fatalf("positive usage constraints = %#v", positiveCounters)
+	}
+}
+
+func TestNativeFreezeSchemaFixesArtifactIdentityAndDigest(t *testing.T) {
+	raw, err := Schema("native-review-freeze.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	definitions, _ := schema["$defs"].(map[string]any)
+	artifact, _ := definitions["artifact"].(map[string]any)
+	conditions, _ := artifact["allOf"].([]any)
+	if len(conditions) != 1 || !strings.Contains(fmt.Sprint(conditions[0]), "sha256") {
+		t.Fatalf("artifact digest invariant is missing: %#v", artifact)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	artifacts, _ := properties["artifacts"].(map[string]any)
+	prefixItems, _ := artifacts["prefixItems"].([]any)
+	if len(prefixItems) != 3 || artifacts["items"] != false {
+		t.Fatalf("artifact identity sequence is not fixed: %#v", artifacts)
+	}
+	encoded := fmt.Sprint(prefixItems)
+	for _, required := range []string{"final_message", "native-review.txt", "jsonl_stdout", "native-review.stdout.log", "stderr", "native-review.stderr.log"} {
+		if !strings.Contains(encoded, required) {
+			t.Errorf("fixed artifact sequence is missing %q", required)
+		}
 	}
 }
 

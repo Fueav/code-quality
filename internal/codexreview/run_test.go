@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -55,20 +56,73 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 	}
 }
 
-func TestChildEnvironmentReplacesDiscoveryMarker(t *testing.T) {
-	environment := childEnvironment([]string{
-		"PATH=/usr/bin",
-		DiscoveryChildEnvironment + "=0",
-		"LANG=en_US.UTF-8",
-		DiscoveryChildEnvironment + "=stale",
-	})
-	want := []string{
-		"PATH=/usr/bin",
-		"LANG=en_US.UTF-8",
-		DiscoveryChildEnvironment + "=1",
+func TestDiscoveryChildMarkerLifecycle(t *testing.T) {
+	repository := filepath.Join(t.TempDir(), "input", "repository")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Join(environment, "\x00") != strings.Join(want, "\x00") {
-		t.Fatalf("child environment = %#v, want %#v", environment, want)
+	markerPath, err := installDiscoveryChildMarker(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nested, err := IsDiscoveryChildRepository(repository); err != nil || !nested {
+		t.Fatalf("nested = %t, error = %v", nested, err)
+	}
+	if info, err := os.Lstat(markerPath); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o400 {
+		t.Fatalf("marker mode = %v, error = %v", info, err)
+	}
+	if err := os.Remove(markerPath); err != nil {
+		t.Fatal(err)
+	}
+	if nested, err := IsDiscoveryChildRepository(repository); err != nil || nested {
+		t.Fatalf("nested after cleanup = %t, error = %v", nested, err)
+	}
+}
+
+func TestDiscoveryChildMarkerDoesNotOverwriteExistingFile(t *testing.T) {
+	repository := filepath.Join(t.TempDir(), "input", "repository")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerPath := discoveryChildMarkerPath(repository)
+	if err := os.WriteFile(markerPath, []byte("sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installDiscoveryChildMarker(repository); err == nil {
+		t.Fatal("existing discovery marker was overwritten")
+	}
+	raw, err := os.ReadFile(markerPath)
+	if err != nil || string(raw) != "sentinel" {
+		t.Fatalf("marker = %q, error = %v", raw, err)
+	}
+}
+
+func TestProcessExecutorRemovesDiscoveryMarkerAfterFailure(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "input", "repository")
+	output := filepath.Join(root, "output")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(output, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = (ProcessExecutor{}).Run(context.Background(), Invocation{
+		Executable: executable,
+		Args:       []string{"-c", "exit 7"},
+		Dir:        repository,
+		StdoutPath: filepath.Join(output, "stdout"),
+		StderrPath: filepath.Join(output, "stderr"),
+	})
+	if err == nil {
+		t.Fatal("failing child process unexpectedly succeeded")
+	}
+	if _, err := os.Lstat(discoveryChildMarkerPath(repository)); !os.IsNotExist(err) {
+		t.Fatalf("discovery child marker remains after failure: %v", err)
 	}
 }
 
@@ -380,6 +434,22 @@ func TestAgentFindingAcceptsParenthesesInAngleBracketDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/tmp/My Repo (copy)/client.go" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestAgentFindingAcceptsBalancedParenthesesInOrdinaryDestination(t *testing.T) {
+	input := `## Findings
+
+- [P2] Preserve route-group findings — [page.tsx](/repo/app/(auth)/page.tsx:42)
+
+  The parser must retain findings for ordinary Markdown links with balanced parentheses.
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/app/(auth)/page.tsx" {
 		t.Fatalf("findings = %#v", result.Findings)
 	}
 }

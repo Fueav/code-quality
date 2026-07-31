@@ -38,9 +38,13 @@ func TestBareCommandPointsToNativeReview(t *testing.T) {
 }
 
 func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
-	t.Setenv(codexreview.DiscoveryChildEnvironment, "1")
+	repo, base, target := cliReviewFixture(t)
+	markerPath := filepath.Join(filepath.Dir(repo), codexreview.DiscoveryChildMarkerName)
+	if err := os.WriteFile(markerPath, []byte("code-quality native discovery child v1\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"run-codex"}, &stdout, &stderr); code != 1 {
+	if code := run([]string{"run-codex", "--repo", repo, "--base", base, "--target", target}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 	}
 	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "nested Codex discovery") {
@@ -49,7 +53,6 @@ func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
 }
 
 func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
-	t.Setenv(codexreview.DiscoveryChildEnvironment, "")
 	repo, base, target := cliReviewFixture(t)
 	directory := t.TempDir()
 	countPath := filepath.Join(directory, "count")
@@ -57,7 +60,7 @@ func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
 	scriptPath := filepath.Join(directory, "codex")
 	script := `#!/bin/sh
 set -eu
-test "${CODE_QUALITY_DISCOVERY_CHILD:-}" = '1'
+test -f "../.code-quality-native-discovery-child-v1"
 count=0
 if [ -f "$FAKE_CODEX_COUNT_PATH" ]; then count=$(cat "$FAKE_CODEX_COUNT_PATH"); fi
 count=$((count + 1))
@@ -151,6 +154,9 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	}
 	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "repository")); !os.IsNotExist(err) {
 		t.Fatalf("isolated checkout was not removed: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", codexreview.DiscoveryChildMarkerName)); !os.IsNotExist(err) {
+		t.Fatalf("discovery child marker was not removed: %v", err)
 	}
 }
 

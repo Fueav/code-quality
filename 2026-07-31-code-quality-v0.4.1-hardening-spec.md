@@ -11,7 +11,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 - The default provider is ordinary `codex exec`, not `codex exec review`.
 - The default model is `gpt-5.6-sol` with `max` reasoning. Explicit CLI overrides remain available.
 - Codex inherits the invoking user's normal authentication, `CODEX_HOME`, configuration, rules, Skills, and native tools.
-- The child process receives only `CODE_QUALITY_DISCOVERY_CHILD=1` as a recursion marker. The shipped Skill and CLI use it solely to prevent this product from invoking itself; all other Skills, rules, configuration, and tools remain active.
+- The isolated checkout has a session-owned, read-only marker outside the Git root while Codex is running. The shipped Skill and CLI use it solely to prevent this product from invoking itself, then the executor removes it; the Codex environment policy, all other Skills, rules, configuration, and tools remain unchanged.
 - The isolated committed checkout runs with `workspace-write` and shell network access enabled through `sandbox_workspace_write.network_access=true`.
 - The model receives the complete target checkout and Git context available from that checkout.
 - The only default review instruction is: `Review the changes introduced by <target> relative to <base> for actionable defects.`
@@ -22,13 +22,14 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 - After the Codex process exits and before any parser or classifier runs, the product reads the final message, JSONL stdout, and stderr as regular non-symlink files.
 - It writes one exclusive freeze manifest containing each artifact's presence, byte length, and SHA-256.
+- The published schema fixes exactly one ordered entry for the final message, JSONL stdout, and stderr; every present artifact requires its digest.
 - Present raw artifacts become read-only after the manifest is durable.
 - Classification consumes the exact frozen final-message bytes already held in memory; it must not rewrite or replace the raw artifact.
 - The session summary exposes the freeze manifest path, and the session remains retained after checkout cleanup.
 
 ## Thin deterministic classification
 
-- The classifier accepts the previously observed native bullet format and ordinary Agent Markdown bullet or numbered finding formats.
+- The classifier accepts the previously observed native bullet format and ordinary Agent Markdown bullet or numbered finding formats, including balanced parentheses in Markdown link destinations.
 - Each recognized candidate is either retained inside the trusted changed-file scope or recorded as an indexed adapter exclusion.
 - Explicit no-finding text, either standalone or immediately below one recognized findings heading, may become `PASS`.
 - Explicit no-finding text followed by any nonblank tail is not accepted as `PASS`.

@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	maxNativeOutputBytes      = int64(10 << 20)
-	DiscoveryChildEnvironment = "CODE_QUALITY_DISCOVERY_CHILD"
+	maxNativeOutputBytes         = int64(10 << 20)
+	DiscoveryChildMarkerName     = ".code-quality-native-discovery-child-v1"
+	discoveryChildMarkerContents = "code-quality native discovery child v1\n"
 )
 
 type Options struct {
@@ -64,26 +65,66 @@ func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 
 	command := exec.CommandContext(ctx, invocation.Executable, invocation.Args...)
 	command.Dir = invocation.Dir
-	command.Env = childEnvironment(os.Environ())
 	command.Stdin = strings.NewReader(invocation.Stdin)
 	command.Stdout = stdout
 	command.Stderr = stderr
-	if err := command.Run(); err != nil {
-		return fmt.Errorf("codex process: %w", err)
+	markerPath, err := installDiscoveryChildMarker(invocation.Dir)
+	if err != nil {
+		return fmt.Errorf("install discovery child marker: %w", err)
+	}
+	markerInstalled := true
+	defer func() {
+		if markerInstalled {
+			_ = os.Remove(markerPath)
+		}
+	}()
+	runErr := command.Run()
+	if err := os.Remove(markerPath); err != nil {
+		return fmt.Errorf("remove discovery child marker: %w", err)
+	}
+	markerInstalled = false
+	if runErr != nil {
+		return fmt.Errorf("codex process: %w", runErr)
 	}
 	return nil
 }
 
-func childEnvironment(parent []string) []string {
-	prefix := DiscoveryChildEnvironment + "="
-	environment := make([]string, 0, len(parent)+1)
-	for _, entry := range parent {
-		if strings.HasPrefix(entry, prefix) {
-			continue
-		}
-		environment = append(environment, entry)
+func installDiscoveryChildMarker(repositoryDir string) (string, error) {
+	markerPath := discoveryChildMarkerPath(repositoryDir)
+	marker, err := os.OpenFile(markerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o400)
+	if err != nil {
+		return "", err
 	}
-	return append(environment, prefix+"1")
+	installed := false
+	defer func() {
+		_ = marker.Close()
+		if !installed {
+			_ = os.Remove(markerPath)
+		}
+	}()
+	if _, err := marker.WriteString(discoveryChildMarkerContents); err != nil {
+		return "", err
+	}
+	if err := marker.Close(); err != nil {
+		return "", err
+	}
+	installed = true
+	return markerPath, nil
+}
+
+func IsDiscoveryChildRepository(repositoryDir string) (bool, error) {
+	raw, err := reviewsession.ReadRegularFile(discoveryChildMarkerPath(repositoryDir), int64(len(discoveryChildMarkerContents)))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return string(raw) == discoveryChildMarkerContents, nil
+}
+
+func discoveryChildMarkerPath(repositoryDir string) string {
+	return filepath.Join(filepath.Dir(filepath.Clean(repositoryDir)), DiscoveryChildMarkerName)
 }
 
 type nativeEnvelope struct {
@@ -463,9 +504,8 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 }
 
 var (
-	agentListPrefixPattern          = regexp.MustCompile(`^(?:[-*]|[0-9]+\.)[ \t]+`)
-	angleMarkdownLocationPattern    = regexp.MustCompile(`\[[^\]\n]+\]\(<([^\n>]+):([0-9]+)(?:-([0-9]+))?>\)`)
-	ordinaryMarkdownLocationPattern = regexp.MustCompile(`\[[^\]\n]+\]\(([^)>\n]+):([0-9]+)(?:-([0-9]+))?\)`)
+	agentListPrefixPattern     = regexp.MustCompile(`^(?:[-*]|[0-9]+\.)[ \t]+`)
+	markdownDestinationPattern = regexp.MustCompile(`^(.+):([0-9]+)(?:-([0-9]+))?$`)
 )
 
 type markdownLocationMatch struct {
@@ -600,27 +640,81 @@ func parseAgentFindingHeader(line string) (nativeFinding, string, bool, error) {
 }
 
 func findMarkdownLocation(raw string) (markdownLocationMatch, bool) {
-	var selected markdownLocationMatch
-	found := false
-	for _, pattern := range []*regexp.Regexp{angleMarkdownLocationPattern, ordinaryMarkdownLocationPattern} {
-		indices := pattern.FindStringSubmatchIndex(raw)
-		if indices == nil || (found && indices[0] >= selected.fullStart) {
+	searchStart := 0
+	for searchStart < len(raw) {
+		labelEndOffset := strings.Index(raw[searchStart:], "](")
+		if labelEndOffset < 0 {
+			break
+		}
+		labelEnd := searchStart + labelEndOffset
+		labelStart := strings.LastIndex(raw[:labelEnd], "[")
+		if labelStart < 0 {
+			searchStart = labelEnd + 2
 			continue
 		}
-		end := ""
-		if indices[6] >= 0 {
-			end = raw[indices[6]:indices[7]]
+		destination, fullEnd, ok := readMarkdownDestination(raw, labelEnd+2)
+		if ok {
+			match := markdownDestinationPattern.FindStringSubmatch(destination)
+			if match != nil {
+				return markdownLocationMatch{
+					fullStart: labelStart,
+					fullEnd:   fullEnd,
+					path:      match[1],
+					start:     match[2],
+					end:       match[3],
+				}, true
+			}
 		}
-		selected = markdownLocationMatch{
-			fullStart: indices[0],
-			fullEnd:   indices[1],
-			path:      raw[indices[2]:indices[3]],
-			start:     raw[indices[4]:indices[5]],
-			end:       end,
-		}
-		found = true
+		searchStart = labelEnd + 2
 	}
-	return selected, found
+	return markdownLocationMatch{}, false
+}
+
+func readMarkdownDestination(raw string, start int) (string, int, bool) {
+	if start >= len(raw) {
+		return "", 0, false
+	}
+	if raw[start] == '<' {
+		endOffset := strings.Index(raw[start+1:], ">)")
+		if endOffset < 0 {
+			return "", 0, false
+		}
+		end := start + 1 + endOffset
+		destination := raw[start+1 : end]
+		if destination == "" || strings.ContainsAny(destination, "\r\n>") {
+			return "", 0, false
+		}
+		return destination, end + 2, true
+	}
+	depth := 1
+	escaped := false
+	for index := start; index < len(raw); index++ {
+		character := raw[index]
+		if character == '\n' || character == '\r' {
+			return "", 0, false
+		}
+		if escaped {
+			escaped = false
+			continue
+		}
+		if character == '\\' {
+			escaped = true
+			continue
+		}
+		switch character {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				if index == start {
+					return "", 0, false
+				}
+				return raw[start:index], index + 1, true
+			}
+		}
+	}
+	return "", 0, false
 }
 
 func cleanAgentBody(raw string) string {

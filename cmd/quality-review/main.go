@@ -84,10 +84,6 @@ type codexRunSummary struct {
 }
 
 func runCodex(args []string, stdout, stderr io.Writer) int {
-	if os.Getenv(codexreview.DiscoveryChildEnvironment) == "1" {
-		fmt.Fprintln(stderr, "quality-review: nested Codex discovery is disabled; review directly in the current Codex agent")
-		return 1
-	}
 	flags := flag.NewFlagSet("run-codex", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	repository := flags.String("repo", ".", "Git repository path")
@@ -113,6 +109,15 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: resolve review scope: %v\n", err)
+		return 1
+	}
+	nested, err := codexreview.IsDiscoveryChildRepository(discovered.RepositoryRoot)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: inspect discovery child marker: %v\n", err)
+		return 1
+	}
+	if nested {
+		fmt.Fprintln(stderr, "quality-review: nested Codex discovery is disabled; review directly in the current Codex agent")
 		return 1
 	}
 	root, err := resolvePath(*outputRoot, discovered.RepositoryRoot)

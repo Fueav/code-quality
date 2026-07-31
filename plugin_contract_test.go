@@ -66,7 +66,7 @@ func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 		"raw freeze path",
 		"metrics path",
 		"Never delete the session directory",
-		"CODE_QUALITY_DISCOVERY_CHILD=1",
+		".code-quality-native-discovery-child-v1",
 		"do not invoke `quality-review`",
 	} {
 		if !strings.Contains(skill, required) {

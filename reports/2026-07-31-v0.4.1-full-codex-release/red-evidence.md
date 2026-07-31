@@ -46,3 +46,13 @@ The third fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 761,211
 - the metrics schema permitted available all-zero usage even though runtime rejected it.
 
 All four cases reproduced before implementation. The marked full `go test ./...` path, headed no-findings parser cases, parenthesized angle-bracket location, and schema constraints now have dedicated regression coverage. This third candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Fourth candidate review RED
+
+The fourth fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 996,236 ms with 7,259,799 input tokens and 42,787 output tokens. Independent hashes again matched all three `0400` frozen raw artifacts, and classification retained all three candidates with zero adapter drops. The review found:
+
+- Codex `shell_environment_policy.include_only` can filter the inherited recursion environment variable;
+- ordinary Markdown destinations with balanced parentheses, such as Next.js route groups, were rejected;
+- the freeze schema did not require each artifact identity exactly once or require a digest when present.
+
+Local Codex 0.145.0 plus the official Codex configuration contract confirmed that environment `set` values are still subject to the final `include_only` filter. The implementation therefore removes the environment injection entirely and uses a session-owned, read-only marker outside the Git root; the Skill recognizes it and the CLI independently blocks recursion. Dedicated marker lifecycle, balanced-link, and schema-invariant tests now cover all three cases. The fourth candidate smoke remains diagnostic evidence and is not release acceptance.

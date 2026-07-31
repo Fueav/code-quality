@@ -3,24 +3,57 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "artifacts"],
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "present", "bytes"],
+      "properties": {
+        "name": {"type": "string"},
+        "path": {"type": "string", "minLength": 1},
+        "present": {"type": "boolean"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"present": {"const": true}}, "required": ["present"]},
+          "then": {"required": ["sha256"]},
+          "else": {
+            "not": {"required": ["sha256"]},
+            "properties": {"bytes": {"const": 0}}
+          }
+        }
+      ]
+    }
+  },
   "properties": {
     "schema_version": {"const": 1},
     "artifacts": {
       "type": "array",
       "minItems": 3,
       "maxItems": 3,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["name", "path", "present", "bytes"],
-        "properties": {
-          "name": {"enum": ["final_message", "jsonl_stdout", "stderr"]},
-          "path": {"type": "string", "minLength": 1},
-          "present": {"type": "boolean"},
-          "bytes": {"type": "integer", "minimum": 0},
-          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      "prefixItems": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/artifact"},
+            {"properties": {"name": {"const": "final_message"}, "path": {"const": "native-review.txt"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/artifact"},
+            {"properties": {"name": {"const": "jsonl_stdout"}, "path": {"const": "native-review.stdout.log"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/artifact"},
+            {"properties": {"name": {"const": "stderr"}, "path": {"const": "native-review.stderr.log"}}}
+          ]
         }
-      }
+      ],
+      "items": false
     }
   }
 }
