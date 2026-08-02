@@ -428,7 +428,7 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	} else {
 		for index := first; index < len(lines); index++ {
 			if !fenced[index] && isFindingsContainerHeading(lines[index]) {
-				noFindingsLine = nextNonFencedNonBlankLine(lines, fenced, index+1)
+				noFindingsLine = nextNonBlankLine(lines, index+1)
 				break
 			}
 		}
@@ -718,11 +718,18 @@ func parseAgentFindingHeader(line string) (nativeFinding, string, bool, error) {
 	initialBody := ""
 	if bold {
 		closing := strings.Index(beforeLocation, "**")
-		if closing < 1 {
+		if closing >= 1 {
+			title = strings.TrimSpace(beforeLocation[:closing])
+			initialBody = cleanAgentBody(beforeLocation[closing+2:] + " " + afterLocation)
+		} else if closing = strings.Index(afterLocation, "**"); closing >= 0 {
+			title = strings.TrimSpace(strings.TrimSuffix(beforeLocation, "—"))
+			if title == "" && location.fullStart == 0 {
+				title = strings.TrimSpace(location.label)
+			}
+			initialBody = cleanAgentBody(afterLocation[:closing] + " " + afterLocation[closing+2:])
+		} else {
 			return nativeFinding{}, "", true, errors.New("agent finding has an unclosed bold title")
 		}
-		title = strings.TrimSpace(beforeLocation[:closing])
-		initialBody = cleanAgentBody(beforeLocation[closing+2:] + " " + afterLocation)
 	} else {
 		title = strings.TrimSpace(strings.TrimSuffix(beforeLocation, "—"))
 		if title == "" && location.fullStart == 0 {
@@ -927,15 +934,6 @@ func nextNonBlankLine(lines []string, start int) int {
 	for index := start; index < len(lines); index++ {
 		line := lines[index]
 		if strings.TrimSpace(line) != "" {
-			return index
-		}
-	}
-	return -1
-}
-
-func nextNonFencedNonBlankLine(lines []string, fenced []bool, start int) int {
-	for index := start; index < len(lines); index++ {
-		if !fenced[index] && strings.TrimSpace(lines[index]) != "" {
 			return index
 		}
 	}

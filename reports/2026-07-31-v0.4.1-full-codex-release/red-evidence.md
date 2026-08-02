@@ -174,3 +174,13 @@ The sixteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and comp
 - an escaped `\>` inside a legal angle-bracket Markdown destination was rejected before the later unescaped closing bracket.
 
 The first, second, and fourth defects failed focused probes before implementation; inspection separately confirmed the missing post-`chmod` sync. Freezing now copies each verified source into an exclusive new inode, verifies the source again, syncs content and final `0400` metadata, atomically installs the snapshot, and retains and revalidates that descriptor through manifest publication. Old writers address only the unlinked source inode, metrics decode from the retained frozen JSONL descriptor, and the angle-bracket scanner distinguishes escaped from closing `>`. The sixteenth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Seventeenth candidate review RED
+
+The seventeenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 1,208,930 ms with 6,754,088 input tokens and 52,466 output tokens. Independent SHA-256 checks matched all three `0400` raw artifacts: the 1,907-byte final message had digest `53c9f1fa1ad43be2dff01160d2678146cbc26b6b8b8ec53a21fa2b02a820cc5a`, the 751,963-byte JSONL had digest `e3454d077703340b5ac9df63df8bc7655f4ff3a58ddc4ee79e32dd6c3f556f1d`, and the 3,177-byte stderr had digest `5ce9f2b463dfa44309277f24b4c5816c304189030d7ebfb3d27a15d5ca0b9f72`. The recursion marker and isolated checkout were absent after completion, and deterministic classification retained all three candidates with zero adapter drops. The review found:
+
+- the manifest temporary descriptor closed before artifact validation, allowing its pathname to be replaced before `os.Link` installed it;
+- a fenced block after a findings heading was skipped while searching for a no-findings sentinel and could produce a false `PASS`;
+- valid CommonMark that bolded the entire finding through the location link was rejected because the parser searched for `**` only before the link.
+
+All three cases failed focused probes before implementation. The manifest descriptor now remains open and both the temporary pathname and installed hard link are revalidated against its inode, mode, size, and digest. Headed no-findings classification examines the next nonblank line and fails closed if that line belongs to a fence, while bold finding parsing accepts its closing delimiter on either side of the location link. The seventeenth candidate smoke remains diagnostic evidence and is not release acceptance.

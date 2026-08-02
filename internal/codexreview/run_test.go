@@ -985,6 +985,13 @@ func TestNativeOutputAcceptsHeadedNoFindingsAfterIntroduction(t *testing.T) {
 	}
 }
 
+func TestNativeOutputRejectsFencedContentBeforeHeadedNoFindings(t *testing.T) {
+	input := "## Findings\n\n```text\nassessment\n```\n\nNo findings.\n"
+	if _, err := parseNativeReviewText(input); err == nil {
+		t.Fatal("fenced assessment before a no-findings sentinel was skipped")
+	}
+}
+
 func TestNativeOutputAcceptsCommonMarkIndentedNoFindings(t *testing.T) {
 	for indentation := 1; indentation <= 3; indentation++ {
 		t.Run(fmt.Sprintf("%d spaces", indentation), func(t *testing.T) {
@@ -1228,6 +1235,23 @@ func TestAgentFindingAcceptsLinkedTitleLocation(t *testing.T) {
 	}
 }
 
+func TestAgentFindingAcceptsWholeFindingBoldEmphasis(t *testing.T) {
+	input := `## Findings
+
+- **[P1] Preserve cancellation — [app.go:12](/repo/app.go:12)**
+
+  The new branch drops caller cancellation.
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" ||
+		result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/app.go" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
 func TestAgentFindingStopsBeforeTrailingTopLevelSection(t *testing.T) {
 	input := `## Findings
 
@@ -1400,6 +1424,33 @@ func TestFreezeManifestDoesNotOverwriteExistingEvidence(t *testing.T) {
 	raw, err := os.ReadFile(layout.NativeFreezePath)
 	if err != nil || string(raw) != "sentinel" {
 		t.Fatalf("freeze manifest = %q, error = %v", raw, err)
+	}
+}
+
+func TestFreezeManifestRejectsTemporaryPathReplacement(t *testing.T) {
+	directory := t.TempDir()
+	manifestPath := filepath.Join(directory, "native-review-freeze.json")
+	manifest := NativeFreezeManifest{SchemaVersion: 1, Artifacts: []FrozenArtifact{}}
+	validate := func() error {
+		matches, err := filepath.Glob(filepath.Join(directory, ".native-review-freeze-*"))
+		if err != nil {
+			return err
+		}
+		if len(matches) != 1 {
+			return fmt.Errorf("temporary manifests = %v", matches)
+		}
+		replacement := filepath.Join(directory, "replacement-manifest")
+		if err := os.WriteFile(replacement, []byte("forged manifest\n"), 0o400); err != nil {
+			return err
+		}
+		return os.Rename(replacement, matches[0])
+	}
+
+	if err := writeDurableFreezeManifest(manifestPath, manifest, validate); err == nil {
+		t.Fatal("replacement manifest inode was published")
+	}
+	if _, err := os.Lstat(manifestPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("forged manifest remains published: %v", err)
 	}
 }
 

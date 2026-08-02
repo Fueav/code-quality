@@ -85,7 +85,7 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 	}
 	validateLockedPaths := func() error {
 		for _, artifact := range locked {
-			if err := validateLockedRawArtifact(
+			if err := validateLockedArtifact(
 				artifact.path, artifact.file, artifact.expectedBytes, artifact.expectedSHA,
 			); err != nil {
 				return err
@@ -196,7 +196,7 @@ func snapshotRawArtifact(path string, capture bool, maxBytes int64) (*os.File, [
 		return nil, nil, 0, "", err
 	}
 	installed = true
-	if err := validateLockedRawArtifact(path, snapshot, bytesRead, digestText); err != nil {
+	if err := validateLockedArtifact(path, snapshot, bytesRead, digestText); err != nil {
 		return nil, nil, 0, "", err
 	}
 	if err := syncDirectory(filepath.Dir(path)); err != nil {
@@ -218,7 +218,7 @@ func hashFile(file *os.File) (int64, string, error) {
 	return bytesRead, hex.EncodeToString(digest.Sum(nil)), nil
 }
 
-func validateLockedRawArtifact(path string, file *os.File, expectedBytes int64, expectedSHA string) error {
+func validateLockedArtifact(path string, file *os.File, expectedBytes int64, expectedSHA string) error {
 	pathInfo, err := os.Lstat(path)
 	if err != nil {
 		return err
@@ -260,10 +260,10 @@ func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, vali
 		return err
 	}
 	temporaryPath := temporary.Name()
-	installed := false
+	temporaryRemoved := false
 	defer func() {
 		_ = temporary.Close()
-		if !installed {
+		if !temporaryRemoved {
 			_ = os.Remove(temporaryPath)
 		}
 	}()
@@ -279,18 +279,25 @@ func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, vali
 	if err := temporary.Sync(); err != nil {
 		return err
 	}
-	if err := temporary.Close(); err != nil {
+	expectedBytes, expectedSHA, err := hashFile(temporary)
+	if err != nil {
 		return err
 	}
 	if err := validate(); err != nil {
 		return err
 	}
+	if err := validateLockedArtifact(temporaryPath, temporary, expectedBytes, expectedSHA); err != nil {
+		return err
+	}
 	if err := os.Link(temporaryPath, path); err != nil {
+		return err
+	}
+	if err := validateLockedArtifact(path, temporary, expectedBytes, expectedSHA); err != nil {
 		return err
 	}
 	if err := os.Remove(temporaryPath); err != nil {
 		return err
 	}
-	installed = true
+	temporaryRemoved = true
 	return syncDirectory(directoryPath)
 }
