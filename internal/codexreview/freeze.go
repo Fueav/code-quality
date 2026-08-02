@@ -37,6 +37,11 @@ type rawArtifactSpec struct {
 	set  func(*frozenNativeArtifacts, []byte)
 }
 
+type lockedRawArtifact struct {
+	path string
+	file *os.File
+}
+
 func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, error) {
 	frozen := frozenNativeArtifacts{Manifest: NativeFreezeManifest{SchemaVersion: 1, Artifacts: []FrozenArtifact{}}}
 	specs := []rawArtifactSpec{
@@ -44,7 +49,6 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 		{name: "jsonl_stdout", path: layout.NativeStdoutPath},
 		{name: "stderr", path: layout.NativeStderrPath},
 	}
-	present := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		entry := FrozenArtifact{Name: spec.name, Path: filepath.Base(spec.path)}
 		var err error
@@ -69,21 +73,34 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 		}
 		entry.Present = true
 		frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
-		if err := syncRawArtifact(spec.path); err != nil {
-			return frozenNativeArtifacts{}, fmt.Errorf("sync raw %s: %w", spec.name, err)
-		}
-		present = append(present, spec.path)
 	}
-	if err := writeDurableFreezeManifest(layout.NativeFreezePath, frozen.Manifest); err != nil {
+	locked := make([]lockedRawArtifact, 0, len(specs))
+	defer func() {
+		for _, artifact := range locked {
+			_ = artifact.file.Close()
+		}
+	}()
+	for index, spec := range specs {
+		entry := frozen.Manifest.Artifacts[index]
+		if !entry.Present {
+			continue
+		}
+		file, err := lockRawArtifact(spec.path, entry.Bytes, entry.SHA256)
+		if err != nil {
+			return frozenNativeArtifacts{}, fmt.Errorf("lock raw %s: %w", spec.name, err)
+		}
+		locked = append(locked, lockedRawArtifact{path: spec.path, file: file})
+	}
+	validateLockedPaths := func() error {
+		for _, artifact := range locked {
+			if err := validateLockedRawArtifact(artifact.path, artifact.file); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := writeDurableFreezeManifest(layout.NativeFreezePath, frozen.Manifest, validateLockedPaths); err != nil {
 		return frozenNativeArtifacts{}, fmt.Errorf("write raw freeze manifest: %w", err)
-	}
-	for _, artifact := range present {
-		if err := os.Chmod(artifact, 0o400); err != nil {
-			return frozenNativeArtifacts{}, fmt.Errorf("make raw artifact read-only: %w", err)
-		}
-	}
-	if err := os.Chmod(layout.NativeFreezePath, 0o400); err != nil {
-		return frozenNativeArtifacts{}, fmt.Errorf("make raw freeze manifest read-only: %w", err)
 	}
 	return frozen, nil
 }
@@ -108,8 +125,7 @@ func hashRegularFile(path string) (int64, string, error) {
 	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
 		return 0, "", errors.New("input changed while it was being read")
 	}
-	digest := sha256.New()
-	bytesRead, err := io.Copy(digest, file)
+	bytesRead, digestText, err := hashFile(file)
 	if err != nil {
 		return 0, "", err
 	}
@@ -120,22 +136,86 @@ func hashRegularFile(path string) (int64, string, error) {
 	if !os.SameFile(opened, after) || opened.Size() != after.Size() || bytesRead != after.Size() {
 		return 0, "", errors.New("input changed while it was being read")
 	}
+	return bytesRead, digestText, nil
+}
+
+func lockRawArtifact(path string, expectedBytes int64, expectedSHA string) (*os.File, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("input must be a regular non-symlink file")
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return nil, err
+	}
+	locked := false
+	defer func() {
+		if !locked {
+			_ = file.Close()
+		}
+	}()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return nil, errors.New("input changed before it could be locked")
+	}
+	bytesRead, digest, err := hashFile(file)
+	if err != nil {
+		return nil, err
+	}
+	after, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(opened, after) || opened.Size() != after.Size() || bytesRead != expectedBytes || digest != expectedSHA {
+		return nil, errors.New("input no longer matches its freeze manifest entry")
+	}
+	if err := file.Sync(); err != nil {
+		return nil, err
+	}
+	if err := file.Chmod(0o400); err != nil {
+		return nil, err
+	}
+	if err := validateLockedRawArtifact(path, file); err != nil {
+		return nil, err
+	}
+	locked = true
+	return file, nil
+}
+
+func hashFile(file *os.File) (int64, string, error) {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return 0, "", err
+	}
+	digest := sha256.New()
+	bytesRead, err := io.Copy(digest, file)
+	if err != nil {
+		return 0, "", err
+	}
 	return bytesRead, hex.EncodeToString(digest.Sum(nil)), nil
 }
 
-func syncRawArtifact(path string) error {
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
+func validateLockedRawArtifact(path string, file *os.File) error {
+	pathInfo, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
-	if err := file.Sync(); err != nil {
-		file.Close()
+	fileInfo, err := file.Stat()
+	if err != nil {
 		return err
 	}
-	return file.Close()
+	if !pathInfo.Mode().IsRegular() || !os.SameFile(pathInfo, fileInfo) || pathInfo.Size() != fileInfo.Size() || fileInfo.Mode().Perm() != 0o400 {
+		return errors.New("raw artifact path no longer names the locked inode")
+	}
+	return nil
 }
 
-func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest) error {
+func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, validate func() error) error {
 	directoryPath := filepath.Dir(path)
 	temporary, err := os.CreateTemp(directoryPath, ".native-review-freeze-")
 	if err != nil {
@@ -155,7 +235,16 @@ func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest) erro
 	if err := temporary.Sync(); err != nil {
 		return err
 	}
+	if err := temporary.Chmod(0o400); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
 	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := validate(); err != nil {
 		return err
 	}
 	if err := os.Link(temporaryPath, path); err != nil {

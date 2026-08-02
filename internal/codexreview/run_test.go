@@ -660,6 +660,32 @@ func TestFreezeAndUsageStreamCompleteLargeJSONL(t *testing.T) {
 	}
 }
 
+func TestLockRawArtifactRejectsPathReplacement(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "native-review.stdout.log")
+	if err := os.WriteFile(path, []byte("original evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bytesRead, digest, err := hashRegularFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(directory, "replacement")
+	if err := os.WriteFile(replacement, []byte("replacement evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	locked, err := lockRawArtifact(path, bytesRead, digest)
+	if locked != nil {
+		_ = locked.Close()
+	}
+	if err == nil {
+		t.Fatal("replacement inode was locked under the original manifest digest")
+	}
+}
+
 func TestReadCodexUsageUsesLastCompletedTurn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	contents := strings.Join([]string{
@@ -1029,6 +1055,20 @@ func TestAgentOutputIgnoresFencedFindingExamples(t *testing.T) {
 	}
 }
 
+func TestFencedBodyClosingIndentIsRelativeToList(t *testing.T) {
+	input := "- [P1] Preserve the first guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
+		"  ```go\n    allowed := true\n    ```\n" +
+		"- [P2] Preserve the second guard — [client.go:31](/private/tmp/review/client.go:31)\n" +
+		"  The second branch drops its guard.\n"
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 2 || result.Findings[1].Title != "Preserve the second guard" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
 func TestFindingBodiesPreserveIndentedFencedBlocks(t *testing.T) {
 	for name, input := range map[string]string{
 		"agent": "- [P2] Preserve the guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
@@ -1042,6 +1082,27 @@ func TestFindingBodiesPreserveIndentedFencedBlocks(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(result.Findings) != 1 || !strings.Contains(result.Findings[0].Body, "if allowed") {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
+	}
+}
+
+func TestFindingBodiesDoNotResumeAfterTrailingAssessment(t *testing.T) {
+	for name, input := range map[string]string{
+		"agent": "- [P2] Preserve the guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
+			"  The branch drops its guard.\nOverall assessment: needs repair.\n" +
+			"  ```text\n  trailing appendix\n  ```\n",
+		"native": "Review comment:\n\n- [P2] Preserve the guard — /private/tmp/review/client.go:17\n" +
+			"  The branch drops its guard.\nOverall assessment: needs repair.\n" +
+			"  ```text\n  trailing appendix\n  ```\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := parseNativeReviewText(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 1 || strings.Contains(result.Findings[0].Body, "trailing appendix") {
 				t.Fatalf("findings = %#v", result.Findings)
 			}
 		})
@@ -1092,6 +1153,22 @@ func TestAgentFindingDecodesEscapedMarkdownDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/app/(auth)/page.tsx" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestAgentFindingAcceptsLinkedTitleLocation(t *testing.T) {
+	input := `Found one actionable defect.
+
+- [P1] [Bind freeze operations to the verified inode](/private/tmp/review/freeze.go:72)
+  The path can be replaced after hashing.
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].Title != "Bind freeze operations to the verified inode" ||
+		result.Findings[0].CodeLocation.AbsoluteFilePath != "/private/tmp/review/freeze.go" {
 		t.Fatalf("findings = %#v", result.Findings)
 	}
 }

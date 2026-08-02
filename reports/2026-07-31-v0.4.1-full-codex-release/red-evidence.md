@@ -153,3 +153,13 @@ The fourteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and com
 - the fence mask removed every fenced line, including supporting code that belonged to an active finding body, and could turn a fence-only body into `INCOMPLETE`.
 
 Both defects reproduced before implementation. Once a native heading is selected, any top-level list candidate before it now makes the result unrecognized instead of allowing a partial set. Fenced lines remain excluded from heading and candidate recognition, but lines whose indentation places the fence inside the active finding are retained in that finding's body for both native and Agent grammars. The fourteenth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Fifteenth candidate review RED
+
+The fifteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 1,299,369 ms with 11,768,080 input tokens and 53,489 output tokens. Independent SHA-256 checks matched all three `0400` frozen raw artifacts: the 1,894-byte final message had digest `75150173bdb2a03a2cccf1c42d837aadb672c54d75756a36e7e6fc46dbb676d8`, the 637,376-byte JSONL had digest `773a5c1c87352e0b418ec34d42f4f7c8bd5a83979b2bd8e3098141c403861837`, and the 2,818-byte stderr had digest `5a0bde25082e556b02a5604e2aac3649c5290437197b5cf156f1f1212e7b8a30`. The deterministic parser correctly failed closed with `INCOMPLETE` rather than returning a partial result, because this run used a newly observed Agent form in which each finding title was also its Markdown location link. The frozen raw review contained three actionable findings:
+
+- artifact hashing closed its verified descriptor and later reopened the pathname for sync and locking, allowing an atomic replacement to separate the manifest digest from the retained path;
+- a valid list-contained closing fence with four or five raw leading spaces could remain open and hide later sibling findings;
+- an indented fenced block after trailing assessment began could be appended back into the previous finding body.
+
+All three defects and the linked-title classification gap now have deterministic regression coverage. Each present raw artifact is rehashed, synced, and chmodded through one verified descriptor; every pathname is rebound to that inode immediately before the manifest is hard-linked, and descriptors remain open until publication completes. Fence closing indentation is interpreted relative to its opening list-container indentation, trailing assessment stays terminal, and a location link may supply the title only when no separate title precedes it. The fifteenth candidate smoke remains diagnostic evidence and is not release acceptance.

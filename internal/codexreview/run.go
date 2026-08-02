@@ -555,7 +555,7 @@ func parseNativeReviewSection(lines []string, fenced []bool, heading int) (nativ
 	for index, line := range lines[heading+1:] {
 		if fenced[heading+1+index] {
 			indent, topLevel := commonMarkIndent(line)
-			if current != nil && strings.TrimSpace(line) != "" && (!topLevel || indent > findingIndent) {
+			if current != nil && !trailingAssessment && strings.TrimSpace(line) != "" && (!topLevel || indent > findingIndent) {
 				body = append(body, strings.TrimSpace(line))
 			}
 			continue
@@ -622,6 +622,7 @@ var (
 type markdownLocationMatch struct {
 	fullStart int
 	fullEnd   int
+	label     string
 	path      string
 	start     string
 	end       string
@@ -665,7 +666,7 @@ func parseAgentReviewText(lines []string, fenced []bool, first int) (nativeEnvel
 	for index, line := range lines[firstCandidate:] {
 		if fenced[firstCandidate+index] {
 			indent, topLevel := commonMarkIndent(line)
-			if current != nil && strings.TrimSpace(line) != "" && (!topLevel || indent > findingIndent) {
+			if current != nil && !trailingAssessment && strings.TrimSpace(line) != "" && (!topLevel || indent > findingIndent) {
 				body = append(body, strings.TrimSpace(line))
 			}
 			continue
@@ -777,6 +778,9 @@ func parseAgentFindingHeader(line string) (nativeFinding, string, bool, error) {
 		initialBody = cleanAgentBody(beforeLocation[closing+2:] + " " + afterLocation)
 	} else {
 		title = strings.TrimSpace(strings.TrimSuffix(beforeLocation, "—"))
+		if title == "" && location.fullStart == 0 {
+			title = strings.TrimSpace(location.label)
+		}
 		initialBody = cleanAgentBody(afterLocation)
 	}
 	if title == "" {
@@ -811,6 +815,7 @@ func findMarkdownLocation(raw string) (markdownLocationMatch, bool) {
 				return markdownLocationMatch{
 					fullStart: labelStart,
 					fullEnd:   fullEnd,
+					label:     raw[labelStart+1 : labelEnd],
 					path:      match[1],
 					start:     match[2],
 					end:       match[3],
@@ -993,42 +998,49 @@ func fencedCodeLines(lines []string) []bool {
 	fenced := make([]bool, len(lines))
 	var delimiter byte
 	delimiterLength := 0
+	delimiterIndent := 0
 	for index, line := range lines {
-		marker, length, remainder, ok := markdownFenceMarker(line)
 		if delimiter == 0 {
+			marker, length, remainder, indent, ok := markdownFenceMarker(line, 3)
 			if ok && (marker != '`' || !strings.Contains(remainder, "`")) {
 				fenced[index] = true
 				delimiter = marker
 				delimiterLength = length
+				delimiterIndent = indent
 			}
 			continue
 		}
 		fenced[index] = true
+		marker, length, remainder, _, ok := markdownFenceMarker(line, delimiterIndent+3)
 		if ok && marker == delimiter && length >= delimiterLength && strings.TrimSpace(remainder) == "" {
 			delimiter = 0
 			delimiterLength = 0
+			delimiterIndent = 0
 		}
 	}
 	return fenced
 }
 
-func markdownFenceMarker(line string) (byte, int, string, bool) {
-	indent, topLevel := commonMarkIndent(line)
-	if !topLevel || indent >= len(line) {
-		return 0, 0, "", false
+func markdownFenceMarker(line string, maxIndent int) (byte, int, string, int, bool) {
+	indent := 0
+	for indent < len(line) && line[indent] == ' ' {
+		indent++
+	}
+	if indent > maxIndent || indent >= len(line) || line[indent] == '\t' {
+		return 0, 0, "", 0, false
 	}
 	marker := line[indent]
 	if marker != '`' && marker != '~' {
-		return 0, 0, "", false
+		return 0, 0, "", 0, false
 	}
 	length := 0
 	for indent+length < len(line) && line[indent+length] == marker {
 		length++
 	}
 	if length < 3 {
-		return 0, 0, "", false
+		return 0, 0, "", 0, false
 	}
-	return marker, length, line[indent+length:], true
+	return marker, length, line[indent+length:], indent, true
 }
 
 func isTopLevelMarkdownLine(line string) bool {
