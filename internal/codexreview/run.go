@@ -959,6 +959,7 @@ func fencedCodeLines(lines []string) []bool {
 	fenced := make([]bool, len(lines))
 	var delimiter byte
 	delimiterLength := 0
+	delimiterClosingMinIndent := 0
 	delimiterClosingMaxIndent := 0
 	listContentIndent := -1
 	for index, line := range lines {
@@ -977,18 +978,21 @@ func fencedCodeLines(lines []string) []bool {
 				fenced[index] = true
 				delimiter = marker
 				delimiterLength = length
+				delimiterClosingMinIndent = 0
 				delimiterClosingMaxIndent = 3
 				if listContentIndent >= 0 && indent >= listContentIndent {
+					delimiterClosingMinIndent = listContentIndent
 					delimiterClosingMaxIndent = listContentIndent + 3
 				}
 			}
 			continue
 		}
 		fenced[index] = true
-		marker, length, remainder, _, ok := markdownFenceMarker(line, delimiterClosingMaxIndent)
-		if ok && marker == delimiter && length >= delimiterLength && strings.TrimSpace(remainder) == "" {
+		marker, length, remainder, indent, ok := markdownFenceMarker(line, delimiterClosingMaxIndent)
+		if ok && indent >= delimiterClosingMinIndent && marker == delimiter && length >= delimiterLength && strings.TrimSpace(remainder) == "" {
 			delimiter = 0
 			delimiterLength = 0
+			delimiterClosingMinIndent = 0
 			delimiterClosingMaxIndent = 0
 		}
 	}

@@ -1163,6 +1163,22 @@ func TestTopLevelFenceDoesNotAcceptRelativeClosingIndent(t *testing.T) {
 	}
 }
 
+func TestListFenceDoesNotAcceptTopLevelClosingIndent(t *testing.T) {
+	input := "- [P1] Preserve the real guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
+		"  ```markdown\n" +
+		"  example body\n" +
+		"```\n" +
+		"- [P2] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
+		"  This remains top-level fenced content.\n"
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve the real guard" {
+		t.Fatalf("zero-indent close escaped a list-contained fence: %#v", result.Findings)
+	}
+}
+
 func TestFencedBodyClosingIndentIsRelativeToList(t *testing.T) {
 	input := "- [P1] Preserve the first guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
 		"  ```go\n    allowed := true\n    ```\n" +
