@@ -745,6 +745,30 @@ func TestLockedArtifactRejectsPathReplacementDuringHash(t *testing.T) {
 	}
 }
 
+func TestSnapshotTemporaryPathIsNeverWritable(t *testing.T) {
+	directory := t.TempDir()
+	temporary, err := createReadOnlyTemp(directory, ".native-review-snapshot-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer temporary.Close()
+	defer os.Remove(temporary.Name())
+	info, err := temporary.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o400 {
+		t.Fatalf("temporary mode = %o", info.Mode().Perm())
+	}
+	if writer, err := os.OpenFile(temporary.Name(), os.O_WRONLY, 0); err == nil {
+		writer.Close()
+		t.Fatal("snapshot temporary inode exposed a writable pathname descriptor")
+	}
+	if _, err := temporary.WriteString("evidence\n"); err != nil {
+		t.Fatalf("creator descriptor lost write access: %v", err)
+	}
+}
+
 func TestRunMetricsStayBoundToFrozenStdout(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	layout := reviewsession.NewLayout(prepared.SessionDir)
@@ -1035,6 +1059,17 @@ func TestNativeOutputAcceptsHeadedNoFindingsAfterIntroduction(t *testing.T) {
 	}
 }
 
+func TestNativeOutputIgnoresIndentedCodeBeforeHeadedNoFindings(t *testing.T) {
+	input := "    - [P1] Example only — [example.go:4](/private/tmp/review/example.go:4)\n\n## Findings\n\nNo findings.\n"
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
 func TestNativeOutputRejectsFencedContentBeforeHeadedNoFindings(t *testing.T) {
 	input := "## Findings\n\n```text\nassessment\n```\n\nNo findings.\n"
 	if _, err := parseNativeReviewText(input); err == nil {
@@ -1176,6 +1211,23 @@ func TestListFenceDoesNotAcceptTopLevelClosingIndent(t *testing.T) {
 	}
 	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve the real guard" {
 		t.Fatalf("zero-indent close escaped a list-contained fence: %#v", result.Findings)
+	}
+}
+
+func TestNestedPriorityBulletPreservesOuterFenceIndent(t *testing.T) {
+	input := "- [P1] Preserve the real guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
+		"  - [P2] This nested marker remains body text.\n" +
+		"  ```markdown\n" +
+		"  example body\n" +
+		"```\n" +
+		"- [P3] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
+		"  This remains top-level fenced content.\n"
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve the real guard" {
+		t.Fatalf("nested bullet replaced the outer fence baseline: %#v", result.Findings)
 	}
 }
 

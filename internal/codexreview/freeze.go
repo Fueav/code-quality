@@ -2,6 +2,7 @@ package codexreview
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -133,7 +134,7 @@ func snapshotRawArtifact(path string, capture bool, maxBytes int64) (*os.File, [
 		return nil, nil, 0, "", errors.New("input changed before it could be snapshotted")
 	}
 
-	snapshot, err := os.CreateTemp(filepath.Dir(path), ".native-review-snapshot-")
+	snapshot, err := createReadOnlyTemp(filepath.Dir(path), ".native-review-snapshot-")
 	if err != nil {
 		return nil, nil, 0, "", err
 	}
@@ -187,12 +188,6 @@ func snapshotRawArtifact(path string, capture bool, maxBytes int64) (*os.File, [
 	}
 	if !pathInfo.Mode().IsRegular() || !os.SameFile(pathInfo, opened) {
 		return nil, nil, 0, "", errors.New("input path changed while its snapshot was being prepared")
-	}
-	if err := snapshot.Sync(); err != nil {
-		return nil, nil, 0, "", err
-	}
-	if err := snapshot.Chmod(0o400); err != nil {
-		return nil, nil, 0, "", err
 	}
 	if err := snapshot.Sync(); err != nil {
 		return nil, nil, 0, "", err
@@ -265,9 +260,32 @@ func syncDirectory(path string) error {
 	return directory.Close()
 }
 
+func createReadOnlyTemp(directoryPath string, prefix string) (*os.File, error) {
+	for attempt := 0; attempt < 100; attempt++ {
+		var randomSuffix [16]byte
+		if _, err := rand.Read(randomSuffix[:]); err != nil {
+			return nil, err
+		}
+		path := filepath.Join(directoryPath, prefix+hex.EncodeToString(randomSuffix[:]))
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o400)
+		if err == nil {
+			if err := file.Chmod(0o400); err != nil {
+				file.Close()
+				_ = os.Remove(path)
+				return nil, err
+			}
+			return file, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+	}
+	return nil, errors.New("could not allocate an exclusive temporary artifact")
+}
+
 func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, validate func() error) error {
 	directoryPath := filepath.Dir(path)
-	temporary, err := os.CreateTemp(directoryPath, ".native-review-freeze-")
+	temporary, err := createReadOnlyTemp(directoryPath, ".native-review-freeze-")
 	if err != nil {
 		return err
 	}
@@ -280,12 +298,6 @@ func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, vali
 		}
 	}()
 	if err := quality.EncodeJSON(temporary, manifest); err != nil {
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		return err
-	}
-	if err := temporary.Chmod(0o400); err != nil {
 		return err
 	}
 	if err := temporary.Sync(); err != nil {

@@ -435,7 +435,7 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	}
 	if noFindingsLine >= 0 && isExplicitNoFindings(lines[noFindingsLine]) {
 		for index, line := range lines[first:noFindingsLine] {
-			if !fenced[first+index] && containsPriorityMarker(line) {
+			if isTopLevelPriorityCandidate(line, fenced[first+index]) {
 				return nativeEnvelope{}, errors.New("native review contradicts its no-findings result")
 			}
 		}
@@ -462,9 +462,7 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 		return parseAgentReviewText(lines, fenced, first)
 	}
 	for index := first; index < heading; index++ {
-		indent, topLevel := commonMarkIndent(lines[index])
-		if !fenced[index] && topLevel && indent <= 3 && containsPriorityMarker(lines[index]) &&
-			agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
+		if isTopLevelPriorityCandidate(lines[index], fenced[index]) {
 			return nativeEnvelope{}, errors.New("finding candidate appears before the selected native heading")
 		}
 	}
@@ -579,11 +577,8 @@ func parseAgentReviewText(lines []string, fenced []bool, first int) (nativeEnvel
 	firstCandidate := -1
 	findingIndent := -1
 	for index := first; index < len(lines); index++ {
-		if fenced[index] {
-			continue
-		}
-		indent, topLevel := commonMarkIndent(lines[index])
-		if topLevel && containsPriorityMarker(lines[index]) && agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
+		if isTopLevelPriorityCandidate(lines[index], fenced[index]) {
+			indent, _ := commonMarkIndent(lines[index])
 			firstCandidate = index
 			findingIndent = indent
 			break
@@ -961,12 +956,18 @@ func fencedCodeLines(lines []string) []bool {
 	delimiterLength := 0
 	delimiterClosingMinIndent := 0
 	delimiterClosingMaxIndent := 0
+	listFindingIndent := -1
 	listContentIndent := -1
 	for index, line := range lines {
 		if delimiter == 0 {
 			if contentIndent, ok := findingListContentIndent(line); ok {
-				listContentIndent = contentIndent
+				findingIndent := leadingSpaceIndent(line)
+				if listFindingIndent < 0 || findingIndent <= listFindingIndent {
+					listFindingIndent = findingIndent
+					listContentIndent = contentIndent
+				}
 			} else if strings.TrimSpace(line) != "" && listContentIndent >= 0 && leadingSpaceIndent(line) < listContentIndent {
+				listFindingIndent = -1
 				listContentIndent = -1
 			}
 			maxIndent := 3
@@ -997,6 +998,14 @@ func fencedCodeLines(lines []string) []bool {
 		}
 	}
 	return fenced
+}
+
+func isTopLevelPriorityCandidate(line string, fenced bool) bool {
+	if fenced {
+		return false
+	}
+	_, topLevel := commonMarkIndent(line)
+	return topLevel && containsPriorityMarker(line) && agentListPrefixPattern.MatchString(strings.TrimSpace(line))
 }
 
 func findingListContentIndent(line string) (int, bool) {
