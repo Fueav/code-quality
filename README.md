@@ -42,6 +42,8 @@ quality-review run-codex --repo . --goal "这次改动的意图或额外关注�
 
 默认链路只有一次语义调用：确定性固定并隔离 base→target；以 `gpt-5.6-sol` / `max` 执行一次普通 `codex exec`，保留正常配置、规则、Skills、工具与 shell 网络；原始最终回复和 JSONL 先写入冻结清单并设为只读，随后才进行确定性分类和报告发布。`--goal` 只在用户显式提供时作为用户上下文加入。系统不注入 rubric、风险方向、输出 schema、验证器、复审或重试。
 
+同一系统用户同时只允许一个原生审查。CLI 在解析仓库前持有操作系统文件锁；嵌套或并发重复调用不会启动模型，进程退出或崩溃后锁自动释放。
+
 每次运行保留 `native-review.txt`、JSONL、stderr、`native-review-freeze.json` 和 `native-run-metrics.json`。分类器不解析 Markdown：只有整份输出精确等于受支持的无发现哨兵才返回 `PASS`；其他非空输出统一返回 `MANUAL_REVIEW` 并以冻结原文为准，进程失败或缺失/空输出返回 `INCOMPLETE`。
 
 20 条 V1.2 底线保留为离线评测量尺，不注入运行时 Prompt。历史合成样本只用于回归和校准，不作为产品优越性门槛；未来 A/B 必须使用独立资格审查后的冻结样本，并把新发现的合理缺陷标记为争议样本而不是直接计作误报。

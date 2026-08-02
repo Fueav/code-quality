@@ -66,14 +66,14 @@ func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 		"raw freeze path",
 		"metrics path",
 		"Never delete the session directory",
-		".code-quality-native-discovery-child-v1",
-		"do not invoke `quality-review`",
+		"one active review per system user",
+		"do not retry or bypass",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("Skill is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"candidate-only verifier", "risk direction", "rereview_scope", "REVIEW_INVALID", "activated_rule_families", "20 rules", "rm -rf .code-quality", "all three"} {
+	for _, forbidden := range []string{"candidate-only verifier", "risk direction", "rereview_scope", "REVIEW_INVALID", "activated_rule_families", "20 rules", "rm -rf .code-quality", "all three", "CODE_QUALITY_NATIVE_DISCOVERY_MARKER", ".code-quality-native-discovery-child-v1", "process-ancestry"} {
 		if strings.Contains(skill, forbidden) {
 			t.Fatalf("Skill retains obsolete runtime guidance %q", forbidden)
 		}

@@ -2,6 +2,8 @@
 
 Status: approved and authorized for release by the owner on 2026-07-31
 
+The owner approved the per-user single-flight simplification on 2026-08-02.
+
 ## Scope
 
 This Codex-focused patch release replaces the capability-restricting review wrapper with one full Codex Agent review, freezes its raw evidence, and applies only deterministic post-classification. Claude Code compatibility work remains deferred. The product stays report-only and makes exactly one semantic model call.
@@ -11,7 +13,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 - The default provider is ordinary `codex exec`, not `codex exec review`.
 - The default model is `gpt-5.6-sol` with `max` reasoning. Explicit CLI overrides remain available.
 - Codex inherits the invoking user's normal authentication, `CODEX_HOME`, configuration, rules, Skills, and native tools.
-- The isolated checkout has a session-owned, read-only marker outside the Git root while Codex is running. The executor passes that marker's absolute path to the child process tree as `CODE_QUALITY_NATIVE_DISCOVERY_MARKER`, the only product-owned environment addition, and registers the direct Codex PID in a per-user private process-marker directory. Before honoring any requested repository, the CLI checks the inherited marker, then matches active process markers against its ancestor chain, then checks the canonical active Git root's parent marker and requested repository marker as fallbacks. The shipped Skill performs the path and environment preflight while the CLI remains authoritative. Process ancestry carries discovery-child identity across `chdir`, symlinked entry, and Codex shell-environment filtering without treating a repository-owned file as the session marker or globally serializing unrelated reviews. The executor removes all session markers after the child exits without changing other Skills, rules, configuration, or tools.
+- Before repository discovery, `run-codex` acquires a nonblocking advisory lease in a per-user `0700` directory and holds it through report publication and checkout cleanup. A nested or unrelated concurrent invocation by the same system user exits before a model call. Closing or terminating the owner releases the operating-system lock automatically; the unlocked pathname is deliberately reused, so crashes create no stale identity. This single-flight boundary uses no environment injection, repository marker, PID registry, ancestor walk, or external process command and does not change the Codex child configuration, tools, or Skills.
 - The isolated committed checkout runs with `workspace-write` and shell network access enabled through `sandbox_workspace_write.network_access=true`.
 - The model receives the complete target checkout and Git context available from that checkout.
 - The only default review instruction is: `Review the changes introduced by <target> relative to <base> for actionable defects.`
@@ -37,7 +39,6 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 ## Existing hardening retained
 
-- The recursion marker check resolves the active Git root canonically, including symlinked working-directory entry, before inspecting the session-owned marker outside the checkout.
 - `--base` and `--target` are supplied together. `--diff-reason` is optional for an explicit range and defaults to `explicit_commit_range`.
 - Each run retains duration and token metrics by streaming complete JSONL output while preserving a per-event size bound. Missing or all-zero usage remains explicitly unavailable in both runtime behavior and the published metrics schema.
 - `make release-check` covers Go, root qualification, live, mining, vet, formatting, and diff checks without model calls.
@@ -53,7 +54,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 1. RED tests prove the old invocation suppresses normal Codex context, raw evidence has no pre-classification freeze, document-level `MANUAL_REVIEW` was previously invalid, and the report could incorrectly claim no findings for an unparsed nonempty review.
 2. Focused tests and `make release-check VERSION=v0.4.1 VERIFY_COMPARE_REF=v0.4.0` pass from the clean release worktree.
-3. A deterministic fake Codex smoke proves one call, full invocation controls, frozen hashes, metrics, exact-sentinel classification, retained reports, and checkout cleanup.
+3. Deterministic lease and fake-Codex tests prove per-user single-flight, automatic unlock after owner exit, stale-path reuse, one call, full invocation controls, frozen hashes, metrics, exact-sentinel classification, retained reports, and checkout cleanup.
 4. A real candidate-binary smoke uses the release contract and preserves raw evidence before adjudication.
 5. A fresh full-capability Codex review of the release diff has no unresolved actionable finding.
 6. Release assets are built from the tagged commit, checksummed, published, downloaded, and version-verified.

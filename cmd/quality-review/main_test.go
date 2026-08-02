@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,9 +20,20 @@ import (
 
 func forceTopLevelDiscovery(t *testing.T) {
 	t.Helper()
-	previous := discoveryChildProcessCheck
-	discoveryChildProcessCheck = func() (bool, error) { return false, nil }
-	t.Cleanup(func() { discoveryChildProcessCheck = previous })
+	previous := acquireNativeReviewLease
+	acquireNativeReviewLease = func() (io.Closer, error) {
+		return io.NopCloser(strings.NewReader("")), nil
+	}
+	t.Cleanup(func() { acquireNativeReviewLease = previous })
+}
+
+func forceActiveDiscovery(t *testing.T) {
+	t.Helper()
+	previous := acquireNativeReviewLease
+	acquireNativeReviewLease = func() (io.Closer, error) {
+		return nil, codexreview.ErrNativeReviewActive
+	}
+	t.Cleanup(func() { acquireNativeReviewLease = previous })
 }
 
 func TestVersion(t *testing.T) {
@@ -45,92 +57,24 @@ func TestBareCommandPointsToNativeReview(t *testing.T) {
 }
 
 func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
-	forceTopLevelDiscovery(t)
+	forceActiveDiscovery(t)
 	repo, base, target := cliReviewFixture(t)
-	markerPath := filepath.Join(filepath.Dir(repo), codexreview.DiscoveryChildMarkerName)
-	if err := os.WriteFile(markerPath, []byte("code-quality native discovery child v1\n"), 0o400); err != nil {
-		t.Fatal(err)
-	}
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"run-codex", "--repo", repo, "--base", base, "--target", target}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "nested Codex discovery") {
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "another native Codex review is active") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
 
 func TestRunCodexRejectsActiveDiscoveryBeforeAnotherRepository(t *testing.T) {
-	forceTopLevelDiscovery(t)
-	activeRoot := t.TempDir()
-	activeRepository := filepath.Join(activeRoot, "repository")
-	if err := os.MkdirAll(activeRepository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if output, err := exec.Command("git", "-C", activeRepository, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, output)
-	}
-	markerPath := filepath.Join(activeRoot, codexreview.DiscoveryChildMarkerName)
-	if err := os.WriteFile(markerPath, []byte("code-quality native discovery child v1\n"), 0o400); err != nil {
-		t.Fatal(err)
-	}
-	previousWorkingDirectory, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(activeRepository); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(previousWorkingDirectory); err != nil {
-			t.Errorf("restore working directory: %v", err)
-		}
-	})
-
-	otherRepository, base, target := cliReviewFixture(t)
-	previousBinary := codexBinary
-	codexBinary = filepath.Join(t.TempDir(), "missing-codex")
-	t.Cleanup(func() { codexBinary = previousBinary })
+	forceActiveDiscovery(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
-		"run-codex", "--repo", otherRepository, "--base", base, "--target", target,
-		"--output-root", filepath.Join(t.TempDir(), "sessions"),
+		"run-codex", "--repo", filepath.Join(t.TempDir(), "missing-repository"),
 	}, &stdout, &stderr)
-	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "nested Codex discovery") {
-		t.Fatalf("exit code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
-	}
-}
-
-func TestRunCodexRejectsInheritedDiscoveryAfterChangingRepository(t *testing.T) {
-	markerPath := filepath.Join(t.TempDir(), codexreview.DiscoveryChildMarkerName)
-	if err := os.WriteFile(markerPath, []byte("code-quality native discovery child v1\n"), 0o400); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(codexreview.DiscoveryChildMarkerEnvironment, markerPath)
-
-	otherRepository, base, target := cliReviewFixture(t)
-	previousWorkingDirectory, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(otherRepository); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(previousWorkingDirectory); err != nil {
-			t.Errorf("restore working directory: %v", err)
-		}
-	})
-	previousBinary := codexBinary
-	codexBinary = filepath.Join(t.TempDir(), "missing-codex")
-	t.Cleanup(func() { codexBinary = previousBinary })
-
-	var stdout, stderr bytes.Buffer
-	code := run([]string{
-		"run-codex", "--repo", otherRepository, "--base", base, "--target", target,
-		"--output-root", filepath.Join(t.TempDir(), "sessions"),
-	}, &stdout, &stderr)
-	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "nested Codex discovery") {
+	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "another native Codex review is active") {
 		t.Fatalf("exit code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
 	}
 }
@@ -156,7 +100,6 @@ func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
 	scriptPath := filepath.Join(directory, "codex")
 	script := `#!/bin/sh
 set -eu
-test -f "../.code-quality-native-discovery-child-v1"
 count=0
 if [ -f "$FAKE_CODEX_COUNT_PATH" ]; then count=$(cat "$FAKE_CODEX_COUNT_PATH"); fi
 count=$((count + 1))
@@ -250,9 +193,6 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	}
 	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "repository")); !os.IsNotExist(err) {
 		t.Fatalf("isolated checkout was not removed: %v", err)
-	}
-	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", codexreview.DiscoveryChildMarkerName)); !os.IsNotExist(err) {
-		t.Fatalf("discovery child marker was not removed: %v", err)
 	}
 }
 

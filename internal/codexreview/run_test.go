@@ -55,89 +55,7 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 	}
 }
 
-func TestDiscoveryChildMarkerLifecycle(t *testing.T) {
-	repository := filepath.Join(t.TempDir(), "input", "repository")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	markerPath, err := installDiscoveryChildMarker(repository)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if nested, err := IsDiscoveryChildRepository(repository); err != nil || !nested {
-		t.Fatalf("nested = %t, error = %v", nested, err)
-	}
-	if info, err := os.Lstat(markerPath); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o400 {
-		t.Fatalf("marker mode = %v, error = %v", info, err)
-	}
-	if err := os.Remove(markerPath); err != nil {
-		t.Fatal(err)
-	}
-	if nested, err := IsDiscoveryChildRepository(repository); err != nil || nested {
-		t.Fatalf("nested after cleanup = %t, error = %v", nested, err)
-	}
-}
-
-func TestDiscoveryChildMarkerDoesNotOverwriteExistingFile(t *testing.T) {
-	repository := filepath.Join(t.TempDir(), "input", "repository")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	markerPath := discoveryChildMarkerPath(repository)
-	if err := os.WriteFile(markerPath, []byte("sentinel"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := installDiscoveryChildMarker(repository); err == nil {
-		t.Fatal("existing discovery marker was overwritten")
-	}
-	raw, err := os.ReadFile(markerPath)
-	if err != nil || string(raw) != "sentinel" {
-		t.Fatalf("marker = %q, error = %v", raw, err)
-	}
-}
-
-func TestDiscoveryChildWorkingDirectoryUsesCanonicalGitRoot(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "session", "repository")
-	workingDirectory := filepath.Join(repository, "nested")
-	if err := os.MkdirAll(workingDirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	initializeGitRepository(t, repository)
-	markerPath, err := installDiscoveryChildMarker(repository)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Remove(markerPath) })
-	alias := filepath.Join(t.TempDir(), "linked-repository")
-	if err := os.Symlink(repository, alias); err != nil {
-		t.Fatal(err)
-	}
-
-	nested, err := IsDiscoveryChildWorkingDirectory(filepath.Join(alias, "nested"))
-	if err != nil || !nested {
-		t.Fatalf("nested = %t, error = %v", nested, err)
-	}
-}
-
-func TestDiscoveryChildWorkingDirectoryIgnoresRepositoryOwnedMarker(t *testing.T) {
-	repository := t.TempDir()
-	workingDirectory := filepath.Join(repository, "nested")
-	if err := os.MkdirAll(workingDirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	initializeGitRepository(t, repository)
-	if err := os.WriteFile(filepath.Join(repository, DiscoveryChildMarkerName), []byte(discoveryChildMarkerContents), 0o400); err != nil {
-		t.Fatal(err)
-	}
-
-	nested, err := IsDiscoveryChildWorkingDirectory(workingDirectory)
-	if err != nil || nested {
-		t.Fatalf("nested = %t, error = %v", nested, err)
-	}
-}
-
-func TestProcessExecutorRemovesDiscoveryMarkerAfterFailure(t *testing.T) {
+func TestProcessExecutorReturnsChildFailure(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")
 	output := filepath.Join(root, "output")
@@ -160,81 +78,6 @@ func TestProcessExecutorRemovesDiscoveryMarkerAfterFailure(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("failing child process unexpectedly succeeded")
-	}
-	if _, err := os.Lstat(discoveryChildMarkerPath(repository)); !os.IsNotExist(err) {
-		t.Fatalf("discovery child marker remains after failure: %v", err)
-	}
-}
-
-func TestProcessExecutorPropagatesDiscoveryIdentity(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "input", "repository")
-	output := filepath.Join(root, "output")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(output, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	executable, err := exec.LookPath("sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdoutPath := filepath.Join(output, "stdout")
-	err = (ProcessExecutor{}).Run(context.Background(), Invocation{
-		Executable: executable,
-		Args:       []string{"-c", `printf '%s' "$CODE_QUALITY_NATIVE_DISCOVERY_MARKER"`},
-		Dir:        repository,
-		StdoutPath: stdoutPath,
-		StderrPath: filepath.Join(output, "stderr"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(stdoutPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(raw) != discoveryChildMarkerPath(repository) {
-		t.Fatalf("inherited discovery marker = %q, want %q", raw, discoveryChildMarkerPath(repository))
-	}
-}
-
-func TestProcessExecutorIdentitySurvivesFilteredEnvironment(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "input", "repository")
-	output := filepath.Join(root, "output")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(output, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	executable, err := exec.LookPath("sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CODE_QUALITY_PROCESS_EXECUTOR_HELPER", "filtered-discovery")
-	stdoutPath := filepath.Join(output, "stdout")
-	err = (ProcessExecutor{}).Run(context.Background(), Invocation{
-		Executable: executable,
-		Args: []string{
-			"-c", `unset CODE_QUALITY_NATIVE_DISCOVERY_MARKER; exec "$1" -test.run=^TestProcessExecutorDescendantWriterHelper$`,
-			"sh", os.Args[0],
-		},
-		Dir:        repository,
-		StdoutPath: stdoutPath,
-		StderrPath: filepath.Join(output, "stderr"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(stdoutPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(raw) != "filtered discovery child detected\n" {
-		t.Fatalf("filtered discovery output = %q", raw)
 	}
 }
 
@@ -298,16 +141,6 @@ func TestProcessExecutorDescendantWriterHelper(t *testing.T) {
 	case "descendant":
 		time.Sleep(200 * time.Millisecond)
 		fmt.Fprintln(os.Stdout, "descendant completed")
-		os.Exit(0)
-	case "filtered-discovery":
-		if _, exists := os.LookupEnv(DiscoveryChildMarkerEnvironment); exists {
-			t.Fatal("discovery marker environment was not filtered")
-		}
-		nested, err := IsDiscoveryChildProcess()
-		if err != nil || !nested {
-			t.Fatalf("nested = %t, error = %v", nested, err)
-		}
-		fmt.Fprintln(os.Stdout, "filtered discovery child detected")
 		os.Exit(0)
 	default:
 		os.Exit(2)

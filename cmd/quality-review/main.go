@@ -21,7 +21,7 @@ import (
 
 var version = "dev"
 var codexBinary = "codex"
-var discoveryChildProcessCheck = codexreview.IsDiscoveryChildProcess
+var acquireNativeReviewLease = codexreview.AcquireNativeReviewLease
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -102,29 +102,16 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "quality-review: run-codex accepts flags only")
 		return 2
 	}
-	nested, err := discoveryChildProcessCheck()
+	lease, err := acquireNativeReviewLease()
+	if errors.Is(err, codexreview.ErrNativeReviewActive) {
+		fmt.Fprintln(stderr, "quality-review: another native Codex review is active for this user; retry after it finishes or review directly in the current Codex agent")
+		return 1
+	}
 	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: inspect inherited discovery child marker: %v\n", err)
+		fmt.Fprintf(stderr, "quality-review: acquire native review lease: %v\n", err)
 		return 1
 	}
-	if nested {
-		fmt.Fprintln(stderr, "quality-review: nested Codex discovery is disabled; review directly in the current Codex agent")
-		return 1
-	}
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: inspect current working directory: %v\n", err)
-		return 1
-	}
-	nested, err = codexreview.IsDiscoveryChildWorkingDirectory(workingDirectory)
-	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: inspect active discovery child marker: %v\n", err)
-		return 1
-	}
-	if nested {
-		fmt.Fprintln(stderr, "quality-review: nested Codex discovery is disabled; review directly in the current Codex agent")
-		return 1
-	}
+	defer func() { _ = lease.Close() }()
 	discovered, err := intake.Discover(intake.Options{
 		RepositoryPath: *repository,
 		Base:           *base,
@@ -133,15 +120,6 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: resolve review scope: %v\n", err)
-		return 1
-	}
-	nested, err = codexreview.IsDiscoveryChildRepository(discovered.RepositoryRoot)
-	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: inspect discovery child marker: %v\n", err)
-		return 1
-	}
-	if nested {
-		fmt.Fprintln(stderr, "quality-review: nested Codex discovery is disabled; review directly in the current Codex agent")
 		return 1
 	}
 	root, err := resolvePath(*outputRoot, discovered.RepositoryRoot)
