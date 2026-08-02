@@ -128,17 +128,23 @@ func IsDiscoveryChildWorkingDirectory(workingDir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for {
-		nested, err := isDiscoveryChildMarker(filepath.Join(current, DiscoveryChildMarkerName))
-		if err != nil || nested {
-			return nested, err
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
+	output, err := exec.Command("git", "-C", current, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			return false, nil
 		}
-		current = parent
+		return false, err
 	}
+	gitRoot := strings.TrimRight(string(output), "\r\n")
+	if gitRoot == "" {
+		return false, errors.New("active Git root is empty")
+	}
+	canonicalRoot, err := canonicalPath(gitRoot)
+	if err != nil {
+		return false, err
+	}
+	return isDiscoveryChildMarker(discoveryChildMarkerPath(canonicalRoot))
 }
 
 func isDiscoveryChildMarker(path string) (bool, error) {
@@ -984,14 +990,11 @@ func parseNativeLocation(raw string) (string, int, int, error) {
 }
 
 func adaptFindings(raw []nativeFinding, repository string, changedFiles []string) ([]quality.NativeFinding, []quality.AdapterDrop) {
-	changed := make(map[string]struct{}, len(changedFiles))
-	for _, path := range changedFiles {
-		changed[filepath.ToSlash(path)] = struct{}{}
-	}
 	findings := make([]quality.NativeFinding, 0, len(raw))
 	drops := []quality.AdapterDrop{}
 	logicalRepository := filepath.Clean(repository)
 	canonicalRepository, repositoryErr := canonicalPath(logicalRepository)
+	caseInsensitiveIdentity := repositoryErr == nil && pathUsesCaseInsensitiveIdentity(canonicalRepository)
 	for index, candidate := range raw {
 		reason := validateNativeCandidate(candidate)
 		relative := ""
@@ -1012,15 +1015,17 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 					logicalCandidate := filepath.Clean(candidate.CodeLocation.AbsoluteFilePath)
 					logicalRelative, logicalInside := repositoryRelativePath(logicalRepository, logicalCandidate)
 					if logicalInside {
-						if _, exists := changed[logicalRelative]; exists {
-							relative = logicalRelative
+						if trustedPath, exists := matchChangedPath(logicalRelative, changedFiles, caseInsensitiveIdentity); exists {
+							relative = trustedPath
 						} else {
 							relative = canonicalRelative
 						}
 					} else {
 						relative = canonicalRelative
 					}
-					if _, exists := changed[relative]; !exists {
+					if trustedPath, exists := matchChangedPath(relative, changedFiles, caseInsensitiveIdentity); exists {
+						relative = trustedPath
+					} else {
 						reason = "code location is not in a changed file"
 					}
 				}
@@ -1039,6 +1044,66 @@ func adaptFindings(raw []nativeFinding, repository string, changedFiles []string
 		})
 	}
 	return findings, drops
+}
+
+func matchChangedPath(candidate string, changedFiles []string, caseInsensitive bool) (string, bool) {
+	candidate = filepath.ToSlash(candidate)
+	for _, changedFile := range changedFiles {
+		changedFile = filepath.ToSlash(changedFile)
+		if changedFile == candidate {
+			return changedFile, true
+		}
+	}
+	if !caseInsensitive {
+		return "", false
+	}
+	match := ""
+	for _, changedFile := range changedFiles {
+		changedFile = filepath.ToSlash(changedFile)
+		if !strings.EqualFold(changedFile, candidate) {
+			continue
+		}
+		if match != "" && match != changedFile {
+			return "", false
+		}
+		match = changedFile
+	}
+	return match, match != ""
+}
+
+func pathUsesCaseInsensitiveIdentity(path string) bool {
+	current := filepath.Clean(path)
+	for {
+		info, err := os.Lstat(current)
+		if err == nil && info.IsDir() {
+			if alternate, ok := alternateASCIICase(filepath.Base(current)); ok {
+				alternateInfo, err := os.Lstat(filepath.Join(filepath.Dir(current), alternate))
+				if err == nil && os.SameFile(info, alternateInfo) {
+					return true
+				}
+			}
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false
+		}
+		current = parent
+	}
+}
+
+func alternateASCIICase(value string) (string, bool) {
+	alternate := []byte(value)
+	for index, character := range alternate {
+		switch {
+		case character >= 'a' && character <= 'z':
+			alternate[index] = character - ('a' - 'A')
+			return string(alternate), true
+		case character >= 'A' && character <= 'Z':
+			alternate[index] = character + ('a' - 'A')
+			return string(alternate), true
+		}
+	}
+	return "", false
 }
 
 func repositoryRelativePath(repository, candidate string) (string, bool) {

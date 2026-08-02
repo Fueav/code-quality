@@ -58,6 +58,9 @@ func TestRunCodexRejectsActiveDiscoveryBeforeAnotherRepository(t *testing.T) {
 	if err := os.MkdirAll(activeRepository, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if output, err := exec.Command("git", "-C", activeRepository, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, output)
+	}
 	markerPath := filepath.Join(activeRoot, codexreview.DiscoveryChildMarkerName)
 	if err := os.WriteFile(markerPath, []byte("code-quality native discovery child v1\n"), 0o400); err != nil {
 		t.Fatal(err)

@@ -97,6 +97,47 @@ func TestDiscoveryChildMarkerDoesNotOverwriteExistingFile(t *testing.T) {
 	}
 }
 
+func TestDiscoveryChildWorkingDirectoryUsesCanonicalGitRoot(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "session", "repository")
+	workingDirectory := filepath.Join(repository, "nested")
+	if err := os.MkdirAll(workingDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	initializeGitRepository(t, repository)
+	markerPath, err := installDiscoveryChildMarker(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(markerPath) })
+	alias := filepath.Join(t.TempDir(), "linked-repository")
+	if err := os.Symlink(repository, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	nested, err := IsDiscoveryChildWorkingDirectory(filepath.Join(alias, "nested"))
+	if err != nil || !nested {
+		t.Fatalf("nested = %t, error = %v", nested, err)
+	}
+}
+
+func TestDiscoveryChildWorkingDirectoryIgnoresRepositoryOwnedMarker(t *testing.T) {
+	repository := t.TempDir()
+	workingDirectory := filepath.Join(repository, "nested")
+	if err := os.MkdirAll(workingDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	initializeGitRepository(t, repository)
+	if err := os.WriteFile(filepath.Join(repository, DiscoveryChildMarkerName), []byte(discoveryChildMarkerContents), 0o400); err != nil {
+		t.Fatal(err)
+	}
+
+	nested, err := IsDiscoveryChildWorkingDirectory(workingDirectory)
+	if err != nil || nested {
+		t.Fatalf("nested = %t, error = %v", nested, err)
+	}
+}
+
 func TestProcessExecutorRemovesDiscoveryMarkerAfterFailure(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")
@@ -532,6 +573,34 @@ func TestAdaptFindingsPreservesCaseInsensitivePathIdentity(t *testing.T) {
 		},
 	}}, repository, []string{"ChangedFile.go"})
 	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "ChangedFile.go" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
+func TestAdaptFindingsPreservesDeletedCaseInsensitivePathIdentity(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "RepositoryCase")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasRepository := filepath.Join(root, "repositorycase")
+	actualInfo, err := os.Lstat(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasInfo, err := os.Lstat(aliasRepository)
+	if err != nil || !os.SameFile(actualInfo, aliasInfo) {
+		t.Skip("test volume is case-sensitive")
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "preserve deleted filesystem identity", Body: "The model used different casing for the deleted changed file.", Priority: 2,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: filepath.Join(aliasRepository, "deletedfile.go"),
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, repository, []string{"DeletedFile.go"})
+	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "DeletedFile.go" {
 		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
 	}
 }
@@ -1242,6 +1311,14 @@ func nativeFixture(t *testing.T) (reviewsession.Prepared, quality.ReviewRequest)
 		DiffSelectionReason: "test", ChangedFiles: []string{"app.go"}, AffectedEntries: []string{},
 	}
 	return prepared, request
+}
+
+func initializeGitRepository(t *testing.T, repository string) {
+	t.Helper()
+	output, err := exec.Command("git", "-C", repository, "init", "-q").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git init: %v\n%s", err, output)
+	}
 }
 
 func nativeFindingOutput(path, title, body string, priority int) string {
