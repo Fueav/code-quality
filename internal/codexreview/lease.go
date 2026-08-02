@@ -2,8 +2,12 @@ package codexreview
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"syscall"
 )
 
@@ -22,12 +26,34 @@ func AcquireNativeReviewLease() (*NativeReviewLease, error) {
 }
 
 func nativeReviewLeaseDirectory() (string, error) {
-	cacheDirectory, err := os.UserCacheDir()
+	cacheDirectory, err := nativeReviewCacheDirectory()
 	if err != nil {
 		return "", err
 	}
-	if !filepath.IsAbs(cacheDirectory) {
-		return "", errors.New("user cache directory must be absolute")
+	return filepath.Join(cacheDirectory, "code-quality-native-review"), nil
+}
+
+func nativeReviewCacheDirectory() (string, error) {
+	uid := os.Getuid()
+	account, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return "", fmt.Errorf("look up current operating-system account: %w", err)
+	}
+	homeDirectory := filepath.Clean(account.HomeDir)
+	if !filepath.IsAbs(homeDirectory) || homeDirectory == string(filepath.Separator) {
+		return "", errors.New("operating-system account home must be an absolute non-root path")
+	}
+	homeInfo, err := os.Stat(homeDirectory)
+	if err != nil {
+		return "", err
+	}
+	if !homeInfo.IsDir() || !ownedByCurrentUser(homeInfo) || homeInfo.Mode().Perm()&0o022 != 0 {
+		return "", errors.New("operating-system account home is not an owner-controlled directory")
+	}
+
+	cacheDirectory := filepath.Join(homeDirectory, ".cache")
+	if runtime.GOOS == "darwin" {
+		cacheDirectory = filepath.Join(homeDirectory, "Library", "Caches")
 	}
 	if err := os.MkdirAll(cacheDirectory, 0o700); err != nil {
 		return "", err
@@ -39,7 +65,7 @@ func nativeReviewLeaseDirectory() (string, error) {
 	if !cacheInfo.IsDir() || !ownedByCurrentUser(cacheInfo) || cacheInfo.Mode().Perm()&0o022 != 0 {
 		return "", errors.New("user cache directory is not an owner-controlled directory")
 	}
-	return filepath.Join(cacheDirectory, "code-quality-native-review"), nil
+	return cacheDirectory, nil
 }
 
 func acquireNativeReviewLeaseAt(directory string) (*NativeReviewLease, error) {

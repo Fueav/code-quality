@@ -104,7 +104,7 @@ func TestNativeReviewLeaseRemainsHeldByInheritedFile(t *testing.T) {
 }
 
 func TestNativeReviewLeaseUsesOwnedUserCache(t *testing.T) {
-	cacheDirectory, err := os.UserCacheDir()
+	cacheDirectory, err := nativeReviewCacheDirectory()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +122,22 @@ func TestNativeReviewLeaseUsesOwnedUserCache(t *testing.T) {
 	}
 	if !ownedByCurrentUser(cacheInfo) || cacheInfo.Mode().Perm()&0o022 != 0 {
 		t.Fatalf("user cache is not owner-controlled by uid %d: mode=%v", os.Getuid(), cacheInfo.Mode())
+	}
+}
+
+func TestNativeReviewLeaseNamespaceIgnoresCacheEnvironment(t *testing.T) {
+	before, err := nativeReviewLeaseDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(t.TempDir(), "cache"))
+	after, err := nativeReviewLeaseDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("lease directory changed with cache environment: before=%q after=%q", before, after)
 	}
 }
 
