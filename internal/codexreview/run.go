@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	maxNativeOutputBytes         = int64(10 << 20)
-	processOutputDrainTimeout    = 5 * time.Second
-	DiscoveryChildMarkerName     = ".code-quality-native-discovery-child-v1"
-	discoveryChildMarkerContents = "code-quality native discovery child v1\n"
+	maxNativeOutputBytes            = int64(10 << 20)
+	processOutputDrainTimeout       = 5 * time.Second
+	DiscoveryChildMarkerName        = ".code-quality-native-discovery-child-v1"
+	DiscoveryChildMarkerEnvironment = "CODE_QUALITY_NATIVE_DISCOVERY_MARKER"
+	discoveryChildMarkerContents    = "code-quality native discovery child v1\n"
 )
 
 type Options struct {
@@ -78,6 +79,7 @@ func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 	if err != nil {
 		return fmt.Errorf("install discovery child marker: %w", err)
 	}
+	command.Env = replaceEnvironmentValue(command.Environ(), DiscoveryChildMarkerEnvironment, markerPath)
 	markerInstalled := true
 	defer func() {
 		if markerInstalled {
@@ -93,6 +95,17 @@ func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 		return fmt.Errorf("codex process: %w", runErr)
 	}
 	return nil
+}
+
+func replaceEnvironmentValue(environment []string, name, value string) []string {
+	prefix := name + "="
+	replaced := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, prefix) {
+			replaced = append(replaced, entry)
+		}
+	}
+	return append(replaced, prefix+value)
 }
 
 func installDiscoveryChildMarker(repositoryDir string) (string, error) {
@@ -120,6 +133,17 @@ func installDiscoveryChildMarker(repositoryDir string) (string, error) {
 
 func IsDiscoveryChildRepository(repositoryDir string) (bool, error) {
 	return isDiscoveryChildMarker(discoveryChildMarkerPath(repositoryDir))
+}
+
+func IsDiscoveryChildProcess() (bool, error) {
+	markerPath, exists := os.LookupEnv(DiscoveryChildMarkerEnvironment)
+	if !exists || markerPath == "" {
+		return false, nil
+	}
+	if !filepath.IsAbs(markerPath) {
+		return false, errors.New("inherited discovery child marker path must be absolute")
+	}
+	return isDiscoveryChildMarker(markerPath)
 }
 
 func IsDiscoveryChildWorkingDirectory(workingDir string) (bool, error) {

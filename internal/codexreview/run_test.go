@@ -166,6 +166,40 @@ func TestProcessExecutorRemovesDiscoveryMarkerAfterFailure(t *testing.T) {
 	}
 }
 
+func TestProcessExecutorPropagatesDiscoveryIdentity(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "input", "repository")
+	output := filepath.Join(root, "output")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(output, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdoutPath := filepath.Join(output, "stdout")
+	err = (ProcessExecutor{}).Run(context.Background(), Invocation{
+		Executable: executable,
+		Args:       []string{"-c", `printf '%s' "$CODE_QUALITY_NATIVE_DISCOVERY_MARKER"`},
+		Dir:        repository,
+		StdoutPath: stdoutPath,
+		StderrPath: filepath.Join(output, "stderr"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != discoveryChildMarkerPath(repository) {
+		t.Fatalf("inherited discovery marker = %q, want %q", raw, discoveryChildMarkerPath(repository))
+	}
+}
+
 func TestProcessExecutorQuiescesDescendantWriters(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")
