@@ -695,6 +695,56 @@ func TestFreezeSnapshotsAwayFromAlreadyOpenWriter(t *testing.T) {
 	}
 }
 
+func TestLockedArtifactRejectsPathReplacementDuringHash(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "native-review.stdout.log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	const size = int64(128 << 20)
+	if err := file.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Chmod(0o400); err != nil {
+		t.Fatal(err)
+	}
+	bytesRead, digest, err := hashFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(directory, "replacement")
+	replacementFile, err := os.OpenFile(replacement, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := replacementFile.Truncate(size); err != nil {
+		replacementFile.Close()
+		t.Fatal(err)
+	}
+	if err := replacementFile.Chmod(0o400); err != nil {
+		replacementFile.Close()
+		t.Fatal(err)
+	}
+	if err := replacementFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	replaced := make(chan error, 1)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		replaced <- os.Rename(replacement, path)
+	}()
+
+	validationErr := validateLockedArtifact(path, file, bytesRead, digest)
+	if err := <-replaced; err != nil {
+		t.Fatal(err)
+	}
+	if validationErr == nil {
+		t.Fatal("path replacement during retained-inode hashing was accepted")
+	}
+}
+
 func TestRunMetricsStayBoundToFrozenStdout(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	layout := reviewsession.NewLayout(prepared.SessionDir)
@@ -1098,6 +1148,18 @@ func TestAgentOutputIgnoresFencedFindingExamples(t *testing.T) {
 	}
 	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" {
 		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestTopLevelFenceDoesNotAcceptRelativeClosingIndent(t *testing.T) {
+	input := "   ```markdown\n" +
+		"- [P1] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
+		"  This is not an actual finding.\n" +
+		"      ```\n" +
+		"- [P2] Still fenced — [client.go:17](/private/tmp/review/client.go:17)\n" +
+		"  This also remains example content.\n"
+	if result, err := parseNativeReviewText(input); err == nil {
+		t.Fatalf("six-space close escaped a top-level fence: %#v", result.Findings)
 	}
 }
 

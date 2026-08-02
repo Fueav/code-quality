@@ -184,3 +184,12 @@ The seventeenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and co
 - valid CommonMark that bolded the entire finding through the location link was rejected because the parser searched for `**` only before the link.
 
 All three cases failed focused probes before implementation. The manifest descriptor now remains open and both the temporary pathname and installed hard link are revalidated against its inode, mode, size, and digest. Headed no-findings classification examines the next nonblank line and fails closed if that line belongs to a fence, while bold finding parsing accepts its closing delimiter on either side of the location link. The seventeenth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Eighteenth candidate review RED
+
+The eighteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 1,010,065 ms with 5,897,094 input tokens and 44,002 output tokens. Independent SHA-256 checks matched all three `0400` raw artifacts: the 1,166-byte final message had digest `e9e5a4706884ced6c392699c47d7abaa74db0d67f7ff638cf89987c6fff1d408`, the 613,602-byte JSONL had digest `78c596c501f18a7f23217b2aa1271aa85977756928df72e8649531573a57520c`, and the 3,857-byte stderr had digest `7f20218b15099f8064ac2062e597b01ae3da8e84c4f21a4caf6fb0fe90230c75`. The recursion marker and isolated checkout were absent after completion, and deterministic classification retained both candidates with zero adapter drops. The review found:
+
+- retained-inode validation checked the pathname before a potentially long hash but not afterward, so a rename during hashing could leave the published path naming replacement content;
+- a top-level fence opened with three spaces incorrectly treated a six-space line as its close by adding the opener indentation to the CommonMark allowance.
+
+Both cases failed focused probes before implementation. Artifact validation now checks pathname identity before and after every retained-descriptor hash and performs a final path-only sweep after all hashes. Fence tracking separately records top-level and active-list content indentation: top-level closes remain capped at three raw spaces, while list-contained fences retain their container-relative closing allowance. The eighteenth candidate smoke remains diagnostic evidence and is not release acceptance.

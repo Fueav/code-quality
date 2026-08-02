@@ -91,6 +91,11 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 				return err
 			}
 		}
+		for _, artifact := range locked {
+			if err := validateLockedArtifactPath(artifact.path, artifact.file, artifact.expectedBytes); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if err := writeDurableFreezeManifest(layout.NativeFreezePath, frozen.Manifest, validateLockedPaths); err != nil {
@@ -219,6 +224,20 @@ func hashFile(file *os.File) (int64, string, error) {
 }
 
 func validateLockedArtifact(path string, file *os.File, expectedBytes int64, expectedSHA string) error {
+	if err := validateLockedArtifactPath(path, file, expectedBytes); err != nil {
+		return err
+	}
+	bytesRead, digest, err := hashFile(file)
+	if err != nil {
+		return err
+	}
+	if bytesRead != expectedBytes || digest != expectedSHA {
+		return errors.New("raw artifact no longer matches its freeze manifest entry")
+	}
+	return validateLockedArtifactPath(path, file, expectedBytes)
+}
+
+func validateLockedArtifactPath(path string, file *os.File, expectedBytes int64) error {
 	pathInfo, err := os.Lstat(path)
 	if err != nil {
 		return err
@@ -230,13 +249,6 @@ func validateLockedArtifact(path string, file *os.File, expectedBytes int64, exp
 	if !pathInfo.Mode().IsRegular() || !os.SameFile(pathInfo, fileInfo) || pathInfo.Size() != expectedBytes ||
 		fileInfo.Size() != expectedBytes || fileInfo.Mode().Perm() != 0o400 {
 		return errors.New("raw artifact path no longer names the locked inode")
-	}
-	bytesRead, digest, err := hashFile(file)
-	if err != nil {
-		return err
-	}
-	if bytesRead != expectedBytes || digest != expectedSHA {
-		return errors.New("raw artifact no longer matches its freeze manifest entry")
 	}
 	return nil
 }
@@ -281,6 +293,9 @@ func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, vali
 	}
 	expectedBytes, expectedSHA, err := hashFile(temporary)
 	if err != nil {
+		return err
+	}
+	if err := validateLockedArtifact(temporaryPath, temporary, expectedBytes, expectedSHA); err != nil {
 		return err
 	}
 	if err := validate(); err != nil {

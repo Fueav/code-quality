@@ -959,27 +959,66 @@ func fencedCodeLines(lines []string) []bool {
 	fenced := make([]bool, len(lines))
 	var delimiter byte
 	delimiterLength := 0
-	delimiterIndent := 0
+	delimiterClosingMaxIndent := 0
+	listContentIndent := -1
 	for index, line := range lines {
 		if delimiter == 0 {
-			marker, length, remainder, indent, ok := markdownFenceMarker(line, 3)
+			if contentIndent, ok := findingListContentIndent(line); ok {
+				listContentIndent = contentIndent
+			} else if strings.TrimSpace(line) != "" && listContentIndent >= 0 && leadingSpaceIndent(line) < listContentIndent {
+				listContentIndent = -1
+			}
+			maxIndent := 3
+			if listContentIndent >= 0 && leadingSpaceIndent(line) >= listContentIndent {
+				maxIndent = listContentIndent + 3
+			}
+			marker, length, remainder, indent, ok := markdownFenceMarker(line, maxIndent)
 			if ok && (marker != '`' || !strings.Contains(remainder, "`")) {
 				fenced[index] = true
 				delimiter = marker
 				delimiterLength = length
-				delimiterIndent = indent
+				delimiterClosingMaxIndent = 3
+				if listContentIndent >= 0 && indent >= listContentIndent {
+					delimiterClosingMaxIndent = listContentIndent + 3
+				}
 			}
 			continue
 		}
 		fenced[index] = true
-		marker, length, remainder, _, ok := markdownFenceMarker(line, delimiterIndent+3)
+		marker, length, remainder, _, ok := markdownFenceMarker(line, delimiterClosingMaxIndent)
 		if ok && marker == delimiter && length >= delimiterLength && strings.TrimSpace(remainder) == "" {
 			delimiter = 0
 			delimiterLength = 0
-			delimiterIndent = 0
+			delimiterClosingMaxIndent = 0
 		}
 	}
 	return fenced
+}
+
+func findingListContentIndent(line string) (int, bool) {
+	indent, topLevel := commonMarkIndent(line)
+	if !topLevel {
+		return 0, false
+	}
+	trimmed := strings.TrimSpace(line)
+	prefix := agentListPrefixPattern.FindString(trimmed)
+	if prefix == "" {
+		return 0, false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+	rest = strings.TrimPrefix(rest, "**")
+	if len(rest) < 4 || rest[0] != '[' || rest[1] != 'P' || rest[3] != ']' || rest[2] < '0' || rest[2] > '3' {
+		return 0, false
+	}
+	return indent + len(prefix), true
+}
+
+func leadingSpaceIndent(line string) int {
+	indent := 0
+	for indent < len(line) && line[indent] == ' ' {
+		indent++
+	}
+	return indent
 }
 
 func markdownFenceMarker(line string, maxIndent int) (byte, int, string, int, bool) {
