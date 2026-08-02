@@ -651,52 +651,90 @@ func TestFreezeAndUsageStreamCompleteLargeJSONL(t *testing.T) {
 	if len(frozen.FinalMessage) == 0 || int64(frozen.Manifest.Artifacts[1].Bytes) <= maxNativeOutputBytes {
 		t.Fatalf("freeze manifest = %#v", frozen.Manifest)
 	}
-	inputTokens, outputTokens, err := readCodexUsage(layout.NativeStdoutPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if inputTokens == nil || *inputTokens != 321 || outputTokens == nil || *outputTokens != 54 {
-		t.Fatalf("usage = %v/%v", inputTokens, outputTokens)
+	if frozen.InputTokens == nil || *frozen.InputTokens != 321 ||
+		frozen.OutputTokens == nil || *frozen.OutputTokens != 54 || frozen.UsageError != nil {
+		t.Fatalf("usage = %v/%v, error = %v", frozen.InputTokens, frozen.OutputTokens, frozen.UsageError)
 	}
 }
 
-func TestLockRawArtifactRejectsPathReplacement(t *testing.T) {
-	directory := t.TempDir()
-	path := filepath.Join(directory, "native-review.stdout.log")
-	if err := os.WriteFile(path, []byte("original evidence\n"), 0o600); err != nil {
+func TestFreezeSnapshotsAwayFromAlreadyOpenWriter(t *testing.T) {
+	layout := reviewsession.NewLayout(t.TempDir())
+	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	bytesRead, digest, err := hashRegularFile(path)
+	original := []byte("original evidence\n")
+	if err := os.WriteFile(layout.NativeReviewPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := os.OpenFile(layout.NativeReviewPath, os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacement := filepath.Join(directory, "replacement")
-	if err := os.WriteFile(replacement, []byte("replacement evidence\n"), 0o600); err != nil {
+	defer writer.Close()
+
+	frozen, err := freezeNativeArtifacts(layout)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Rename(replacement, path); err != nil {
+	if _, err := writer.WriteAt([]byte("mutated evidence!\n"), 0); err != nil {
 		t.Fatal(err)
 	}
-	locked, err := lockRawArtifact(path, bytesRead, digest)
-	if locked != nil {
-		_ = locked.Close()
+	if err := writer.Sync(); err != nil {
+		t.Fatal(err)
 	}
-	if err == nil {
-		t.Fatal("replacement inode was locked under the original manifest digest")
+	got, err := os.ReadFile(layout.NativeReviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("published evidence changed through an old writer: %q", got)
+	}
+	digest := sha256.Sum256(got)
+	if frozen.Manifest.Artifacts[0].SHA256 != hex.EncodeToString(digest[:]) {
+		t.Fatalf("manifest digest = %q, published digest = %x", frozen.Manifest.Artifacts[0].SHA256, digest)
 	}
 }
 
-func TestReadCodexUsageUsesLastCompletedTurn(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "events.jsonl")
+func TestRunMetricsStayBoundToFrozenStdout(t *testing.T) {
+	prepared, request := nativeFixture(t)
+	layout := reviewsession.NewLayout(prepared.SessionDir)
+	if err := os.WriteFile(layout.NativeReviewPath, []byte("No findings.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"type":"turn.completed","usage":{"input_tokens":30,"output_tokens":7}}` + "\n"
+	if err := os.WriteFile(layout.NativeStdoutPath, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.NativeStderrPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	frozen, err := freezeNativeArtifacts(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(layout.OutputDir, "replacement-stdout")
+	other := `{"type":"turn.completed","usage":{"input_tokens":999,"output_tokens":888}}` + "\n"
+	if err := os.WriteFile(replacement, []byte(other), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, layout.NativeStdoutPath); err != nil {
+		t.Fatal(err)
+	}
+
+	metrics := collectRunMetrics(Options{Prepared: prepared, Request: request}, 25*time.Millisecond, 42, frozen)
+	if !metrics.UsageAvailable || metrics.InputTokens == nil || *metrics.InputTokens != 30 ||
+		metrics.OutputTokens == nil || *metrics.OutputTokens != 7 {
+		t.Fatalf("metrics escaped frozen stdout: %#v", metrics)
+	}
+}
+
+func TestDecodeCodexUsageUsesLastCompletedTurn(t *testing.T) {
 	contents := strings.Join([]string{
 		`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}`,
 		`{"type":"item.completed","item":{"type":"agent_message"}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":30,"output_tokens":7}}`,
 	}, "\n") + "\n"
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	input, output, err := readCodexUsage(path)
+	input, output, err := decodeCodexUsageReader(strings.NewReader(contents))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -705,13 +743,9 @@ func TestReadCodexUsageUsesLastCompletedTurn(t *testing.T) {
 	}
 }
 
-func TestReadCodexUsageRejectsAllZeroCounters(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "events.jsonl")
+func TestDecodeCodexUsageRejectsAllZeroCounters(t *testing.T) {
 	contents := `{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}` + "\n"
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	input, output, err := readCodexUsage(path)
+	input, output, err := decodeCodexUsageReader(strings.NewReader(contents))
 	if err == nil || !strings.Contains(err.Error(), "zero token usage") || input != nil || output != nil {
 		t.Fatalf("input = %v, output = %v, error = %v", input, output, err)
 	}
@@ -719,12 +753,17 @@ func TestReadCodexUsageRejectsAllZeroCounters(t *testing.T) {
 
 func TestCollectRunMetricsMarksZeroCountersUnavailable(t *testing.T) {
 	prepared, request := nativeFixture(t)
-	stdout := reviewsession.NewLayout(prepared.SessionDir).NativeStdoutPath
+	layout := reviewsession.NewLayout(prepared.SessionDir)
+	stdout := layout.NativeStdoutPath
 	contents := `{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}` + "\n"
 	if err := os.WriteFile(stdout, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	metrics := collectRunMetrics(Options{Prepared: prepared, Request: request}, 25*time.Millisecond, 42)
+	frozen, err := freezeNativeArtifacts(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics := collectRunMetrics(Options{Prepared: prepared, Request: request}, 25*time.Millisecond, 42, frozen)
 	if metrics.UsageAvailable || metrics.InputTokens != nil || metrics.OutputTokens != nil ||
 		!strings.Contains(metrics.UsageError, "zero token usage") {
 		t.Fatalf("metrics = %#v", metrics)
@@ -1121,6 +1160,22 @@ func TestAgentFindingAcceptsParenthesesInAngleBracketDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/tmp/My Repo (copy)/client.go" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestAgentFindingAcceptsEscapedClosingAngleInDestination(t *testing.T) {
+	input := `## Findings
+
+- [P2] Preserve escaped angle paths — [a>b.go:9](</repo/a\>b.go:9>)
+
+  The parser must retain a legal escaped closing angle in an angle-bracket destination.
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/a>b.go" {
 		t.Fatalf("findings = %#v", result.Findings)
 	}
 }

@@ -1,6 +1,7 @@
 package codexreview
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -29,50 +30,31 @@ type NativeFreezeManifest struct {
 type frozenNativeArtifacts struct {
 	FinalMessage []byte
 	Manifest     NativeFreezeManifest
+	InputTokens  *int64
+	OutputTokens *int64
+	UsageError   error
 }
 
 type rawArtifactSpec struct {
-	name string
-	path string
-	set  func(*frozenNativeArtifacts, []byte)
+	name     string
+	path     string
+	capture  bool
+	maxBytes int64
 }
 
 type lockedRawArtifact struct {
-	path string
-	file *os.File
+	path          string
+	file          *os.File
+	expectedBytes int64
+	expectedSHA   string
 }
 
 func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, error) {
 	frozen := frozenNativeArtifacts{Manifest: NativeFreezeManifest{SchemaVersion: 1, Artifacts: []FrozenArtifact{}}}
 	specs := []rawArtifactSpec{
-		{name: "final_message", path: layout.NativeReviewPath, set: func(target *frozenNativeArtifacts, raw []byte) { target.FinalMessage = raw }},
+		{name: "final_message", path: layout.NativeReviewPath, capture: true, maxBytes: maxNativeOutputBytes},
 		{name: "jsonl_stdout", path: layout.NativeStdoutPath},
 		{name: "stderr", path: layout.NativeStderrPath},
-	}
-	for _, spec := range specs {
-		entry := FrozenArtifact{Name: spec.name, Path: filepath.Base(spec.path)}
-		var err error
-		if spec.set != nil {
-			var raw []byte
-			raw, err = reviewsession.ReadRegularFile(spec.path, maxNativeOutputBytes)
-			if err == nil {
-				digest := sha256.Sum256(raw)
-				entry.Bytes = int64(len(raw))
-				entry.SHA256 = hex.EncodeToString(digest[:])
-				spec.set(&frozen, raw)
-			}
-		} else {
-			entry.Bytes, entry.SHA256, err = hashRegularFile(spec.path)
-		}
-		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return frozenNativeArtifacts{}, fmt.Errorf("read raw %s: %w", spec.name, err)
-			}
-			frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
-			continue
-		}
-		entry.Present = true
-		frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
 	}
 	locked := make([]lockedRawArtifact, 0, len(specs))
 	defer func() {
@@ -80,20 +62,32 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 			_ = artifact.file.Close()
 		}
 	}()
-	for index, spec := range specs {
-		entry := frozen.Manifest.Artifacts[index]
-		if !entry.Present {
+	for _, spec := range specs {
+		entry := FrozenArtifact{Name: spec.name, Path: filepath.Base(spec.path)}
+		file, raw, bytesRead, digest, err := snapshotRawArtifact(spec.path, spec.capture, spec.maxBytes)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return frozenNativeArtifacts{}, fmt.Errorf("snapshot raw %s: %w", spec.name, err)
+			}
+			frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
 			continue
 		}
-		file, err := lockRawArtifact(spec.path, entry.Bytes, entry.SHA256)
-		if err != nil {
-			return frozenNativeArtifacts{}, fmt.Errorf("lock raw %s: %w", spec.name, err)
+		entry.Bytes = bytesRead
+		entry.SHA256 = digest
+		entry.Present = true
+		frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
+		locked = append(locked, lockedRawArtifact{
+			path: spec.path, file: file, expectedBytes: bytesRead, expectedSHA: digest,
+		})
+		if spec.capture {
+			frozen.FinalMessage = raw
 		}
-		locked = append(locked, lockedRawArtifact{path: spec.path, file: file})
 	}
 	validateLockedPaths := func() error {
 		for _, artifact := range locked {
-			if err := validateLockedRawArtifact(artifact.path, artifact.file); err != nil {
+			if err := validateLockedRawArtifact(
+				artifact.path, artifact.file, artifact.expectedBytes, artifact.expectedSHA,
+			); err != nil {
 				return err
 			}
 		}
@@ -102,90 +96,114 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 	if err := writeDurableFreezeManifest(layout.NativeFreezePath, frozen.Manifest, validateLockedPaths); err != nil {
 		return frozenNativeArtifacts{}, fmt.Errorf("write raw freeze manifest: %w", err)
 	}
+	frozen.UsageError = os.ErrNotExist
+	for _, artifact := range locked {
+		if artifact.path != layout.NativeStdoutPath {
+			continue
+		}
+		frozen.InputTokens, frozen.OutputTokens, frozen.UsageError = readCodexUsageFile(artifact.file)
+		break
+	}
 	return frozen, nil
 }
 
-func hashRegularFile(path string) (int64, string, error) {
+func snapshotRawArtifact(path string, capture bool, maxBytes int64) (*os.File, []byte, int64, string, error) {
 	before, err := os.Lstat(path)
 	if err != nil {
-		return 0, "", err
+		return nil, nil, 0, "", err
 	}
 	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
-		return 0, "", errors.New("input must be a regular non-symlink file")
+		return nil, nil, 0, "", errors.New("input must be a regular non-symlink file")
 	}
-	file, err := os.Open(path)
+	source, err := os.Open(path)
 	if err != nil {
-		return 0, "", err
+		return nil, nil, 0, "", err
 	}
-	defer file.Close()
-	opened, err := file.Stat()
+	defer source.Close()
+	opened, err := source.Stat()
 	if err != nil {
-		return 0, "", err
+		return nil, nil, 0, "", err
 	}
 	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
-		return 0, "", errors.New("input changed while it was being read")
+		return nil, nil, 0, "", errors.New("input changed before it could be snapshotted")
 	}
-	bytesRead, digestText, err := hashFile(file)
-	if err != nil {
-		return 0, "", err
-	}
-	after, err := file.Stat()
-	if err != nil {
-		return 0, "", err
-	}
-	if !os.SameFile(opened, after) || opened.Size() != after.Size() || bytesRead != after.Size() {
-		return 0, "", errors.New("input changed while it was being read")
-	}
-	return bytesRead, digestText, nil
-}
 
-func lockRawArtifact(path string, expectedBytes int64, expectedSHA string) (*os.File, error) {
-	before, err := os.Lstat(path)
+	snapshot, err := os.CreateTemp(filepath.Dir(path), ".native-review-snapshot-")
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, "", err
 	}
-	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("input must be a regular non-symlink file")
-	}
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
-	if err != nil {
-		return nil, err
-	}
-	locked := false
+	temporaryPath := snapshot.Name()
+	installed := false
+	retained := false
 	defer func() {
-		if !locked {
-			_ = file.Close()
+		if !retained {
+			_ = snapshot.Close()
+		}
+		if !installed {
+			_ = os.Remove(temporaryPath)
 		}
 	}()
-	opened, err := file.Stat()
+
+	digest := sha256.New()
+	writers := []io.Writer{snapshot, digest}
+	var captured bytes.Buffer
+	if capture {
+		writers = append(writers, &captured)
+	}
+	reader := io.Reader(source)
+	if maxBytes > 0 {
+		reader = io.LimitReader(source, maxBytes+1)
+	}
+	bytesRead, err := io.Copy(io.MultiWriter(writers...), reader)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, "", err
 	}
-	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
-		return nil, errors.New("input changed before it could be locked")
+	if maxBytes > 0 && bytesRead > maxBytes {
+		return nil, nil, 0, "", fmt.Errorf("input exceeds %d bytes", maxBytes)
 	}
-	bytesRead, digest, err := hashFile(file)
+	digestText := hex.EncodeToString(digest.Sum(nil))
+	after, err := source.Stat()
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, "", err
 	}
-	after, err := file.Stat()
+	if !os.SameFile(opened, after) || opened.Size() != after.Size() || bytesRead != after.Size() {
+		return nil, nil, 0, "", errors.New("input changed while it was being snapshotted")
+	}
+	verifiedBytes, verifiedDigest, err := hashFile(source)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, "", err
 	}
-	if !os.SameFile(opened, after) || opened.Size() != after.Size() || bytesRead != expectedBytes || digest != expectedSHA {
-		return nil, errors.New("input no longer matches its freeze manifest entry")
+	if verifiedBytes != bytesRead || verifiedDigest != digestText {
+		return nil, nil, 0, "", errors.New("input changed while its snapshot was being verified")
 	}
-	if err := file.Sync(); err != nil {
-		return nil, err
+	pathInfo, err := os.Lstat(path)
+	if err != nil {
+		return nil, nil, 0, "", err
 	}
-	if err := file.Chmod(0o400); err != nil {
-		return nil, err
+	if !pathInfo.Mode().IsRegular() || !os.SameFile(pathInfo, opened) {
+		return nil, nil, 0, "", errors.New("input path changed while its snapshot was being prepared")
 	}
-	if err := validateLockedRawArtifact(path, file); err != nil {
-		return nil, err
+	if err := snapshot.Sync(); err != nil {
+		return nil, nil, 0, "", err
 	}
-	locked = true
-	return file, nil
+	if err := snapshot.Chmod(0o400); err != nil {
+		return nil, nil, 0, "", err
+	}
+	if err := snapshot.Sync(); err != nil {
+		return nil, nil, 0, "", err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return nil, nil, 0, "", err
+	}
+	installed = true
+	if err := validateLockedRawArtifact(path, snapshot, bytesRead, digestText); err != nil {
+		return nil, nil, 0, "", err
+	}
+	if err := syncDirectory(filepath.Dir(path)); err != nil {
+		return nil, nil, 0, "", err
+	}
+	retained = true
+	return snapshot, captured.Bytes(), bytesRead, digestText, nil
 }
 
 func hashFile(file *os.File) (int64, string, error) {
@@ -200,7 +218,7 @@ func hashFile(file *os.File) (int64, string, error) {
 	return bytesRead, hex.EncodeToString(digest.Sum(nil)), nil
 }
 
-func validateLockedRawArtifact(path string, file *os.File) error {
+func validateLockedRawArtifact(path string, file *os.File, expectedBytes int64, expectedSHA string) error {
 	pathInfo, err := os.Lstat(path)
 	if err != nil {
 		return err
@@ -209,10 +227,30 @@ func validateLockedRawArtifact(path string, file *os.File) error {
 	if err != nil {
 		return err
 	}
-	if !pathInfo.Mode().IsRegular() || !os.SameFile(pathInfo, fileInfo) || pathInfo.Size() != fileInfo.Size() || fileInfo.Mode().Perm() != 0o400 {
+	if !pathInfo.Mode().IsRegular() || !os.SameFile(pathInfo, fileInfo) || pathInfo.Size() != expectedBytes ||
+		fileInfo.Size() != expectedBytes || fileInfo.Mode().Perm() != 0o400 {
 		return errors.New("raw artifact path no longer names the locked inode")
 	}
+	bytesRead, digest, err := hashFile(file)
+	if err != nil {
+		return err
+	}
+	if bytesRead != expectedBytes || digest != expectedSHA {
+		return errors.New("raw artifact no longer matches its freeze manifest entry")
+	}
 	return nil
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	if err := directory.Sync(); err != nil {
+		directory.Close()
+		return err
+	}
+	return directory.Close()
 }
 
 func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, validate func() error) error {
@@ -254,13 +292,5 @@ func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, vali
 		return err
 	}
 	installed = true
-	directory, err := os.Open(directoryPath)
-	if err != nil {
-		return err
-	}
-	if err := directory.Sync(); err != nil {
-		directory.Close()
-		return err
-	}
-	return directory.Close()
+	return syncDirectory(directoryPath)
 }

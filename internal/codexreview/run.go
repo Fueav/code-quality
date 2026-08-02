@@ -227,7 +227,7 @@ func Run(ctx context.Context, options Options) (quality.NativeReviewResult, erro
 	if err != nil {
 		return quality.NativeReviewResult{}, err
 	}
-	metrics := collectRunMetrics(options, time.Since(started), int64(len(trustedDiff)))
+	metrics := collectRunMetrics(options, time.Since(started), int64(len(trustedDiff)), frozen)
 	if err := writeExclusiveJSON(reviewsession.NewLayout(options.Prepared.SessionDir).NativeMetricsPath, metrics); err != nil {
 		return quality.NativeReviewResult{}, fmt.Errorf("write native run metrics: %w", err)
 	}
@@ -333,79 +333,26 @@ func buildReviewInvocation(options Options) Invocation {
 	}
 }
 
-func collectRunMetrics(options Options, duration time.Duration, trustedDiffBytes int64) NativeRunMetrics {
+func collectRunMetrics(options Options, duration time.Duration, trustedDiffBytes int64, frozen frozenNativeArtifacts) NativeRunMetrics {
 	metrics := NativeRunMetrics{
 		SchemaVersion: 1, DurationMS: duration.Milliseconds(),
 		ChangedFileCount: len(options.Request.ChangedFiles), TrustedDiffBytes: trustedDiffBytes,
 	}
-	inputTokens, outputTokens, err := readCodexUsage(reviewsession.NewLayout(options.Prepared.SessionDir).NativeStdoutPath)
-	if err != nil {
-		metrics.UsageError = err.Error()
+	if frozen.UsageError != nil {
+		metrics.UsageError = frozen.UsageError.Error()
 		return metrics
 	}
-	metrics.InputTokens = inputTokens
-	metrics.OutputTokens = outputTokens
-	metrics.UsageAvailable = inputTokens != nil && outputTokens != nil
+	metrics.InputTokens = frozen.InputTokens
+	metrics.OutputTokens = frozen.OutputTokens
+	metrics.UsageAvailable = frozen.InputTokens != nil && frozen.OutputTokens != nil
 	return metrics
 }
 
-func collectRunMetricsFromJSONL(options Options, duration time.Duration, trustedDiffBytes int64, raw []byte) NativeRunMetrics {
-	metrics := NativeRunMetrics{
-		SchemaVersion: 1, DurationMS: duration.Milliseconds(),
-		ChangedFileCount: len(options.Request.ChangedFiles), TrustedDiffBytes: trustedDiffBytes,
-	}
-	inputTokens, outputTokens, err := decodeCodexUsage(raw)
-	if err != nil {
-		metrics.UsageError = err.Error()
-		return metrics
-	}
-	metrics.InputTokens = inputTokens
-	metrics.OutputTokens = outputTokens
-	metrics.UsageAvailable = inputTokens != nil && outputTokens != nil
-	return metrics
-}
-
-func unavailableRunMetrics(options Options, duration time.Duration, trustedDiffBytes int64, err error) NativeRunMetrics {
-	return NativeRunMetrics{
-		SchemaVersion: 1, DurationMS: duration.Milliseconds(),
-		ChangedFileCount: len(options.Request.ChangedFiles), TrustedDiffBytes: trustedDiffBytes,
-		UsageError: err.Error(),
-	}
-}
-
-func readCodexUsage(path string) (*int64, *int64, error) {
-	before, err := os.Lstat(path)
-	if err != nil {
+func readCodexUsageFile(file *os.File) (*int64, *int64, error) {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, nil, err
 	}
-	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
-		return nil, nil, errors.New("Codex JSONL must be a regular non-symlink file")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil {
-		return nil, nil, err
-	}
-	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
-		return nil, nil, errors.New("Codex JSONL changed while it was being read")
-	}
-	inputTokens, outputTokens, decodeErr := decodeCodexUsageReader(file)
-	after, statErr := file.Stat()
-	if statErr != nil {
-		return nil, nil, statErr
-	}
-	if !os.SameFile(opened, after) || opened.Size() != after.Size() {
-		return nil, nil, errors.New("Codex JSONL changed while it was being read")
-	}
-	return inputTokens, outputTokens, decodeErr
-}
-
-func decodeCodexUsage(raw []byte) (*int64, *int64, error) {
-	return decodeCodexUsageReader(strings.NewReader(string(raw)))
+	return decodeCodexUsageReader(file)
 }
 
 func decodeCodexUsageReader(reader io.Reader) (*int64, *int64, error) {
@@ -832,16 +779,32 @@ func readMarkdownDestination(raw string, start int) (string, int, bool) {
 		return "", 0, false
 	}
 	if raw[start] == '<' {
-		endOffset := strings.Index(raw[start+1:], ">)")
-		if endOffset < 0 {
-			return "", 0, false
+		escaped := false
+		for index := start + 1; index < len(raw); index++ {
+			character := raw[index]
+			if character == '\n' || character == '\r' {
+				return "", 0, false
+			}
+			if escaped {
+				escaped = false
+				continue
+			}
+			if character == '\\' {
+				escaped = true
+				continue
+			}
+			if character == '<' {
+				return "", 0, false
+			}
+			if character != '>' {
+				continue
+			}
+			if index+1 >= len(raw) || raw[index+1] != ')' || index == start+1 {
+				return "", 0, false
+			}
+			return unescapeMarkdownDestination(raw[start+1 : index]), index + 2, true
 		}
-		end := start + 1 + endOffset
-		destination := raw[start+1 : end]
-		if destination == "" || strings.ContainsAny(destination, "\r\n>") {
-			return "", 0, false
-		}
-		return unescapeMarkdownDestination(destination), end + 2, true
+		return "", 0, false
 	}
 	depth := 1
 	escaped := false

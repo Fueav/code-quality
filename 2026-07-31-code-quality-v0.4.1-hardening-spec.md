@@ -21,10 +21,11 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 ## Raw evidence freeze
 
 - After the direct Codex process exits, the executor drains its stdout and stderr pipes to EOF with a bounded fail-closed wait so descendant writers cannot mutate evidence after hashing. Before any parser or classifier runs, the product validates the final message, JSONL stdout, and stderr as regular non-symlink files. The bounded final message is retained byte-for-byte for classification, while potentially large JSONL and stderr artifacts are streamed to their hashes without a total-size parser limit.
-- It reopens each present artifact once, verifies the expected bytes and SHA-256 on that descriptor, syncs and locks that inode to `0400`, retains every descriptor, and revalidates each pathname-to-inode binding immediately before atomically publishing one exclusive freeze manifest.
+- For each present artifact it copies one verified regular-file descriptor into a newly created exclusive inode, bounds only the captured final message, and rehashes the source descriptor before installation. It syncs the snapshot, changes it to `0400`, syncs the final metadata, atomically replaces the raw pathname with that snapshot, and retains the snapshot descriptor through manifest publication.
 - The published schema fixes exactly one ordered entry for the final message, JSONL stdout, and stderr; every present artifact requires its digest.
-- Present raw artifacts become read-only before the manifest is published, their descriptors remain open until it is durable, and the manifest itself is set to `0400` through its temporary descriptor before its hard link is installed.
+- Present raw artifacts become read-only before the manifest is published, old writable descriptors no longer reference their published inodes, and every pathname, size, digest, and mode is revalidated through the retained descriptor immediately before publication. The manifest itself is set to `0400` and synced through its temporary descriptor before its hard link is installed.
 - Classification consumes the exact frozen final-message bytes already held in memory; it must not rewrite or replace the raw artifact.
+- Usage metrics are decoded from the retained frozen JSONL descriptor, never by reopening its writable parent directory by pathname.
 - The session summary exposes the freeze manifest path, and the session remains retained after checkout cleanup.
 
 ## Thin deterministic classification

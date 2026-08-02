@@ -163,3 +163,14 @@ The fifteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and comp
 - an indented fenced block after trailing assessment began could be appended back into the previous finding body.
 
 All three defects and the linked-title classification gap now have deterministic regression coverage. Each present raw artifact is rehashed, synced, and chmodded through one verified descriptor; every pathname is rebound to that inode immediately before the manifest is hard-linked, and descriptors remain open until publication completes. Fence closing indentation is interpreted relative to its opening list-container indentation, trailing assessment stays terminal, and a location link may supply the title only when no separate title precedes it. The fifteenth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Sixteenth candidate review RED
+
+The sixteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 1,001,051 ms with 5,901,782 input tokens and 44,857 output tokens. Independent SHA-256 checks matched all three `0400` raw artifacts: the 2,426-byte final message had digest `ae807286e65596f5ac899d1196c60fa72d6be544f1ffbea8686668161e32bf9b`, the 703,273-byte JSONL had digest `f358b6a1b4bc4d826b49810321f09b11c1107c941b785e172ec0806c05cfad8b`, and the 2,706-byte stderr had digest `e9dc3ad462786f7022fe6e69e176afd39376f346a56868f49182e955af96e846`. The recursion marker and isolated checkout were absent after completion, and deterministic classification retained all four candidates with zero adapter drops. The review found:
+
+- changing an artifact to `0400` did not revoke an already-open writable descriptor, which could mutate equal-length evidence after its digest check;
+- metrics reopened JSONL by pathname after the verified descriptors closed and could consume replacement content;
+- the raw artifact inode was synced before, but not after, its final read-only mode change;
+- an escaped `\>` inside a legal angle-bracket Markdown destination was rejected before the later unescaped closing bracket.
+
+The first, second, and fourth defects failed focused probes before implementation; inspection separately confirmed the missing post-`chmod` sync. Freezing now copies each verified source into an exclusive new inode, verifies the source again, syncs content and final `0400` metadata, atomically installs the snapshot, and retains and revalidates that descriptor through manifest publication. Old writers address only the unlinked source inode, metrics decode from the retained frozen JSONL descriptor, and the angle-bracket scanner distinguishes escaped from closing `>`. The sixteenth candidate smoke remains diagnostic evidence and is not release acceptance.
