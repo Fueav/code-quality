@@ -114,3 +114,13 @@ The tenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and complete
 - the 10 MiB parser bound was also applied to entire JSONL and stderr artifacts, so a legitimate long native run could fail before its evidence was frozen.
 
 Both cases reproduced before implementation. Canonical containment now resolves every path component and symlink target in traversal order, including parent components introduced by a symlink target. The final message remains bounded and held byte-for-byte for classification, while JSONL and stderr are streamed for hashing and JSONL metrics are streamed with a per-event bound rather than a whole-log limit. The tenth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Eleventh candidate review RED
+
+The eleventh fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 1,366,426 ms with 5,142,302 input tokens and 62,751 output tokens. Independent SHA-256 checks matched all three `0400` frozen raw artifacts: the 1,988-byte final message had digest `ede4dfa757ae043984024ac059ba11bd8c7e3d5920488bccbff5a18db869edb4`, the 650,731-byte JSONL had digest `8e217a86b83f96cce510b1c9a419aaa2ade537f659239588ce481b66b7b5ef06`, and the 2,706-byte stderr had digest `1a49dc1dc62cff94d019b8f35c0f6ff8bb894eb6ab2de9a1782a164eddcfd32f`. The recursion marker was absent after completion, and deterministic classification retained all three candidates with zero adapter drops. The review found:
+
+- a descendant process retaining inherited stdout or stderr could append after the direct Codex process exited and after the evidence was hashed;
+- a missing or regular-file component followed by `..` could be falsely traversed into a changed file even though the operating system would stop with `ENOENT` or `ENOTDIR`;
+- caller-supplied casing was retained for existing entries on case-insensitive APFS, so the same inode could be rejected by later lexical containment or changed-file matching.
+
+All three cases reproduced before implementation, including the case-insensitive identity failure on the release host. Codex stdout and stderr now pass through executor-owned pipes that are drained to EOF with a bounded fail-closed wait before freezing. Canonicalization rejects parent traversal after a missing component and any suffix after a non-directory component, and it recovers the actual directory-entry spelling by filesystem identity. The eleventh candidate smoke remains diagnostic evidence and is not release acceptance.

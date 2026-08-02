@@ -21,6 +21,7 @@ import (
 
 const (
 	maxNativeOutputBytes         = int64(10 << 20)
+	processOutputDrainTimeout    = 5 * time.Second
 	DiscoveryChildMarkerName     = ".code-quality-native-discovery-child-v1"
 	discoveryChildMarkerContents = "code-quality native discovery child v1\n"
 )
@@ -52,6 +53,10 @@ type Executor interface {
 
 type ProcessExecutor struct{}
 
+type processOutputWriter struct {
+	io.Writer
+}
+
 func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 	stdout, err := os.OpenFile(invocation.StdoutPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -67,8 +72,9 @@ func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 	command := exec.CommandContext(ctx, invocation.Executable, invocation.Args...)
 	command.Dir = invocation.Dir
 	command.Stdin = strings.NewReader(invocation.Stdin)
-	command.Stdout = stdout
-	command.Stderr = stderr
+	command.Stdout = processOutputWriter{Writer: stdout}
+	command.Stderr = processOutputWriter{Writer: stderr}
+	command.WaitDelay = processOutputDrainTimeout
 	markerPath, err := installDiscoveryChildMarker(invocation.Dir)
 	if err != nil {
 		return fmt.Errorf("install discovery child marker: %w", err)
@@ -1063,13 +1069,32 @@ func canonicalPath(path string) (string, error) {
 		candidate := filepath.Join(resolved, component)
 		info, err := os.Lstat(candidate)
 		if errors.Is(err, os.ErrNotExist) {
+			for _, unresolved := range pending {
+				if unresolved == ".." {
+					return "", errors.New("parent traversal follows a missing path component")
+				}
+			}
 			resolved = candidate
+			for _, unresolved := range pending {
+				if unresolved != "." {
+					resolved = filepath.Join(resolved, unresolved)
+				}
+			}
+			pending = nil
 			continue
 		}
 		if err != nil {
 			return "", err
 		}
+		actualComponent, err := canonicalComponentName(resolved, component, info)
+		if err != nil {
+			return "", err
+		}
+		candidate = filepath.Join(resolved, actualComponent)
 		if info.Mode()&os.ModeSymlink == 0 {
+			if len(pending) > 0 && !info.IsDir() {
+				return "", errors.New("non-directory path component")
+			}
 			resolved = candidate
 			continue
 		}
@@ -1087,6 +1112,32 @@ func canonicalPath(path string) (string, error) {
 		pending = append(pathComponents(target), pending...)
 	}
 	return filepath.Clean(resolved), nil
+}
+
+func canonicalComponentName(parent, requested string, requestedInfo os.FileInfo) (string, error) {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return "", err
+	}
+	for pass := 0; pass < 3; pass++ {
+		for _, entry := range entries {
+			name := entry.Name()
+			if pass == 0 && name != requested {
+				continue
+			}
+			if pass == 1 && (name == requested || !strings.EqualFold(name, requested)) {
+				continue
+			}
+			if pass == 2 && (name == requested || strings.EqualFold(name, requested)) {
+				continue
+			}
+			entryInfo, err := os.Lstat(filepath.Join(parent, name))
+			if err == nil && os.SameFile(requestedInfo, entryInfo) {
+				return name, nil
+			}
+		}
+	}
+	return "", errors.New("path component changed during canonicalization")
 }
 
 func pathComponents(path string) []string {

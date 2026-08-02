@@ -126,6 +126,72 @@ func TestProcessExecutorRemovesDiscoveryMarkerAfterFailure(t *testing.T) {
 	}
 }
 
+func TestProcessExecutorQuiescesDescendantWriters(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "input", "repository")
+	output := filepath.Join(root, "output")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(output, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODE_QUALITY_PROCESS_EXECUTOR_HELPER", "parent")
+	stdoutPath := filepath.Join(output, "stdout")
+	err := (ProcessExecutor{}).Run(context.Background(), Invocation{
+		Executable: os.Args[0],
+		Args:       []string{"-test.run=^TestProcessExecutorDescendantWriterHelper$"},
+		Dir:        repository,
+		StdoutPath: stdoutPath,
+		StderrPath: filepath.Join(output, "stderr"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "descendant completed\n") {
+		t.Fatalf("executor returned before descendant output: %q", raw)
+	}
+	before, err := os.Stat(stdoutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	after, err := os.Stat(stdoutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
+		t.Fatalf("stdout changed after executor returned: before=%v after=%v", before, after)
+	}
+}
+
+func TestProcessExecutorDescendantWriterHelper(t *testing.T) {
+	switch os.Getenv("CODE_QUALITY_PROCESS_EXECUTOR_HELPER") {
+	case "":
+		return
+	case "parent":
+		command := exec.Command(os.Args[0], "-test.run=^TestProcessExecutorDescendantWriterHelper$")
+		command.Env = append(os.Environ(), "CODE_QUALITY_PROCESS_EXECUTOR_HELPER=descendant")
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+		if err := command.Start(); err != nil {
+			os.Exit(2)
+		}
+		fmt.Fprintln(os.Stdout, "parent completed")
+		os.Exit(0)
+	case "descendant":
+		time.Sleep(200 * time.Millisecond)
+		fmt.Fprintln(os.Stdout, "descendant completed")
+		os.Exit(0)
+	default:
+		os.Exit(2)
+	}
+}
+
 func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	raw := agentFindingOutput(filepath.Join(prepared.RepositoryDir, "app.go"), "preserve the result", "The changed branch returns the wrong value.", 1)
@@ -392,6 +458,80 @@ func TestAdaptFindingsRejectsDanglingSymlinkTargetTraversalEscape(t *testing.T) 
 		},
 	}}, repository, []string{"config/current"})
 	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location is outside the isolated checkout" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
+func TestAdaptFindingsRejectsTraversalAfterUnresolvableComponent(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		makePivot func(string) error
+	}{
+		{name: "missing component", makePivot: func(string) error { return nil }},
+		{name: "non-directory component", makePivot: func(path string) error {
+			return os.WriteFile(path, []byte("not a directory\n"), 0o600)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repository := t.TempDir()
+			config := filepath.Join(repository, "config")
+			if err := os.MkdirAll(config, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(config, "changed.go"), []byte("package config\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := test.makePivot(filepath.Join(config, "pivot")); err != nil {
+				t.Fatal(err)
+			}
+			aliasPath := filepath.Join(config, "current")
+			target := "pivot" + string(filepath.Separator) + ".." + string(filepath.Separator) + "changed.go"
+			if err := os.Symlink(target, aliasPath); err != nil {
+				t.Fatal(err)
+			}
+
+			findings, drops := adaptFindings([]nativeFinding{{
+				Title: "reject an unresolvable alias", Body: "The filesystem cannot traverse this alias to the changed file.", Priority: 2,
+				CodeLocation: nativeCodeLocation{
+					AbsoluteFilePath: aliasPath,
+					LineRange:        nativeLineRange{Start: 1, End: 1},
+				},
+			}}, repository, []string{"config/changed.go"})
+			if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location cannot be canonicalized" {
+				t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+			}
+		})
+	}
+}
+
+func TestAdaptFindingsPreservesCaseInsensitivePathIdentity(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "RepositoryCase")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	changedPath := filepath.Join(repository, "ChangedFile.go")
+	if err := os.WriteFile(changedPath, []byte("package repository\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidatePath := filepath.Join(root, "repositorycase", "changedfile.go")
+	actualInfo, err := os.Lstat(changedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateInfo, err := os.Lstat(candidatePath)
+	if err != nil || !os.SameFile(actualInfo, candidateInfo) {
+		t.Skip("test volume is case-sensitive")
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "preserve filesystem identity", Body: "The model used different casing for the same changed file.", Priority: 2,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: candidatePath,
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, repository, []string{"ChangedFile.go"})
+	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "ChangedFile.go" {
 		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
 	}
 }
