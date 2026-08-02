@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -242,7 +241,8 @@ func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 1 {
+	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 0 ||
+		len(result.Execution.AdapterDrops) != 0 {
 		t.Fatalf("result = %#v", result)
 	}
 	layout := reviewsession.NewLayout(prepared.SessionDir)
@@ -280,349 +280,6 @@ func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 	}
 	if err := os.WriteFile(prepared.NativeReviewPath, []byte("changed"), 0o600); err == nil {
 		t.Fatal("frozen raw review was overwritten")
-	}
-}
-
-func TestAdaptFindingsAcceptsCanonicalEquivalentCheckoutRoots(t *testing.T) {
-	root := t.TempDir()
-	realRepository := filepath.Join(root, "real-repository")
-	aliasRepository := filepath.Join(root, "alias-repository")
-	if err := os.MkdirAll(realRepository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(realRepository, "app.go"), []byte("package app\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(realRepository, aliasRepository); err != nil {
-		t.Fatal(err)
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "preserve behavior", Body: "The changed branch returns the wrong value.", Priority: 1,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: filepath.Join(realRepository, "app.go"),
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, aliasRepository, []string{"app.go"})
-	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "app.go" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsRejectsCanonicalSymlinkEscape(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "repository")
-	outside := filepath.Join(root, "outside")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(outside, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(outside, "app.go"), []byte("package app\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(repository, "linked")); err != nil {
-		t.Fatal(err)
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "outside candidate", Body: "This location resolves outside the checkout.", Priority: 1,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: filepath.Join(repository, "linked", "app.go"),
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"linked/app.go"})
-	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location is outside the isolated checkout" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsRejectsParentTraversalBeforeSymlinkResolution(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "repository")
-	outside := filepath.Join(root, "outside")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(outside, "nested"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repository, "app.go"), []byte("package app\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(outside, "nested"), filepath.Join(repository, "escape")); err != nil {
-		t.Fatal(err)
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "reject escaped traversal", Body: "The location crosses the symlink boundary before returning to app.go.", Priority: 1,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: repository + string(filepath.Separator) + "escape" + string(filepath.Separator) + ".." + string(filepath.Separator) + "app.go",
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"app.go"})
-	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location contains parent traversal" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsPreservesChangedSymlinkPath(t *testing.T) {
-	repository := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repository, "config"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(repository, "versions"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repository, "versions", "v2"), []byte("enabled=true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	logicalPath := filepath.Join(repository, "config", "current")
-	if err := os.Symlink(filepath.Join("..", "versions", "v2"), logicalPath); err != nil {
-		t.Fatal(err)
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "preserve active configuration", Body: "The changed link selects the wrong version.", Priority: 2,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: logicalPath,
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"config/current"})
-	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "config/current" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsFallsBackFromUnchangedAliasToChangedTarget(t *testing.T) {
-	repository := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repository, "config"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(repository, "versions"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repository, "versions", "v2"), []byte("enabled=true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	aliasPath := filepath.Join(repository, "config", "current")
-	if err := os.Symlink(filepath.Join("..", "versions", "v2"), aliasPath); err != nil {
-		t.Fatal(err)
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "preserve active configuration", Body: "The changed target enables the wrong behavior.", Priority: 2,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: aliasPath,
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"versions/v2"})
-	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "versions/v2" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsResolvesDanglingAliasToDeletedChangedTarget(t *testing.T) {
-	repository := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repository, "config"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(repository, "versions"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	aliasPath := filepath.Join(repository, "config", "current")
-	if err := os.Symlink(filepath.Join("..", "versions", "v2"), aliasPath); err != nil {
-		t.Fatal(err)
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "preserve deleted target handling", Body: "The unchanged alias still exposes the deleted target.", Priority: 2,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: aliasPath,
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"versions/v2"})
-	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "versions/v2" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsRejectsChangedDanglingSymlinkEscape(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "repository")
-	if err := os.MkdirAll(filepath.Join(repository, "config"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	aliasPath := filepath.Join(repository, "config", "current")
-	if err := os.Symlink(filepath.Join(root, "outside", "missing"), aliasPath); err != nil {
-		t.Fatal(err)
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "reject escaped target", Body: "The changed link points outside the checkout.", Priority: 1,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: aliasPath,
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"config/current"})
-	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location is outside the isolated checkout" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsRejectsDanglingSymlinkTargetTraversalEscape(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "repository")
-	config := filepath.Join(repository, "config")
-	outside := filepath.Join(root, "outside")
-	if err := os.MkdirAll(config, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(outside, "nested"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(outside, "nested"), filepath.Join(config, "pivot")); err != nil {
-		t.Fatal(err)
-	}
-	aliasPath := filepath.Join(config, "current")
-	target := "pivot" + string(filepath.Separator) + ".." + string(filepath.Separator) + "missing"
-	if err := os.Symlink(target, aliasPath); err != nil {
-		t.Fatal(err)
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "reject escaped dangling target", Body: "The chained target resolves outside the checkout before reaching its missing leaf.", Priority: 1,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: aliasPath,
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"config/current"})
-	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location is outside the isolated checkout" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsRejectsTraversalAfterUnresolvableComponent(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		makePivot func(string) error
-	}{
-		{name: "missing component", makePivot: func(string) error { return nil }},
-		{name: "non-directory component", makePivot: func(path string) error {
-			return os.WriteFile(path, []byte("not a directory\n"), 0o600)
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			repository := t.TempDir()
-			config := filepath.Join(repository, "config")
-			if err := os.MkdirAll(config, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(config, "changed.go"), []byte("package config\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if err := test.makePivot(filepath.Join(config, "pivot")); err != nil {
-				t.Fatal(err)
-			}
-			aliasPath := filepath.Join(config, "current")
-			target := "pivot" + string(filepath.Separator) + ".." + string(filepath.Separator) + "changed.go"
-			if err := os.Symlink(target, aliasPath); err != nil {
-				t.Fatal(err)
-			}
-
-			findings, drops := adaptFindings([]nativeFinding{{
-				Title: "reject an unresolvable alias", Body: "The filesystem cannot traverse this alias to the changed file.", Priority: 2,
-				CodeLocation: nativeCodeLocation{
-					AbsoluteFilePath: aliasPath,
-					LineRange:        nativeLineRange{Start: 1, End: 1},
-				},
-			}}, repository, []string{"config/changed.go"})
-			if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location cannot be canonicalized" {
-				t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-			}
-		})
-	}
-}
-
-func TestAdaptFindingsPreservesCaseInsensitivePathIdentity(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "RepositoryCase")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	changedPath := filepath.Join(repository, "ChangedFile.go")
-	if err := os.WriteFile(changedPath, []byte("package repository\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	candidatePath := filepath.Join(root, "repositorycase", "changedfile.go")
-	actualInfo, err := os.Lstat(changedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidateInfo, err := os.Lstat(candidatePath)
-	if err != nil || !os.SameFile(actualInfo, candidateInfo) {
-		t.Skip("test volume is case-sensitive")
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "preserve filesystem identity", Body: "The model used different casing for the same changed file.", Priority: 2,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: candidatePath,
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"ChangedFile.go"})
-	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "ChangedFile.go" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestAdaptFindingsPreservesDeletedCaseInsensitivePathIdentity(t *testing.T) {
-	root := t.TempDir()
-	repository := filepath.Join(root, "RepositoryCase")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	aliasRepository := filepath.Join(root, "repositorycase")
-	actualInfo, err := os.Lstat(repository)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aliasInfo, err := os.Lstat(aliasRepository)
-	if err != nil || !os.SameFile(actualInfo, aliasInfo) {
-		t.Skip("test volume is case-sensitive")
-	}
-
-	findings, drops := adaptFindings([]nativeFinding{{
-		Title: "preserve deleted filesystem identity", Body: "The model used different casing for the deleted changed file.", Priority: 2,
-		CodeLocation: nativeCodeLocation{
-			AbsoluteFilePath: filepath.Join(aliasRepository, "deletedfile.go"),
-			LineRange:        nativeLineRange{Start: 1, End: 1},
-		},
-	}}, repository, []string{"DeletedFile.go"})
-	if len(findings) != 1 || len(drops) != 0 || findings[0].CodeLocation.Path != "DeletedFile.go" {
-		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
-	}
-}
-
-func TestCaseSensitivityProbeStopsAtMountBoundary(t *testing.T) {
-	mountPath := filepath.Join(string(filepath.Separator), "dev")
-	mountInfo, err := os.Lstat(mountPath)
-	if err != nil {
-		t.Skip("/dev is unavailable")
-	}
-	alternateMountInfo, err := os.Lstat(filepath.Join(string(filepath.Separator), "Dev"))
-	if err != nil || !os.SameFile(mountInfo, alternateMountInfo) {
-		t.Skip("parent filesystem does not expose a case-insensitive /dev lookup")
-	}
-	if _, err := os.Lstat(filepath.Join(mountPath, "fd")); err != nil {
-		t.Skip("/dev/fd is unavailable")
-	}
-	if _, err := os.Lstat(filepath.Join(mountPath, "Fd")); !errors.Is(err, os.ErrNotExist) {
-		t.Skip("mounted /dev filesystem is not observably case-sensitive")
-	}
-	if pathUsesCaseInsensitiveIdentity(mountPath) {
-		t.Fatal("case-sensitive mounted filesystem inherited its parent's case semantics")
 	}
 }
 
@@ -859,681 +516,27 @@ func TestNativeReviewPromptOmitsUnsuppliedGoal(t *testing.T) {
 	}
 }
 
-func TestAgentOutputParsesObservedMarkdownFormats(t *testing.T) {
-	for name, input := range map[string]string{
-		"findings heading": `## Findings
-
-- [P2] Guard the pagination end calculation against overflow — [filtered_pagination.go:79](/private/tmp/review/types/query/filtered_pagination.go:79)
-
-  Offset and Limit are user-controlled, so their sum can wrap.
-`,
-		"numbered bold": `Findings, ordered by severity:
-
-1. **[P1] Refuse to overwrite existing drafts** — [prompt.go:292](/private/tmp/review/x/gov/client/cli/prompt.go:292)
-
-   The command silently truncates previously edited drafts.
-`,
-		"inline bold": `Found one actionable defect.
-
-- **[P2] Reject invalid integer prompt input** — [prompt.go:97](/private/tmp/review/x/gov/client/cli/prompt.go:97). Invalid input is silently replaced with zero.
-`,
-		"standalone localized list": `- [P1] 保留调用方上下文 — [client.go:17](/private/tmp/review/client.go:17)
-
-  新分支丢失了调用方的取消信号。
-`,
-		"angle bracket destination": `## Findings
-
-- [P2] Preserve paths containing spaces — [client.go:12](</private/tmp/My Repo/client.go:12>)
-
-  The current parser rejects the closing angle bracket.
-`,
+func TestNativeDocumentClassifierOnlyPassesExactNoFindingsSentinels(t *testing.T) {
+	for _, input := range []string{
+		"No findings.\n",
+		"No actionable findings.\r\n",
+		"  No actionable defects found.  \n",
 	} {
-		t.Run(name, func(t *testing.T) {
-			result, err := parseNativeReviewText(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 1 || result.Findings[0].Priority < 1 || result.Findings[0].Body == "" {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestAgentOutputAcceptsAllCommonMarkListMarkers(t *testing.T) {
-	for name, marker := range map[string]string{"plus bullet": "+", "parenthesized order": "1)"} {
-		t.Run(name, func(t *testing.T) {
-			input := marker + " [P2] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)\n\n" +
-				"  The new branch drops caller cancellation.\n"
-			result, err := parseNativeReviewText(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 1 {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestAgentOutputAcceptsCommonMarkTopLevelIndentation(t *testing.T) {
-	for indentation := 1; indentation <= 3; indentation++ {
-		t.Run(fmt.Sprintf("%d spaces", indentation), func(t *testing.T) {
-			prefix := strings.Repeat(" ", indentation)
-			input := prefix + "- [P2] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)\n\n" +
-				prefix + "  The new branch drops caller cancellation.\n"
-			result, err := parseNativeReviewText(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 1 || result.Findings[0].Body != "The new branch drops caller cancellation." {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestNativeOutputAcceptsCommonMarkTopLevelIndentation(t *testing.T) {
-	for indentation := 1; indentation <= 3; indentation++ {
-		t.Run(fmt.Sprintf("%d spaces", indentation), func(t *testing.T) {
-			prefix := strings.Repeat(" ", indentation)
-			input := prefix + "Review comment:\n\n" +
-				prefix + "- [P1] Preserve cancellation — /private/tmp/review/client.go:17\n" +
-				prefix + "  The new branch drops caller cancellation.\n"
-			result, err := parseNativeReviewText(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 1 || result.Findings[0].Body != "The new branch drops caller cancellation." {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestIndentedAgentPriorityBulletRemainsBodyText(t *testing.T) {
-	input := `- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
-
-  The new branch drops caller cancellation.
-  - [P2] Quoted counterexample — [other.go:8](/private/tmp/review/other.go:8)
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || !strings.Contains(result.Findings[0].Body, "Quoted counterexample") {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestIndentedNativePriorityBulletRemainsBodyText(t *testing.T) {
-	input := `Review comment:
-
-- [P1] Preserve cancellation — /private/tmp/review/client.go:17
-  The new branch drops caller cancellation.
-  - [P2] Quoted counterexample — /private/tmp/review/other.go:8
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || !strings.Contains(result.Findings[0].Body, "Quoted counterexample") {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestReadNativeOutputParsesNativeReviewText(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "native-review.txt")
-	file := "/private/tmp/review/input/repository/client.go"
-	contents := `The refactor discards the request context and prevents cancellation.
-
-Review comment:
-
-- [P0] Propagate the caller context to the downstream call — ` + file + `:24-24
-  When the downstream response never arrives, context.Background is never canceled.
-`
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatal(err)
+		if !isExplicitNoFindingsDocument(input) {
+			t.Fatalf("exact no-findings document was not accepted: %q", input)
+		}
 	}
 
-	result, err := readNativeOutput(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-	finding := result.Findings[0]
-	if finding.Title != "Propagate the caller context to the downstream call" || finding.Priority != 0 || finding.Body != "When the downstream response never arrives, context.Background is never canceled." {
-		t.Fatalf("finding = %#v", finding)
-	}
-	if finding.CodeLocation.AbsoluteFilePath != file || finding.CodeLocation.LineRange.Start != 24 || finding.CodeLocation.LineRange.End != 24 {
-		t.Fatalf("location = %#v", finding.CodeLocation)
-	}
-}
-
-func TestReadNativeOutputAcceptsExplicitNoFindingsText(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "native-review.txt")
-	if err := os.WriteFile(path, []byte("No findings.\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := readNativeOutput(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 0 {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestNativeOutputRejectsNoFindingsWithTrailingProse(t *testing.T) {
-	input := "No actionable defects found.\n\nHowever, this branch leaks credentials.\n"
-	if _, err := parseNativeReviewText(input); err == nil {
-		t.Fatal("unparsed prose after no-findings sentinel was accepted as PASS evidence")
-	}
-}
-
-func TestNativeOutputAcceptsHeadedNoFindings(t *testing.T) {
-	for _, heading := range []string{"## Findings", "Review findings:", "Review comments:"} {
-		t.Run(heading, func(t *testing.T) {
-			result, err := parseNativeReviewText(heading + "\n\nNo findings.\n")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 0 {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestNativeOutputAcceptsHeadedNoFindingsAfterIntroduction(t *testing.T) {
-	input := "Review complete.\n\n## Findings\n\nNo findings.\n"
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 0 {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestNativeOutputIgnoresIndentedCodeBeforeHeadedNoFindings(t *testing.T) {
-	input := "    - [P1] Example only — [example.go:4](/private/tmp/review/example.go:4)\n\n## Findings\n\nNo findings.\n"
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 0 {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestNativeOutputRejectsFencedContentBeforeHeadedNoFindings(t *testing.T) {
-	input := "## Findings\n\n```text\nassessment\n```\n\nNo findings.\n"
-	if _, err := parseNativeReviewText(input); err == nil {
-		t.Fatal("fenced assessment before a no-findings sentinel was skipped")
-	}
-}
-
-func TestNativeOutputAcceptsCommonMarkIndentedNoFindings(t *testing.T) {
-	for indentation := 1; indentation <= 3; indentation++ {
-		t.Run(fmt.Sprintf("%d spaces", indentation), func(t *testing.T) {
-			prefix := strings.Repeat(" ", indentation)
-			result, err := parseNativeReviewText(prefix + "## Findings\n\n" + prefix + "No findings.\n")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 0 {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestNativeOutputRejectsIndentedNoFindingsExamples(t *testing.T) {
-	for name, input := range map[string]string{
-		"direct indented sentinel": "    No findings.\n",
-		"indented sentinel":        "Example:\n\n    No findings.\n",
-		"indented heading":         "Example:\n\n    ## Findings\nNo findings.\n",
+	for _, input := range []string{
+		"",
+		"## Findings\n\nNo findings.\n",
+		"No findings.\n\nHowever, the new branch leaks data.\n",
+		"The change looks correct.\n",
+		"- [P1] Preserve cancellation — [client.go:17](/repo/client.go:17)\n",
 	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := parseNativeReviewText(input); err == nil {
-				t.Fatal("indented example was accepted as a top-level no-findings result")
-			}
-		})
-	}
-}
-
-func TestNativeOutputRejectsHeadedNoFindingsWithTrailingProse(t *testing.T) {
-	input := "## Findings\n\nNo findings.\n\nHowever, this branch leaks credentials.\n"
-	if _, err := parseNativeReviewText(input); err == nil {
-		t.Fatal("unparsed prose after headed no-findings sentinel was accepted as PASS evidence")
-	}
-}
-
-func TestNativeOutputRejectsCandidatesBeforeHeadedNoFindings(t *testing.T) {
-	input := `- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
-
-  The new branch drops caller cancellation.
-
-## Findings
-
-No findings.
-`
-	if _, err := parseNativeReviewText(input); err == nil {
-		t.Fatal("later no-findings section erased an earlier candidate")
-	}
-}
-
-func TestNativeHeadingFallsBackToAgentFindingGrammar(t *testing.T) {
-	input := `Review comments:
-
-- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
-
-  The new branch drops the caller's cancellation signal.
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" ||
-		result.Findings[0].CodeLocation.AbsoluteFilePath != "/private/tmp/review/client.go" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestNativeOutputRejectsMixedFindingGrammars(t *testing.T) {
-	input := `Review comments:
-
-- [P1] Preserve cancellation — /private/tmp/review/client.go:17
-  The new branch drops caller cancellation.
-* [P2] Close the response body — [client.go:31](/private/tmp/review/client.go:31)
-  The success path leaks the response body.
-`
-	if _, err := parseNativeReviewText(input); err == nil {
-		t.Fatal("mixed finding grammars returned a partial finding set")
-	}
-}
-
-func TestNativeOutputRejectsCandidateBeforeSelectedHeading(t *testing.T) {
-	input := `- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
-  The new branch drops caller cancellation.
-
-Review comments:
-
-- [P2] Close the response body — /private/tmp/review/client.go:31
-  The success path leaks the response body.
-`
-	if _, err := parseNativeReviewText(input); err == nil {
-		t.Fatal("candidate before the selected native heading was dropped")
-	}
-}
-
-func TestAgentOutputIgnoresFencedFindingExamples(t *testing.T) {
-	input := "Example output:\n\n```markdown\n" +
-		"- [P1] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
-		"  This is not an actual finding.\n```\n\n" +
-		"- [P2] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)\n\n" +
-		"  The new branch drops caller cancellation.\n"
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestTopLevelFenceDoesNotAcceptRelativeClosingIndent(t *testing.T) {
-	input := "   ```markdown\n" +
-		"- [P1] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
-		"  This is not an actual finding.\n" +
-		"      ```\n" +
-		"- [P2] Still fenced — [client.go:17](/private/tmp/review/client.go:17)\n" +
-		"  This also remains example content.\n"
-	if result, err := parseNativeReviewText(input); err == nil {
-		t.Fatalf("six-space close escaped a top-level fence: %#v", result.Findings)
-	}
-}
-
-func TestListFenceDoesNotAcceptTopLevelClosingIndent(t *testing.T) {
-	input := "- [P1] Preserve the real guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
-		"  ```markdown\n" +
-		"  example body\n" +
-		"```\n" +
-		"- [P2] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
-		"  This remains top-level fenced content.\n"
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve the real guard" {
-		t.Fatalf("zero-indent close escaped a list-contained fence: %#v", result.Findings)
-	}
-}
-
-func TestNestedPriorityBulletPreservesOuterFenceIndent(t *testing.T) {
-	input := "- [P1] Preserve the real guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
-		"  - [P2] This nested marker remains body text.\n" +
-		"  ```markdown\n" +
-		"  example body\n" +
-		"```\n" +
-		"- [P3] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
-		"  This remains top-level fenced content.\n"
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve the real guard" {
-		t.Fatalf("nested bullet replaced the outer fence baseline: %#v", result.Findings)
-	}
-}
-
-func TestFencedBodyClosingIndentIsRelativeToList(t *testing.T) {
-	input := "- [P1] Preserve the first guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
-		"  ```go\n    allowed := true\n    ```\n" +
-		"- [P2] Preserve the second guard — [client.go:31](/private/tmp/review/client.go:31)\n" +
-		"  The second branch drops its guard.\n"
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 2 || result.Findings[1].Title != "Preserve the second guard" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestFindingBodiesPreserveIndentedFencedBlocks(t *testing.T) {
-	for name, input := range map[string]string{
-		"agent": "- [P2] Preserve the guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
-			"  ```go\n  if allowed { return }\n  ```\n",
-		"native": "Review comment:\n\n- [P2] Preserve the guard — /private/tmp/review/client.go:17\n" +
-			"  ```go\n  if allowed { return }\n  ```\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			result, err := parseNativeReviewText(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 1 || !strings.Contains(result.Findings[0].Body, "if allowed") {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestFindingBodiesDoNotResumeAfterTrailingAssessment(t *testing.T) {
-	for name, input := range map[string]string{
-		"agent": "- [P2] Preserve the guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
-			"  The branch drops its guard.\nOverall assessment: needs repair.\n" +
-			"  ```text\n  trailing appendix\n  ```\n",
-		"native": "Review comment:\n\n- [P2] Preserve the guard — /private/tmp/review/client.go:17\n" +
-			"  The branch drops its guard.\nOverall assessment: needs repair.\n" +
-			"  ```text\n  trailing appendix\n  ```\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			result, err := parseNativeReviewText(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 1 || strings.Contains(result.Findings[0].Body, "trailing appendix") {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestAgentFindingAcceptsParenthesesInAngleBracketDestination(t *testing.T) {
-	input := `## Findings
-
-- [P2] Preserve copied checkout paths — [client.go:12](</tmp/My Repo (copy)/client.go:12>)
-
-  The parser must retain findings from valid angle-bracket Markdown destinations.
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/tmp/My Repo (copy)/client.go" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestAgentFindingAcceptsEscapedClosingAngleInDestination(t *testing.T) {
-	input := `## Findings
-
-- [P2] Preserve escaped angle paths — [a>b.go:9](</repo/a\>b.go:9>)
-
-  The parser must retain a legal escaped closing angle in an angle-bracket destination.
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/a>b.go" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestAgentFindingAcceptsBalancedParenthesesInOrdinaryDestination(t *testing.T) {
-	input := `## Findings
-
-- [P2] Preserve route-group findings — [page.tsx](/repo/app/(auth)/page.tsx:42)
-
-  The parser must retain findings for ordinary Markdown links with balanced parentheses.
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/app/(auth)/page.tsx" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestAgentFindingDecodesEscapedMarkdownDestination(t *testing.T) {
-	input := `## Findings
-
-- [P2] Preserve escaped route groups — [page.tsx](/repo/app/\(auth\)/page.tsx:42)
-
-  The parser must map the escaped CommonMark destination to the changed path.
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/app/(auth)/page.tsx" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestAgentFindingAcceptsLinkedTitleLocation(t *testing.T) {
-	input := `Found one actionable defect.
-
-- [P1] [Bind freeze operations to the verified inode](/private/tmp/review/freeze.go:72)
-  The path can be replaced after hashing.
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].Title != "Bind freeze operations to the verified inode" ||
-		result.Findings[0].CodeLocation.AbsoluteFilePath != "/private/tmp/review/freeze.go" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestAgentFindingAcceptsWholeFindingBoldEmphasis(t *testing.T) {
-	input := `## Findings
-
-- **[P1] Preserve cancellation — [app.go:12](/repo/app.go:12)**
-
-  The new branch drops caller cancellation.
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" ||
-		result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/app.go" {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestAgentFindingStopsBeforeTrailingTopLevelSection(t *testing.T) {
-	input := `## Findings
-
-- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
-
-  The new branch drops caller cancellation.
-
-## Verification
-
-All focused tests pass.
-`
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].Body != "The new branch drops caller cancellation." {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestAgentFindingRejectsTrailingNoFindingsContradiction(t *testing.T) {
-	input := `## Findings
-
-- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
-
-  The new branch drops caller cancellation.
-
-No findings.
-`
-	if _, err := parseNativeReviewText(input); err == nil {
-		t.Fatal("trailing no-findings contradiction was accepted as finding body")
-	}
-}
-
-func TestAgentFindingAllowsPriorityMarkerInsideIndentedBody(t *testing.T) {
-	input := "- **[P1] Preserve earlier findings** — [run.go:411](/private/tmp/review/run.go:411)\n\n" +
-		"  Output containing a structured `[P1]` candidate must not be erased.\n"
-	result, err := parseNativeReviewText(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || !strings.Contains(result.Findings[0].Body, "`[P1]`") {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-}
-
-func TestNativeFindingRejectsTrailingNoFindingsContradiction(t *testing.T) {
-	input := `Review comment:
-
-- [P1] Preserve cancellation — /private/tmp/review/client.go:17
-  The new branch drops caller cancellation.
-
-No findings.
-`
-	if _, err := parseNativeReviewText(input); err == nil {
-		t.Fatal("native trailing no-findings contradiction was accepted")
-	}
-}
-
-func TestReadNativeOutputParsesMultipleFindingsAndTrailingAssessment(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "native-review.txt")
-	contents := `Review comment:
-
-- [P1] Preserve cancellation — /private/tmp/review/client.go:17-18
-  The new context drops caller cancellation.
-- [P2] Close the response body — /private/tmp/review/client.go:31
-  The changed success path leaks the response body.
-
-Overall assessment: the change needs both fixes before release.
-`
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := readNativeOutput(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 2 {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-	if result.Findings[1].CodeLocation.LineRange.Start != 31 || result.Findings[1].CodeLocation.LineRange.End != 31 {
-		t.Fatalf("second location = %#v", result.Findings[1].CodeLocation)
-	}
-}
-
-func TestReadNativeOutputReplaysV1FullReviewComments(t *testing.T) {
-	_, source, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("could not locate test source")
-	}
-	path := filepath.Join(
-		filepath.Dir(source),
-		"..", "..", "reports", "2026-07-30-native-review-feasibility-v1", "evidence",
-		"S04", "goal_native", "output", "native-review.txt",
-	)
-
-	result, err := readNativeOutput(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 2 {
-		t.Fatalf("findings = %#v", result.Findings)
-	}
-	if result.Findings[0].Title != "Avoid cloning the full database on every order" {
-		t.Fatalf("first finding = %#v", result.Findings[0])
-	}
-}
-
-func TestNativeOutputAcceptsObservedCandidateHeadingGrammar(t *testing.T) {
-	for _, heading := range []string{
-		"Review comment:",
-		"Review comments:",
-		"Full review comment:",
-		"Full review comments:",
-	} {
-		t.Run(heading, func(t *testing.T) {
-			input := heading + "\n\n- [P1] Preserve ownership — /private/tmp/review/app.go:12\n  The new branch drops the tenant check.\n"
-			result, err := parseNativeReviewText(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(result.Findings) != 1 {
-				t.Fatalf("findings = %#v", result.Findings)
-			}
-		})
-	}
-}
-
-func TestReadNativeOutputRejectsAmbiguousZeroCandidateNarrative(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "native-review.txt")
-	if err := os.WriteFile(path, []byte("The derived timeout context preserves parent cancellation, earlier deadlines, and request-scoped values while enforcing the approved two-second limit.\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := readNativeOutput(path); err == nil {
-		t.Fatal("ambiguous prose was accepted as PASS evidence")
-	}
-}
-
-func TestReadNativeOutputAcceptsStandaloneAgentFinding(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "native-review.txt")
-	if err := os.WriteFile(path, []byte("- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)\n\n  The new context drops caller cancellation.\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := readNativeOutput(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/private/tmp/review/client.go" {
-		t.Fatalf("findings = %#v", result.Findings)
+		if isExplicitNoFindingsDocument(input) {
+			t.Fatalf("non-sentinel document was accepted as PASS: %q", input)
+		}
 	}
 }
 
@@ -1584,32 +587,40 @@ func TestFreezeManifestRejectsTemporaryPathReplacement(t *testing.T) {
 	}
 }
 
-func TestNativeOutputRejectsEmptyResults(t *testing.T) {
-	for name, input := range map[string]string{
-		"empty output":                 "\n\t\n",
-		"empty candidate section":      "Review comment:\n",
-		"empty full candidate section": "Full review comments:\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := parseNativeReviewText(input); err == nil {
-				t.Fatal("invalid native output was accepted as zero candidates")
-			}
-		})
+func TestFreezeManifestRevalidatesEvidenceImmediatelyBeforePublication(t *testing.T) {
+	directory := t.TempDir()
+	manifestPath := filepath.Join(directory, "native-review-freeze.json")
+	manifest := NativeFreezeManifest{SchemaVersion: 1, Artifacts: []FrozenArtifact{}}
+	validationCalls := 0
+	validate := func() error {
+		validationCalls++
+		if validationCalls == 2 {
+			return errors.New("late raw artifact change")
+		}
+		return nil
+	}
+
+	if err := writeDurableFreezeManifest(manifestPath, manifest, validate); err == nil {
+		t.Fatal("manifest was published without a final evidence revalidation")
+	}
+	if validationCalls != 2 {
+		t.Fatalf("evidence validation calls = %d, want 2", validationCalls)
+	}
+	if _, err := os.Lstat(manifestPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("manifest was published after late evidence change: %v", err)
 	}
 }
 
-func TestNativeOutputRejectsNoFindingsFollowedByAnyCandidateHeading(t *testing.T) {
-	for _, heading := range []string{
-		"Review comment:",
-		"Review comments:",
-		"Full review comment:",
-		"Full review comments:",
-	} {
-		t.Run(heading, func(t *testing.T) {
-			if _, err := parseNativeReviewText("No findings.\n\n" + heading + "\n"); err == nil {
-				t.Fatal("contradictory native output was accepted")
-			}
-		})
+func TestAbsentArtifactValidationRejectsLateCreation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "native-review.stderr.log")
+	if err := validateAbsentArtifactPaths([]string{path}); err != nil {
+		t.Fatalf("absent path was rejected: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("late output\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAbsentArtifactPaths([]string{path}); err == nil {
+		t.Fatal("late raw artifact creation was accepted")
 	}
 }
 
@@ -1632,7 +643,21 @@ func TestZeroFindingsCompletesAfterOneNativeCall(t *testing.T) {
 	}
 }
 
-func TestNativeFindingsCompleteAfterOneNativeCall(t *testing.T) {
+func TestWhitespaceOnlyOutputIsIncomplete(t *testing.T) {
+	prepared, request := nativeFixture(t)
+	executor := &scriptedExecutor{outputs: []string{" \r\n\t\n"}}
+
+	result, err := Run(context.Background(), Options{Prepared: prepared, Request: request, Executor: executor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Adjudication.SemanticResult != quality.ResultIncomplete || len(result.Findings) != 0 ||
+		result.Execution.ModelCalls != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestNativeReviewOutputRequiresDocumentLevelManualReview(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	path := filepath.Join(prepared.RepositoryDir, "app.go")
 	executor := &scriptedExecutor{outputs: []string{nativeFindingOutput(path, "timeout is ignored", "The new call can wait forever.", 1)}}
@@ -1644,7 +669,8 @@ func TestNativeFindingsCompleteAfterOneNativeCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 1 || result.Execution.ModelCalls != 1 {
+	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 0 ||
+		len(result.Execution.AdapterDrops) != 0 || result.Execution.ModelCalls != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	if len(executor.invocations) != 1 {
@@ -1652,7 +678,7 @@ func TestNativeFindingsCompleteAfterOneNativeCall(t *testing.T) {
 	}
 }
 
-func TestCandidateOutsideCheckoutCannotProducePass(t *testing.T) {
+func TestReviewOutputLocationDoesNotChangeDocumentClassification(t *testing.T) {
 	prepared, request := nativeFixture(t)
 	executor := &scriptedExecutor{outputs: []string{
 		nativeFindingOutput("/tmp/outside.go", "wrong result", "The new branch returns the opposite value.", 1),
@@ -1665,8 +691,9 @@ func TestCandidateOutsideCheckoutCannotProducePass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Adjudication.SemanticResult != quality.ResultIncomplete || result.Execution.ModelCalls != 1 || len(result.Execution.AdapterDrops) != 1 {
-		t.Fatalf("out-of-scope candidate result = %#v", result)
+	if result.Adjudication.SemanticResult != quality.ResultManualReview || result.Execution.ModelCalls != 1 ||
+		len(result.Findings) != 0 || len(result.Execution.AdapterDrops) != 0 {
+		t.Fatalf("document-level result = %#v", result)
 	}
 }
 

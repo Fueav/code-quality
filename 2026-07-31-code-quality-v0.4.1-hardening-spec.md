@@ -20,30 +20,24 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 ## Raw evidence freeze
 
-- After the direct Codex process exits, the executor drains its stdout and stderr pipes to EOF with a bounded fail-closed wait so descendant writers cannot mutate evidence after hashing. Before any parser or classifier runs, the product validates the final message, JSONL stdout, and stderr as regular non-symlink files. The bounded final message is retained byte-for-byte for classification, while potentially large JSONL and stderr artifacts are streamed to their hashes without a total-size parser limit.
+- After the direct Codex process exits, the executor drains its stdout and stderr pipes to EOF with a bounded fail-closed wait so descendant writers cannot mutate evidence after hashing. Before classification runs, the product validates the final message, JSONL stdout, and stderr as regular non-symlink files. The bounded final message is retained byte-for-byte for classification, while potentially large JSONL and stderr artifacts are streamed to their hashes without a total-size parser limit.
 - For each present artifact it copies one verified regular-file descriptor into a newly created exclusive inode whose pathname is `0400` from first exposure, while the creator retains its original writable descriptor. It bounds only the captured final message, rehashes the source descriptor, syncs the snapshot, atomically replaces the raw pathname, and retains the snapshot descriptor through manifest publication.
 - The published schema fixes exactly one ordered entry for the final message, JSONL stdout, and stderr; every present artifact requires its digest.
-- Present raw artifacts are never path-writable during snapshot construction, old source descriptors no longer reference their published inodes, and every pathname, size, digest, and mode is revalidated through the retained descriptor before and after hashing, followed by a final path-only sweep immediately before publication. The manifest temporary inode is likewise created as `0400` and synced through its retained creator descriptor; that descriptor remains open while its temporary pathname and installed hard link are each bound back to the verified inode, size, mode, and digest.
+- Present raw artifacts are never path-writable during snapshot construction, old source descriptors no longer reference their published inodes, and every pathname, size, digest, and mode is revalidated through the retained descriptor before and after hashing, followed by a final path-only sweep immediately before publication. Paths recorded as absent are also revalidated during both evidence validation passes so late creation fails closed. The manifest temporary inode is likewise created as `0400` and synced through its retained creator descriptor; that descriptor remains open while its temporary pathname and installed hard link are each bound back to the verified inode, size, mode, and digest.
 - Classification consumes the exact frozen final-message bytes already held in memory; it must not rewrite or replace the raw artifact.
 - Usage metrics are decoded from the retained frozen JSONL descriptor, never by reopening its writable parent directory by pathname.
 - The session summary exposes the freeze manifest path, and the session remains retained after checkout cleanup.
 
 ## Thin deterministic classification
 
-- The classifier accepts the previously observed native bullet format and ordinary CommonMark `-`, `*`, `+`, `N.`, and `N)` Agent finding markers, including title-only or whole-finding bold emphasis, balanced or backslash-escaped punctuation in Markdown link destinations, and the observed form where the finding title itself is the location link. CommonMark's zero-to-three-space top-level indentation is accepted; deeper indentation than the current finding remains body content. Fenced code never becomes a candidate, while an indented fence belonging to an active finding remains in that finding's body; a top-level closing fence permits at most three raw leading spaces, while a list-contained close must retain the current list-content indentation and may add at most three spaces. Fenced text never resumes a body after trailing assessment begins. If a candidate precedes the selected native heading or grammars are otherwise mixed in a way that cannot be parsed losslessly, classification fails closed instead of returning a partial finding set.
-- Each recognized candidate is either retained inside the trusted changed-file scope or recorded as an indexed adapter exclusion.
-- Top-level explicit no-finding text, either standalone or immediately below the first top-level recognized findings heading after optional introductory text, may become `PASS`. Zero-to-three-space CommonMark indentation remains top-level, while four-space code examples are never result sentinels or container headings.
-- Candidate contradiction checks reuse the same top-level list predicate, so four-space code examples and nested body bullets do not override a valid no-findings result or the active finding's list-container baseline.
-- Any priority candidate before that sentinel makes the output contradictory rather than allowing a later section to erase it.
-- Explicit no-finding text followed by any nonblank tail is not accepted as `PASS`.
-- Top-level text after a structured finding is not appended to its body, a trailing no-finding sentinel is contradictory in either accepted grammar, and indented priority text or nested bullets remain body text.
-- Empty, ambiguous, contradictory, or unrecognized non-finding prose becomes `INCOMPLETE`, never `PASS`.
-- If candidates exist but none map to trusted changed files, the result is `INCOMPLETE`.
-- Classification performs no model call and does not edit the frozen source.
+- The frozen final message is treated as one document. After line-ending normalization and outer whitespace trimming, only the exact case-sensitive documents `No findings.`, `No actionable findings.`, and `No actionable defects found.` become `PASS`.
+- A failed native process or a missing or empty final message becomes `INCOMPLETE`.
+- Every other nonempty final message becomes `MANUAL_REVIEW`. The result deliberately leaves structured `findings` and `adapter_drops` empty and directs the reader to the frozen `native-review.txt`, which remains the review authority.
+- Classification does not parse Markdown, reconstruct finding bodies, interpret code locations, map paths, build a CommonMark AST, perform a model call, or edit the frozen source. This prevents formatting drift from hiding native findings and keeps classification smaller than the native review capability it follows.
 
 ## Existing hardening retained
 
-- Canonically equivalent macOS paths map to the same isolated checkout, including different casing on a case-insensitive volume. Existing entries recover their filesystem spelling, while a uniquely case-equivalent missing or deleted path maps back to the trusted changed-path spelling only when a read-only probe on the checkout's own filesystem proves it is case-insensitive; the probe never crosses a mount-device boundary. Existing and dangling symlinks are resolved component-by-component in filesystem traversal order before containment; a parent traversal after a missing component and traversal through a non-directory component are rejected, so chained targets cannot be cleaned into a changed file or back into the checkout. A changed in-repository symlink keeps its logical path, while an unchanged alias to a changed or deleted target falls back to the canonical changed path. Candidate paths containing an unresolved `..` component are rejected before cleaning or symlink resolution.
+- The recursion marker check resolves the active Git root canonically, including symlinked working-directory entry, before inspecting the session-owned marker outside the checkout.
 - `--base` and `--target` are supplied together. `--diff-reason` is optional for an explicit range and defaults to `explicit_commit_range`.
 - Each run retains duration and token metrics by streaming complete JSONL output while preserving a per-event size bound. Missing or all-zero usage remains explicitly unavailable in both runtime behavior and the published metrics schema.
 - `make release-check` covers Go, root qualification, live, mining, vet, formatting, and diff checks without model calls.
@@ -57,9 +51,9 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 ## Acceptance evidence
 
-1. RED tests prove the old invocation suppresses normal Codex context, raw evidence has no pre-classification freeze, ordinary Agent output is not losslessly classified, and ambiguous prose can become `PASS`.
+1. RED tests prove the old invocation suppresses normal Codex context, raw evidence has no pre-classification freeze, document-level `MANUAL_REVIEW` was previously invalid, and the report could incorrectly claim no findings for an unparsed nonempty review.
 2. Focused tests and `make release-check VERSION=v0.4.1 VERIFY_COMPARE_REF=v0.4.0` pass from the clean release worktree.
-3. A deterministic fake Codex smoke proves one call, full invocation controls, frozen hashes, metrics, classification, retained reports, and checkout cleanup.
+3. A deterministic fake Codex smoke proves one call, full invocation controls, frozen hashes, metrics, exact-sentinel classification, retained reports, and checkout cleanup.
 4. A real candidate-binary smoke uses the release contract and preserves raw evidence before adjudication.
 5. A fresh full-capability Codex review of the release diff has no unresolved actionable finding.
 6. Release assets are built from the tagged commit, checksummed, published, downloaded, and version-verified.

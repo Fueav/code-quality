@@ -58,6 +58,7 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 		{name: "stderr", path: layout.NativeStderrPath},
 	}
 	locked := make([]lockedRawArtifact, 0, len(specs))
+	absent := make([]string, 0, len(specs))
 	defer func() {
 		for _, artifact := range locked {
 			_ = artifact.file.Close()
@@ -71,6 +72,7 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 				return frozenNativeArtifacts{}, fmt.Errorf("snapshot raw %s: %w", spec.name, err)
 			}
 			frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
+			absent = append(absent, spec.path)
 			continue
 		}
 		entry.Bytes = bytesRead
@@ -97,7 +99,7 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 				return err
 			}
 		}
-		return nil
+		return validateAbsentArtifactPaths(absent)
 	}
 	if err := writeDurableFreezeManifest(layout.NativeFreezePath, frozen.Manifest, validateLockedPaths); err != nil {
 		return frozenNativeArtifacts{}, fmt.Errorf("write raw freeze manifest: %w", err)
@@ -111,6 +113,20 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 		break
 	}
 	return frozen, nil
+}
+
+func validateAbsentArtifactPaths(paths []string) error {
+	for _, path := range paths {
+		_, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("raw artifact appeared after absence was recorded: %s", filepath.Base(path))
+	}
+	return nil
 }
 
 func snapshotRawArtifact(path string, capture bool, maxBytes int64) (*os.File, []byte, int64, string, error) {
@@ -314,6 +330,9 @@ func writeDurableFreezeManifest(path string, manifest NativeFreezeManifest, vali
 		return err
 	}
 	if err := validateLockedArtifact(temporaryPath, temporary, expectedBytes, expectedSHA); err != nil {
+		return err
+	}
+	if err := validate(); err != nil {
 		return err
 	}
 	if err := os.Link(temporaryPath, path); err != nil {

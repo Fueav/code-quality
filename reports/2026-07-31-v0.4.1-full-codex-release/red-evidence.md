@@ -209,3 +209,14 @@ The twentieth fresh full-Agent smoke used the ChatGPT.app Codex runtime and comp
 - the no-findings contradiction scan treated a four-space indented code example containing `[P1]` as a real candidate.
 
 All three cases failed focused probes before implementation. Exclusive random temporary inodes are now created with `0400` pathname permissions from first exposure while the creator retains the only intended writable descriptor. Fence tracking updates its active baseline only for sibling-or-outer finding markers, and candidate contradiction scans reuse the same top-level list predicate as normal classification. The twentieth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Twenty-first candidate review RED and architectural subtraction
+
+The twenty-first fresh full-Agent smoke reviewed target `e327d7bf82037977a544e30ceebbc666a6f454f9` with the ChatGPT.app Codex runtime. It completed one `gpt-5.6-sol/max` call in 1,123,081 ms with 5,426,931 input tokens and 46,447 output tokens. Independent SHA-256 checks matched all three `0400` raw artifacts: the 2,288-byte final message had digest `0cbe8d73a1d2003639fc9d37c8881896be5c8a6f62901e834c032c3dafc107f3`, the 668,451-byte JSONL had digest `00c1ced4b3075a51b8203fa4d405fd0e807b4214d48ef89c763363857a26ece4`, and the 2,706-byte stderr had digest `ffb5abfeaace9addb1e32f3fac10ae5095da20d27af5616441c690fd71d16ab9`. The recursion marker and isolated checkout were absent after completion. The review found:
+
+- paths recorded as absent were not revalidated before freeze-manifest publication;
+- location selection could prefer an earlier URL containing `:digits` over the actual code link;
+- list nesting could still confuse no-findings classification;
+- balanced brackets in a Markdown link label could be paired incorrectly.
+
+The first defect reproduced as a missing contract and now has regression coverage: absent paths participate in both evidence validation passes, with the second pass immediately preceding manifest publication. The other three defects exposed that continuing to emulate CommonMark would grow an independent review parser without improving Codex discovery. The approved correction therefore removes Markdown finding extraction and path adaptation from the production path. After normalization, only three exact no-findings documents can become `PASS`; every other nonempty frozen final message becomes `MANUAL_REVIEW` with `native-review.txt` as authority. The focused RED tests first showed that zero-finding `MANUAL_REVIEW` was rejected, its report falsely said no actionable finding remained, and final evidence validation ran only once. Those tests now pass. This subtraction removes the three parser failure classes rather than patching their individual syntax cases; the twenty-first candidate smoke remains diagnostic evidence and is not release acceptance.

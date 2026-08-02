@@ -68,7 +68,9 @@ func RenderNativeMarkdown(result NativeReviewResult) string {
 	fmt.Fprintln(&output)
 	fmt.Fprintln(&output, "## Findings")
 	fmt.Fprintln(&output)
-	if len(result.Findings) == 0 {
+	if result.Adjudication.SemanticResult == ResultManualReview && len(result.Findings) == 0 {
+		fmt.Fprintln(&output, "Structured extraction is intentionally omitted. Inspect the frozen `native-review.txt` as the review authority.")
+	} else if len(result.Findings) == 0 {
 		fmt.Fprintln(&output, "No actionable finding remained.")
 	} else {
 		for _, finding := range result.Findings {

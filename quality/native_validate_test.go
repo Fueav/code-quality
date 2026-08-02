@@ -34,6 +34,15 @@ func TestValidateNativeResultAllowsNoGoal(t *testing.T) {
 	}
 }
 
+func TestValidateNativeResultAllowsDocumentLevelManualReview(t *testing.T) {
+	result := validNativeResult()
+	result.Findings = []NativeFinding{}
+	result.Adjudication.Reasons = []string{"inspect frozen native-review.txt"}
+	if problems := ValidateNativeResult(result); len(problems) != 0 {
+		t.Fatalf("document-level MANUAL_REVIEW was rejected: %#v", problems)
+	}
+}
+
 func validNativeResult() NativeReviewResult {
 	return NativeReviewResult{
 		SchemaVersion: NativeResultSchemaVersion, EvaluationRubricVersion: EvaluationRubricVersion,

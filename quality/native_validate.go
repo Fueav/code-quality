@@ -62,9 +62,6 @@ func ValidateNativeResult(result NativeReviewResult) []string {
 			problems = append(problems, result.Adjudication.SemanticResult+" result cannot contain findings")
 		}
 	case ResultManualReview:
-		if len(result.Findings) == 0 {
-			problems = append(problems, "MANUAL_REVIEW result requires findings")
-		}
 	default:
 		problems = append(problems, "native adjudication semantic_result is invalid")
 	}
