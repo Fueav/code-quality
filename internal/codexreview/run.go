@@ -514,6 +514,13 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	if heading < 0 {
 		return parseAgentReviewText(lines, fenced, first)
 	}
+	for index := first; index < heading; index++ {
+		indent, topLevel := commonMarkIndent(lines[index])
+		if !fenced[index] && topLevel && indent <= 3 && containsPriorityMarker(lines[index]) &&
+			agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
+			return nativeEnvelope{}, errors.New("finding candidate appears before the selected native heading")
+		}
+	}
 	nativeResult, nativeErr := parseNativeReviewSection(lines, fenced, heading)
 	if nativeErr == nil {
 		return nativeResult, nil
@@ -547,6 +554,10 @@ func parseNativeReviewSection(lines []string, fenced []bool, heading int) (nativ
 
 	for index, line := range lines[heading+1:] {
 		if fenced[heading+1+index] {
+			indent, topLevel := commonMarkIndent(line)
+			if current != nil && strings.TrimSpace(line) != "" && (!topLevel || indent > findingIndent) {
+				body = append(body, strings.TrimSpace(line))
+			}
 			continue
 		}
 		trimmed := strings.TrimSpace(line)
@@ -653,6 +664,10 @@ func parseAgentReviewText(lines []string, fenced []bool, first int) (nativeEnvel
 
 	for index, line := range lines[firstCandidate:] {
 		if fenced[firstCandidate+index] {
+			indent, topLevel := commonMarkIndent(line)
+			if current != nil && strings.TrimSpace(line) != "" && (!topLevel || indent > findingIndent) {
+				body = append(body, strings.TrimSpace(line))
+			}
 			continue
 		}
 		trimmed := strings.TrimSpace(line)

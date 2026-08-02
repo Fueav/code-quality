@@ -1000,6 +1000,20 @@ func TestNativeOutputRejectsMixedFindingGrammars(t *testing.T) {
 	}
 }
 
+func TestNativeOutputRejectsCandidateBeforeSelectedHeading(t *testing.T) {
+	input := `- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
+  The new branch drops caller cancellation.
+
+Review comments:
+
+- [P2] Close the response body — /private/tmp/review/client.go:31
+  The success path leaks the response body.
+`
+	if _, err := parseNativeReviewText(input); err == nil {
+		t.Fatal("candidate before the selected native heading was dropped")
+	}
+}
+
 func TestAgentOutputIgnoresFencedFindingExamples(t *testing.T) {
 	input := "Example output:\n\n```markdown\n" +
 		"- [P1] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
@@ -1012,6 +1026,25 @@ func TestAgentOutputIgnoresFencedFindingExamples(t *testing.T) {
 	}
 	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" {
 		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestFindingBodiesPreserveIndentedFencedBlocks(t *testing.T) {
+	for name, input := range map[string]string{
+		"agent": "- [P2] Preserve the guard — [client.go:17](/private/tmp/review/client.go:17)\n" +
+			"  ```go\n  if allowed { return }\n  ```\n",
+		"native": "Review comment:\n\n- [P2] Preserve the guard — /private/tmp/review/client.go:17\n" +
+			"  ```go\n  if allowed { return }\n  ```\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := parseNativeReviewText(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 1 || !strings.Contains(result.Findings[0].Body, "if allowed") {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
 	}
 }
 

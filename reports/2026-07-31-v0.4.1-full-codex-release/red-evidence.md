@@ -144,3 +144,12 @@ The thirteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and com
 - case-sensitivity probing could walk from a case-sensitive mounted checkout onto its case-insensitive parent volume and inherit the wrong semantics.
 
 All four defects reproduced before implementation. Mixed finding grammars now fail closed when the native parser encounters an unrecognized top-level priority header, rather than returning a partial set. A CommonMark fence-state mask excludes fenced lines from headings and candidates, Markdown destination parsing decodes only CommonMark-escapable ASCII punctuation, and the case probe stops before the parent device differs from the checkout device. The release host's case-sensitive `/dev` mount reproduced the mount-boundary false positive without requiring a synthetic filesystem. The thirteenth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Fourteenth candidate review RED
+
+The fourteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 955,473 ms with 5,220,801 input tokens and 45,963 output tokens. Independent SHA-256 checks matched all three `0400` frozen raw artifacts: the 1,238-byte final message had digest `a3a785d91b05432da9b0a44af7996fab39b07b87eaccd2ebc26ab6697c105678`, the 729,421-byte JSONL had digest `b65b98d556e65e87cb995947e414acefb24f07a00a695af4142ee733771a7014`, and the 3,027-byte stderr had digest `e69b7471626d68b83930777ef1a1c5491afc425af95ccab985a3e640a6877e3f`. The recursion marker was absent after completion, and deterministic classification retained both candidates with zero adapter drops. The review found:
+
+- a valid Agent-style candidate before the selected native heading could be omitted while later native candidates were returned;
+- the fence mask removed every fenced line, including supporting code that belonged to an active finding body, and could turn a fence-only body into `INCOMPLETE`.
+
+Both defects reproduced before implementation. Once a native heading is selected, any top-level list candidate before it now makes the result unrecognized instead of allowing a partial set. Fenced lines remain excluded from heading and candidate recognition, but lines whose indentation places the fence inside the active finding are retained in that finding's body for both native and Agent grammars. The fourteenth candidate smoke remains diagnostic evidence and is not release acceptance.
