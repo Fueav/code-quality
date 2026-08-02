@@ -86,15 +86,123 @@ func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 			_ = os.Remove(markerPath)
 		}
 	}()
-	runErr := command.Run()
-	if err := os.Remove(markerPath); err != nil {
-		return fmt.Errorf("remove discovery child marker: %w", err)
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("codex process: %w", err)
 	}
-	markerInstalled = false
+	processMarkerPath, err := installDiscoveryChildProcessMarker(command.Process.Pid)
+	if err != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return fmt.Errorf("install discovery child process marker: %w", err)
+	}
+	processMarkerInstalled := true
+	defer func() {
+		if processMarkerInstalled {
+			_ = os.Remove(processMarkerPath)
+		}
+	}()
+	runErr := command.Wait()
+	processMarkerErr := os.Remove(processMarkerPath)
+	if processMarkerErr == nil {
+		processMarkerInstalled = false
+	}
+	repositoryMarkerErr := os.Remove(markerPath)
+	if repositoryMarkerErr == nil {
+		markerInstalled = false
+	}
+	if processMarkerErr != nil {
+		return fmt.Errorf("remove discovery child process marker: %w", processMarkerErr)
+	}
+	if repositoryMarkerErr != nil {
+		return fmt.Errorf("remove discovery child marker: %w", repositoryMarkerErr)
+	}
 	if runErr != nil {
 		return fmt.Errorf("codex process: %w", runErr)
 	}
 	return nil
+}
+
+func discoveryChildProcessMarkerDirectory() string {
+	return filepath.Join("/tmp", fmt.Sprintf(".code-quality-native-discovery-v1-%d", os.Getuid()))
+}
+
+func installDiscoveryChildProcessMarker(pid int) (string, error) {
+	if pid < 1 {
+		return "", errors.New("discovery child process ID must be positive")
+	}
+	directory := discoveryChildProcessMarkerDirectory()
+	if err := os.Mkdir(directory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return "", err
+	}
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+		return "", errors.New("discovery child process marker directory is not a private directory")
+	}
+	return installDiscoveryChildMarkerAt(filepath.Join(directory, strconv.Itoa(pid)))
+}
+
+func discoveryChildAncestorProcess() (bool, error) {
+	entries, err := os.ReadDir(discoveryChildProcessMarkerDirectory())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	marked := map[int]struct{}{}
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid < 1 {
+			continue
+		}
+		valid, err := isDiscoveryChildMarker(filepath.Join(discoveryChildProcessMarkerDirectory(), entry.Name()))
+		if err != nil {
+			return false, err
+		}
+		if valid {
+			marked[pid] = struct{}{}
+		}
+	}
+	if len(marked) == 0 {
+		return false, nil
+	}
+	for pid := os.Getpid(); pid > 1; {
+		if _, exists := marked[pid]; exists {
+			return true, nil
+		}
+		parent, err := parentProcessID(pid)
+		if err != nil {
+			return false, err
+		}
+		if parent < 1 || parent == pid {
+			break
+		}
+		pid = parent
+	}
+	return false, nil
+}
+
+func parentProcessID(pid int) (int, error) {
+	psPath := "/bin/ps"
+	if _, err := os.Stat(psPath); errors.Is(err, os.ErrNotExist) {
+		psPath = "/usr/bin/ps"
+	}
+	output, err := exec.Command(psPath, "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(output))
+	if len(fields) != 1 {
+		return 0, fmt.Errorf("unexpected parent process output for %d", pid)
+	}
+	parent, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, fmt.Errorf("parse parent process ID for %d: %w", pid, err)
+	}
+	return parent, nil
 }
 
 func replaceEnvironmentValue(environment []string, name, value string) []string {
@@ -109,7 +217,10 @@ func replaceEnvironmentValue(environment []string, name, value string) []string 
 }
 
 func installDiscoveryChildMarker(repositoryDir string) (string, error) {
-	markerPath := discoveryChildMarkerPath(repositoryDir)
+	return installDiscoveryChildMarkerAt(discoveryChildMarkerPath(repositoryDir))
+}
+
+func installDiscoveryChildMarkerAt(markerPath string) (string, error) {
 	marker, err := os.OpenFile(markerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o400)
 	if err != nil {
 		return "", err
@@ -137,13 +248,16 @@ func IsDiscoveryChildRepository(repositoryDir string) (bool, error) {
 
 func IsDiscoveryChildProcess() (bool, error) {
 	markerPath, exists := os.LookupEnv(DiscoveryChildMarkerEnvironment)
-	if !exists || markerPath == "" {
-		return false, nil
+	if exists && markerPath != "" {
+		if !filepath.IsAbs(markerPath) {
+			return false, errors.New("inherited discovery child marker path must be absolute")
+		}
+		nested, err := isDiscoveryChildMarker(markerPath)
+		if err != nil || nested {
+			return nested, err
+		}
 	}
-	if !filepath.IsAbs(markerPath) {
-		return false, errors.New("inherited discovery child marker path must be absolute")
-	}
-	return isDiscoveryChildMarker(markerPath)
+	return discoveryChildAncestorProcess()
 }
 
 func IsDiscoveryChildWorkingDirectory(workingDir string) (bool, error) {

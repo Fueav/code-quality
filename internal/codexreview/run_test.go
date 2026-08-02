@@ -200,6 +200,44 @@ func TestProcessExecutorPropagatesDiscoveryIdentity(t *testing.T) {
 	}
 }
 
+func TestProcessExecutorIdentitySurvivesFilteredEnvironment(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "input", "repository")
+	output := filepath.Join(root, "output")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(output, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODE_QUALITY_PROCESS_EXECUTOR_HELPER", "filtered-discovery")
+	stdoutPath := filepath.Join(output, "stdout")
+	err = (ProcessExecutor{}).Run(context.Background(), Invocation{
+		Executable: executable,
+		Args: []string{
+			"-c", `unset CODE_QUALITY_NATIVE_DISCOVERY_MARKER; exec "$1" -test.run=^TestProcessExecutorDescendantWriterHelper$`,
+			"sh", os.Args[0],
+		},
+		Dir:        repository,
+		StdoutPath: stdoutPath,
+		StderrPath: filepath.Join(output, "stderr"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "filtered discovery child detected\n" {
+		t.Fatalf("filtered discovery output = %q", raw)
+	}
+}
+
 func TestProcessExecutorQuiescesDescendantWriters(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")
@@ -260,6 +298,16 @@ func TestProcessExecutorDescendantWriterHelper(t *testing.T) {
 	case "descendant":
 		time.Sleep(200 * time.Millisecond)
 		fmt.Fprintln(os.Stdout, "descendant completed")
+		os.Exit(0)
+	case "filtered-discovery":
+		if _, exists := os.LookupEnv(DiscoveryChildMarkerEnvironment); exists {
+			t.Fatal("discovery marker environment was not filtered")
+		}
+		nested, err := IsDiscoveryChildProcess()
+		if err != nil || !nested {
+			t.Fatalf("nested = %t, error = %v", nested, err)
+		}
+		fmt.Fprintln(os.Stdout, "filtered discovery child detected")
 		os.Exit(0)
 	default:
 		os.Exit(2)

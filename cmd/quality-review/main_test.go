@@ -17,6 +17,13 @@ import (
 	"github.com/Fueav/code-quality/quality"
 )
 
+func forceTopLevelDiscovery(t *testing.T) {
+	t.Helper()
+	previous := discoveryChildProcessCheck
+	discoveryChildProcessCheck = func() (bool, error) { return false, nil }
+	t.Cleanup(func() { discoveryChildProcessCheck = previous })
+}
+
 func TestVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
@@ -38,6 +45,7 @@ func TestBareCommandPointsToNativeReview(t *testing.T) {
 }
 
 func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
+	forceTopLevelDiscovery(t)
 	repo, base, target := cliReviewFixture(t)
 	markerPath := filepath.Join(filepath.Dir(repo), codexreview.DiscoveryChildMarkerName)
 	if err := os.WriteFile(markerPath, []byte("code-quality native discovery child v1\n"), 0o400); err != nil {
@@ -53,6 +61,7 @@ func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
 }
 
 func TestRunCodexRejectsActiveDiscoveryBeforeAnotherRepository(t *testing.T) {
+	forceTopLevelDiscovery(t)
 	activeRoot := t.TempDir()
 	activeRepository := filepath.Join(activeRoot, "repository")
 	if err := os.MkdirAll(activeRepository, 0o700); err != nil {
@@ -127,6 +136,7 @@ func TestRunCodexRejectsInheritedDiscoveryAfterChangingRepository(t *testing.T) 
 }
 
 func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
+	forceTopLevelDiscovery(t)
 	repo, base, target := cliReviewFixture(t)
 	previousWorkingDirectory, err := os.Getwd()
 	if err != nil {

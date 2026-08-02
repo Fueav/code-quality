@@ -21,6 +21,7 @@ import (
 
 var version = "dev"
 var codexBinary = "codex"
+var discoveryChildProcessCheck = codexreview.IsDiscoveryChildProcess
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -101,7 +102,7 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "quality-review: run-codex accepts flags only")
 		return 2
 	}
-	nested, err := codexreview.IsDiscoveryChildProcess()
+	nested, err := discoveryChildProcessCheck()
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: inspect inherited discovery child marker: %v\n", err)
 		return 1
