@@ -21,7 +21,13 @@ import (
 
 var version = "dev"
 var codexBinary = "codex"
-var acquireNativeReviewLease = codexreview.AcquireNativeReviewLease
+var acquireNativeReviewLease = func() (io.Closer, *os.File, error) {
+	lease, err := codexreview.AcquireNativeReviewLease()
+	if err != nil {
+		return nil, nil, err
+	}
+	return lease, lease.InheritedFile(), nil
+}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -102,7 +108,7 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "quality-review: run-codex accepts flags only")
 		return 2
 	}
-	lease, err := acquireNativeReviewLease()
+	lease, leaseFile, err := acquireNativeReviewLease()
 	if errors.Is(err, codexreview.ErrNativeReviewActive) {
 		fmt.Fprintln(stderr, "quality-review: another native Codex review is active for this user; retry after it finishes or review directly in the current Codex agent")
 		return 1
@@ -149,6 +155,7 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 		ReasoningEffort:         *reasoningEffort,
 		EvaluationRubricVersion: quality.EvaluationRubricVersion,
 		CodexBinary:             codexBinary,
+		LeaseFile:               leaseFile,
 	})
 	if runErr != nil {
 		_ = reviewsession.CleanupPreparedCheckout(discovered.RepositoryRoot, prepared)

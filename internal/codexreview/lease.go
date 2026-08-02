@@ -2,8 +2,6 @@ package codexreview
 
 import (
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -11,16 +9,40 @@ import (
 
 var ErrNativeReviewActive = errors.New("another native review is active for this user")
 
-type nativeReviewLease struct {
+type NativeReviewLease struct {
 	file *os.File
 }
 
-func AcquireNativeReviewLease() (io.Closer, error) {
-	directory := filepath.Join("/tmp", fmt.Sprintf(".code-quality-native-review-%d", os.Getuid()))
+func AcquireNativeReviewLease() (*NativeReviewLease, error) {
+	directory, err := nativeReviewLeaseDirectory()
+	if err != nil {
+		return nil, err
+	}
 	return acquireNativeReviewLeaseAt(directory)
 }
 
-func acquireNativeReviewLeaseAt(directory string) (*nativeReviewLease, error) {
+func nativeReviewLeaseDirectory() (string, error) {
+	cacheDirectory, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(cacheDirectory) {
+		return "", errors.New("user cache directory must be absolute")
+	}
+	if err := os.MkdirAll(cacheDirectory, 0o700); err != nil {
+		return "", err
+	}
+	cacheInfo, err := os.Stat(cacheDirectory)
+	if err != nil {
+		return "", err
+	}
+	if !cacheInfo.IsDir() || !ownedByCurrentUser(cacheInfo) || cacheInfo.Mode().Perm()&0o022 != 0 {
+		return "", errors.New("user cache directory is not an owner-controlled directory")
+	}
+	return filepath.Join(cacheDirectory, "code-quality-native-review"), nil
+}
+
+func acquireNativeReviewLeaseAt(directory string) (*NativeReviewLease, error) {
 	if err := os.Mkdir(directory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return nil, err
 	}
@@ -28,7 +50,8 @@ func acquireNativeReviewLeaseAt(directory string) (*nativeReviewLease, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 || directoryInfo.Mode().Perm() != 0o700 {
+	if !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 ||
+		directoryInfo.Mode().Perm() != 0o700 || !ownedByCurrentUser(directoryInfo) {
 		return nil, errors.New("native review lease directory is not a private directory")
 	}
 
@@ -51,7 +74,8 @@ func acquireNativeReviewLeaseAt(directory string) (*nativeReviewLease, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !fileInfo.Mode().IsRegular() || pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(fileInfo, pathInfo) {
+	if !fileInfo.Mode().IsRegular() || pathInfo.Mode()&os.ModeSymlink != 0 ||
+		!os.SameFile(fileInfo, pathInfo) || !ownedByCurrentUser(fileInfo) {
 		return nil, errors.New("native review lease is not a regular file")
 	}
 	if err := file.Chmod(0o600); err != nil {
@@ -64,10 +88,22 @@ func acquireNativeReviewLeaseAt(directory string) (*nativeReviewLease, error) {
 		return nil, err
 	}
 	closeOnError = false
-	return &nativeReviewLease{file: file}, nil
+	return &NativeReviewLease{file: file}, nil
 }
 
-func (lease *nativeReviewLease) Close() error {
+func ownedByCurrentUser(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Uid == uint32(os.Getuid())
+}
+
+func (lease *NativeReviewLease) InheritedFile() *os.File {
+	if lease == nil {
+		return nil
+	}
+	return lease.file
+}
+
+func (lease *NativeReviewLease) Close() error {
 	if lease == nil || lease.file == nil {
 		return nil
 	}

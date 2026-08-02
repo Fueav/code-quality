@@ -81,6 +81,39 @@ func TestProcessExecutorReturnsChildFailure(t *testing.T) {
 	}
 }
 
+func TestProcessExecutorPassesInheritedFiles(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inheritedPath := filepath.Join(root, "inherited")
+	if err := os.WriteFile(inheritedPath, []byte("inherited lease\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inherited, err := os.Open(inheritedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inherited.Close()
+	stdoutPath := filepath.Join(root, "stdout")
+	err = (ProcessExecutor{}).Run(context.Background(), Invocation{
+		Executable: exec.Command("sh").Path,
+		Args:       []string{"-c", "cat <&3"},
+		Dir:        repository,
+		StdoutPath: stdoutPath,
+		StderrPath: filepath.Join(root, "stderr"),
+		ExtraFiles: []*os.File{inherited},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(stdoutPath)
+	if err != nil || string(raw) != "inherited lease\n" {
+		t.Fatalf("inherited output = %q, error = %v", raw, err)
+	}
+}
+
 func TestProcessExecutorQuiescesDescendantWriters(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")

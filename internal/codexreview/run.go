@@ -31,6 +31,7 @@ type Options struct {
 	ReasoningEffort         string
 	EvaluationRubricVersion string
 	CodexBinary             string
+	LeaseFile               *os.File
 	Executor                Executor
 }
 
@@ -42,6 +43,7 @@ type Invocation struct {
 	OutputPath string
 	StdoutPath string
 	StderrPath string
+	ExtraFiles []*os.File
 }
 
 type Executor interface {
@@ -71,6 +73,7 @@ func (ProcessExecutor) Run(ctx context.Context, invocation Invocation) error {
 	command.Stdin = strings.NewReader(invocation.Stdin)
 	command.Stdout = processOutputWriter{Writer: stdout}
 	command.Stderr = processOutputWriter{Writer: stderr}
+	command.ExtraFiles = invocation.ExtraFiles
 	command.WaitDelay = processOutputDrainTimeout
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("codex process: %w", err)
@@ -208,11 +211,15 @@ func buildReviewInvocation(options Options) Invocation {
 		"--output-last-message", options.Prepared.NativeReviewPath,
 		"-",
 	)
-	return Invocation{
+	invocation := Invocation{
 		Executable: options.CodexBinary, Args: args, Dir: options.Prepared.RepositoryDir,
 		Stdin: buildReviewPrompt(options), OutputPath: options.Prepared.NativeReviewPath,
 		StdoutPath: layout.NativeStdoutPath, StderrPath: layout.NativeStderrPath,
 	}
+	if options.LeaseFile != nil {
+		invocation.ExtraFiles = []*os.File{options.LeaseFile}
+	}
+	return invocation
 }
 
 func collectRunMetrics(options Options, duration time.Duration, trustedDiffBytes int64, frozen frozenNativeArtifacts) NativeRunMetrics {

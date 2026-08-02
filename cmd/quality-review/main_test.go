@@ -21,8 +21,8 @@ import (
 func forceTopLevelDiscovery(t *testing.T) {
 	t.Helper()
 	previous := acquireNativeReviewLease
-	acquireNativeReviewLease = func() (io.Closer, error) {
-		return io.NopCloser(strings.NewReader("")), nil
+	acquireNativeReviewLease = func() (io.Closer, *os.File, error) {
+		return io.NopCloser(strings.NewReader("")), nil, nil
 	}
 	t.Cleanup(func() { acquireNativeReviewLease = previous })
 }
@@ -30,8 +30,8 @@ func forceTopLevelDiscovery(t *testing.T) {
 func forceActiveDiscovery(t *testing.T) {
 	t.Helper()
 	previous := acquireNativeReviewLease
-	acquireNativeReviewLease = func() (io.Closer, error) {
-		return nil, codexreview.ErrNativeReviewActive
+	acquireNativeReviewLease = func() (io.Closer, *os.File, error) {
+		return nil, nil, codexreview.ErrNativeReviewActive
 	}
 	t.Cleanup(func() { acquireNativeReviewLease = previous })
 }

@@ -1,11 +1,15 @@
 package codexreview
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNativeReviewLeaseAllowsOnlyOneActiveOwner(t *testing.T) {
@@ -57,6 +61,70 @@ func TestNativeReviewLeaseReleasesWhenOwnerExits(t *testing.T) {
 	}
 }
 
+func TestNativeReviewLeaseRemainsHeldByInheritedFile(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "lease")
+	lease, err := acquireNativeReviewLeaseAt(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command(os.Args[0], "-test.run=^TestNativeReviewLeaseInheritedFileHelper$")
+	command.Env = append(os.Environ(), "CODE_QUALITY_INHERITED_LEASE_HELPER=1")
+	command.ExtraFiles = []*os.File{lease.InheritedFile()}
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	scanner := bufio.NewScanner(stdout)
+	if !scanner.Scan() || scanner.Text() != "lease inherited" {
+		t.Fatalf("child stdout = %q, stderr = %q, error = %v", scanner.Text(), stderr.String(), scanner.Err())
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acquireNativeReviewLeaseAt(directory); !errors.Is(err, ErrNativeReviewActive) {
+		t.Fatalf("lease after wrapper close = %v, want %v", err, ErrNativeReviewActive)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatalf("inherited lease child: %v, stderr = %q", err, stderr.String())
+	}
+
+	afterChild, err := acquireNativeReviewLeaseAt(directory)
+	if err != nil {
+		t.Fatalf("lease after child exit: %v", err)
+	}
+	if err := afterChild.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNativeReviewLeaseUsesOwnedUserCache(t *testing.T) {
+	cacheDirectory, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaseDirectory, err := nativeReviewLeaseDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(cacheDirectory, leaseDirectory)
+	if err != nil || relative == "." || relative == ".." || filepath.IsAbs(relative) {
+		t.Fatalf("lease directory %q is not below user cache %q: relative=%q, error=%v", leaseDirectory, cacheDirectory, relative, err)
+	}
+	cacheInfo, err := os.Stat(cacheDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownedByCurrentUser(cacheInfo) || cacheInfo.Mode().Perm()&0o022 != 0 {
+		t.Fatalf("user cache is not owner-controlled by uid %d: mode=%v", os.Getuid(), cacheInfo.Mode())
+	}
+}
+
 func TestNativeReviewLeaseOwnerHelper(t *testing.T) {
 	directory := os.Getenv("CODE_QUALITY_LEASE_HELPER")
 	if directory == "" {
@@ -65,5 +133,21 @@ func TestNativeReviewLeaseOwnerHelper(t *testing.T) {
 	if _, err := acquireNativeReviewLeaseAt(directory); err != nil {
 		t.Fatal(err)
 	}
+	os.Exit(0)
+}
+
+func TestNativeReviewLeaseInheritedFileHelper(t *testing.T) {
+	if os.Getenv("CODE_QUALITY_INHERITED_LEASE_HELPER") == "" {
+		return
+	}
+	file := os.NewFile(3, "native-review-lease")
+	if file == nil {
+		t.Fatal("inherited lease file is unavailable")
+	}
+	if _, err := file.Stat(); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintln(os.Stdout, "lease inherited")
+	time.Sleep(500 * time.Millisecond)
 	os.Exit(0)
 }
