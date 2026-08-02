@@ -20,7 +20,7 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 ## Raw evidence freeze
 
-- After the Codex process exits and before any parser or classifier runs, the product reads the final message, JSONL stdout, and stderr as regular non-symlink files.
+- After the Codex process exits and before any parser or classifier runs, the product validates the final message, JSONL stdout, and stderr as regular non-symlink files. The bounded final message is retained byte-for-byte for classification, while potentially large JSONL and stderr artifacts are streamed to their hashes without a total-size parser limit.
 - It writes one exclusive freeze manifest containing each artifact's presence, byte length, and SHA-256.
 - The published schema fixes exactly one ordered entry for the final message, JSONL stdout, and stderr; every present artifact requires its digest.
 - Present raw artifacts become read-only after the manifest is durable.
@@ -41,9 +41,9 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 ## Existing hardening retained
 
-- Canonically equivalent macOS paths map to the same isolated checkout; existing and dangling symlinks are resolved before containment so escapes remain rejected. A changed in-repository symlink keeps its logical path, while an unchanged alias to a changed or deleted target falls back to the canonical changed path. Candidate paths containing an unresolved `..` component are rejected before cleaning or symlink resolution.
+- Canonically equivalent macOS paths map to the same isolated checkout; existing and dangling symlinks are resolved component-by-component in filesystem traversal order before containment, so chained targets containing `..` cannot be cleaned into the checkout and escapes remain rejected. A changed in-repository symlink keeps its logical path, while an unchanged alias to a changed or deleted target falls back to the canonical changed path. Candidate paths containing an unresolved `..` component are rejected before cleaning or symlink resolution.
 - `--base` and `--target` are supplied together. `--diff-reason` is optional for an explicit range and defaults to `explicit_commit_range`.
-- Each run retains JSONL-derived duration and token metrics. Missing or all-zero usage remains explicitly unavailable in both runtime behavior and the published metrics schema.
+- Each run retains duration and token metrics by streaming complete JSONL output while preserving a per-event size bound. Missing or all-zero usage remains explicitly unavailable in both runtime behavior and the published metrics schema.
 - `make release-check` covers Go, root qualification, live, mining, vet, formatting, and diff checks without model calls.
 
 ## Non-goals

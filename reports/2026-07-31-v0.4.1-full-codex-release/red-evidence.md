@@ -105,3 +105,12 @@ The ninth fresh full-Agent smoke used the ChatGPT.app Codex runtime and complete
 - treating every leading space as nested content rejected valid CommonMark findings with one, two, or three spaces of top-level indentation.
 
 The frozen child run and focused probes reproduced both cases. The fake-Codex test now enters its own temporary repository before invoking the CLI, leaving the production recursion guard unchanged. The classifier accepts zero-to-three-space top-level CommonMark indentation, uses the first finding's indentation as its sibling baseline, and still treats deeper priority bullets as body text; four-space no-findings examples remain rejected. The ninth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Tenth candidate review RED
+
+The tenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 971,562 ms with 3,807,615 input tokens and 43,762 output tokens. Independent SHA-256 checks matched all three `0400` frozen raw artifacts. The final message was 1,381 bytes, JSONL stdout was 847,663 bytes, and stderr was 4,505 bytes; deterministic classification retained both candidates with zero adapter drops. The review found:
+
+- a dangling chained symlink target such as `pivot/../missing` could escape through the intermediate `pivot` symlink because lexical cleaning happened before filesystem-order resolution;
+- the 10 MiB parser bound was also applied to entire JSONL and stderr artifacts, so a legitimate long native run could fail before its evidence was frozen.
+
+Both cases reproduced before implementation. Canonical containment now resolves every path component and symlink target in traversal order, including parent components introduced by a symlink target. The final message remains bounded and held byte-for-byte for classification, while JSONL and stderr are streamed for hashing and JSONL metrics are streamed with a per-event bound rather than a whole-log limit. The tenth candidate smoke remains diagnostic evidence and is not release acceptance.

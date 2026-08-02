@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -213,7 +214,7 @@ func Run(ctx context.Context, options Options) (quality.NativeReviewResult, erro
 	if err != nil {
 		return quality.NativeReviewResult{}, err
 	}
-	metrics := collectRunMetricsFromJSONL(options, time.Since(started), int64(len(trustedDiff)), frozen.Stdout)
+	metrics := collectRunMetrics(options, time.Since(started), int64(len(trustedDiff)))
 	if err := writeExclusiveJSON(reviewsession.NewLayout(options.Prepared.SessionDir).NativeMetricsPath, metrics); err != nil {
 		return quality.NativeReviewResult{}, fmt.Errorf("write native run metrics: %w", err)
 	}
@@ -320,12 +321,19 @@ func buildReviewInvocation(options Options) Invocation {
 }
 
 func collectRunMetrics(options Options, duration time.Duration, trustedDiffBytes int64) NativeRunMetrics {
-	layout := reviewsession.NewLayout(options.Prepared.SessionDir)
-	raw, err := reviewsession.ReadRegularFile(layout.NativeStdoutPath, maxNativeOutputBytes)
-	if err != nil {
-		return unavailableRunMetrics(options, duration, trustedDiffBytes, err)
+	metrics := NativeRunMetrics{
+		SchemaVersion: 1, DurationMS: duration.Milliseconds(),
+		ChangedFileCount: len(options.Request.ChangedFiles), TrustedDiffBytes: trustedDiffBytes,
 	}
-	return collectRunMetricsFromJSONL(options, duration, trustedDiffBytes, raw)
+	inputTokens, outputTokens, err := readCodexUsage(reviewsession.NewLayout(options.Prepared.SessionDir).NativeStdoutPath)
+	if err != nil {
+		metrics.UsageError = err.Error()
+		return metrics
+	}
+	metrics.InputTokens = inputTokens
+	metrics.OutputTokens = outputTokens
+	metrics.UsageAvailable = inputTokens != nil && outputTokens != nil
+	return metrics
 }
 
 func collectRunMetricsFromJSONL(options Options, duration time.Duration, trustedDiffBytes int64, raw []byte) NativeRunMetrics {
@@ -353,15 +361,42 @@ func unavailableRunMetrics(options Options, duration time.Duration, trustedDiffB
 }
 
 func readCodexUsage(path string) (*int64, *int64, error) {
-	raw, err := reviewsession.ReadRegularFile(path, maxNativeOutputBytes)
+	before, err := os.Lstat(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	return decodeCodexUsage(raw)
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, errors.New("Codex JSONL must be a regular non-symlink file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return nil, nil, errors.New("Codex JSONL changed while it was being read")
+	}
+	inputTokens, outputTokens, decodeErr := decodeCodexUsageReader(file)
+	after, statErr := file.Stat()
+	if statErr != nil {
+		return nil, nil, statErr
+	}
+	if !os.SameFile(opened, after) || opened.Size() != after.Size() {
+		return nil, nil, errors.New("Codex JSONL changed while it was being read")
+	}
+	return inputTokens, outputTokens, decodeErr
 }
 
 func decodeCodexUsage(raw []byte) (*int64, *int64, error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(raw)))
+	return decodeCodexUsageReader(strings.NewReader(string(raw)))
+}
+
+func decodeCodexUsageReader(reader io.Reader) (*int64, *int64, error) {
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64<<10), int(maxNativeOutputBytes))
 	var latest *codexUsage
 	for scanner.Scan() {
@@ -1009,50 +1044,57 @@ func repositoryRelativePath(repository, candidate string) (string, bool) {
 }
 
 func canonicalPath(path string) (string, error) {
-	clean := filepath.Clean(path)
-	if !filepath.IsAbs(clean) {
+	if !filepath.IsAbs(path) {
 		return "", errors.New("path must be absolute")
 	}
-	existing := clean
-	suffix := []string{}
-	seenSymlinks := map[string]struct{}{}
-	for {
-		resolved, err := filepath.EvalSymlinks(existing)
-		if err == nil {
-			for index := len(suffix) - 1; index >= 0; index-- {
-				resolved = filepath.Join(resolved, suffix[index])
-			}
-			return filepath.Clean(resolved), nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return "", err
-		}
-		info, lstatErr := os.Lstat(existing)
-		if lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
-			if _, seen := seenSymlinks[existing]; seen {
-				return "", errors.New("symlink cycle")
-			}
-			seenSymlinks[existing] = struct{}{}
-			target, err := os.Readlink(existing)
-			if err != nil {
-				return "", err
-			}
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(filepath.Dir(existing), target)
-			}
-			existing = filepath.Clean(target)
+	resolved := filepath.VolumeName(path) + string(filepath.Separator)
+	pending := pathComponents(path)
+	symlinkTraversals := 0
+	for len(pending) > 0 {
+		component := pending[0]
+		pending = pending[1:]
+		switch component {
+		case "", ".":
+			continue
+		case "..":
+			resolved = filepath.Dir(resolved)
 			continue
 		}
-		if lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist) {
-			return "", lstatErr
+		candidate := filepath.Join(resolved, component)
+		info, err := os.Lstat(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			resolved = candidate
+			continue
 		}
-		parent := filepath.Dir(existing)
-		if parent == existing {
+		if err != nil {
 			return "", err
 		}
-		suffix = append(suffix, filepath.Base(existing))
-		existing = parent
+		if info.Mode()&os.ModeSymlink == 0 {
+			resolved = candidate
+			continue
+		}
+		symlinkTraversals++
+		if symlinkTraversals > 255 {
+			return "", errors.New("too many symlink traversals")
+		}
+		target, err := os.Readlink(candidate)
+		if err != nil {
+			return "", err
+		}
+		if filepath.IsAbs(target) {
+			resolved = filepath.VolumeName(target) + string(filepath.Separator)
+		}
+		pending = append(pathComponents(target), pending...)
 	}
+	return filepath.Clean(resolved), nil
+}
+
+func pathComponents(path string) []string {
+	volume := filepath.VolumeName(path)
+	path = strings.TrimPrefix(path, volume)
+	return strings.FieldsFunc(path, func(character rune) bool {
+		return character == filepath.Separator
+	})
 }
 
 func validateNativeCandidate(candidate nativeFinding) string {

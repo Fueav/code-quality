@@ -364,6 +364,72 @@ func TestAdaptFindingsRejectsChangedDanglingSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestAdaptFindingsRejectsDanglingSymlinkTargetTraversalEscape(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	config := filepath.Join(repository, "config")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(outside, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "nested"), filepath.Join(config, "pivot")); err != nil {
+		t.Fatal(err)
+	}
+	aliasPath := filepath.Join(config, "current")
+	target := "pivot" + string(filepath.Separator) + ".." + string(filepath.Separator) + "missing"
+	if err := os.Symlink(target, aliasPath); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, drops := adaptFindings([]nativeFinding{{
+		Title: "reject escaped dangling target", Body: "The chained target resolves outside the checkout before reaching its missing leaf.", Priority: 1,
+		CodeLocation: nativeCodeLocation{
+			AbsoluteFilePath: aliasPath,
+			LineRange:        nativeLineRange{Start: 1, End: 1},
+		},
+	}}, repository, []string{"config/current"})
+	if len(findings) != 0 || len(drops) != 1 || drops[0].Reason != "code location is outside the isolated checkout" {
+		t.Fatalf("findings = %#v, drops = %#v", findings, drops)
+	}
+}
+
+func TestFreezeAndUsageStreamCompleteLargeJSONL(t *testing.T) {
+	layout := reviewsession.NewLayout(t.TempDir())
+	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.NativeReviewPath, []byte("No findings.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fillerLine := "{\"type\":\"item.completed\"}\n"
+	filler := strings.Repeat(fillerLine, int(maxNativeOutputBytes)/len(fillerLine)+2)
+	usageLine := "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":321,\"output_tokens\":54}}\n"
+	if err := os.WriteFile(layout.NativeStdoutPath, []byte(filler+usageLine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.NativeStderrPath, []byte("warning\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	frozen, err := freezeNativeArtifacts(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frozen.FinalMessage) == 0 || int64(frozen.Manifest.Artifacts[1].Bytes) <= maxNativeOutputBytes {
+		t.Fatalf("freeze manifest = %#v", frozen.Manifest)
+	}
+	inputTokens, outputTokens, err := readCodexUsage(layout.NativeStdoutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inputTokens == nil || *inputTokens != 321 || outputTokens == nil || *outputTokens != 54 {
+		t.Fatalf("usage = %v/%v", inputTokens, outputTokens)
+	}
+}
+
 func TestReadCodexUsageUsesLastCompletedTurn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	contents := strings.Join([]string{

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -16,7 +17,7 @@ type FrozenArtifact struct {
 	Name    string `json:"name"`
 	Path    string `json:"path"`
 	Present bool   `json:"present"`
-	Bytes   int    `json:"bytes"`
+	Bytes   int64  `json:"bytes"`
 	SHA256  string `json:"sha256,omitempty"`
 }
 
@@ -27,8 +28,6 @@ type NativeFreezeManifest struct {
 
 type frozenNativeArtifacts struct {
 	FinalMessage []byte
-	Stdout       []byte
-	Stderr       []byte
 	Manifest     NativeFreezeManifest
 }
 
@@ -42,13 +41,25 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 	frozen := frozenNativeArtifacts{Manifest: NativeFreezeManifest{SchemaVersion: 1, Artifacts: []FrozenArtifact{}}}
 	specs := []rawArtifactSpec{
 		{name: "final_message", path: layout.NativeReviewPath, set: func(target *frozenNativeArtifacts, raw []byte) { target.FinalMessage = raw }},
-		{name: "jsonl_stdout", path: layout.NativeStdoutPath, set: func(target *frozenNativeArtifacts, raw []byte) { target.Stdout = raw }},
-		{name: "stderr", path: layout.NativeStderrPath, set: func(target *frozenNativeArtifacts, raw []byte) { target.Stderr = raw }},
+		{name: "jsonl_stdout", path: layout.NativeStdoutPath},
+		{name: "stderr", path: layout.NativeStderrPath},
 	}
 	present := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		entry := FrozenArtifact{Name: spec.name, Path: filepath.Base(spec.path)}
-		raw, err := reviewsession.ReadRegularFile(spec.path, maxNativeOutputBytes)
+		var err error
+		if spec.set != nil {
+			var raw []byte
+			raw, err = reviewsession.ReadRegularFile(spec.path, maxNativeOutputBytes)
+			if err == nil {
+				digest := sha256.Sum256(raw)
+				entry.Bytes = int64(len(raw))
+				entry.SHA256 = hex.EncodeToString(digest[:])
+				spec.set(&frozen, raw)
+			}
+		} else {
+			entry.Bytes, entry.SHA256, err = hashRegularFile(spec.path)
+		}
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return frozenNativeArtifacts{}, fmt.Errorf("read raw %s: %w", spec.name, err)
@@ -56,12 +67,8 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 			frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
 			continue
 		}
-		digest := sha256.Sum256(raw)
 		entry.Present = true
-		entry.Bytes = len(raw)
-		entry.SHA256 = hex.EncodeToString(digest[:])
 		frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
-		spec.set(&frozen, raw)
 		if err := syncRawArtifact(spec.path); err != nil {
 			return frozenNativeArtifacts{}, fmt.Errorf("sync raw %s: %w", spec.name, err)
 		}
@@ -79,6 +86,41 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 		return frozenNativeArtifacts{}, fmt.Errorf("make raw freeze manifest read-only: %w", err)
 	}
 	return frozen, nil
+}
+
+func hashRegularFile(path string) (int64, string, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return 0, "", err
+	}
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+		return 0, "", errors.New("input must be a regular non-symlink file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, "", err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return 0, "", err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return 0, "", errors.New("input changed while it was being read")
+	}
+	digest := sha256.New()
+	bytesRead, err := io.Copy(digest, file)
+	if err != nil {
+		return 0, "", err
+	}
+	after, err := file.Stat()
+	if err != nil {
+		return 0, "", err
+	}
+	if !os.SameFile(opened, after) || opened.Size() != after.Size() || bytesRead != after.Size() {
+		return 0, "", errors.New("input changed while it was being read")
+	}
+	return bytesRead, hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 func syncRawArtifact(path string) error {
