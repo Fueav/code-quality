@@ -29,9 +29,9 @@ This Codex-focused patch release replaces the capability-restricting review wrap
 
 ## Thin deterministic classification
 
-- The classifier accepts the previously observed native bullet format and ordinary CommonMark `-`, `*`, `+`, `N.`, and `N)` Agent finding markers, including balanced parentheses in Markdown link destinations.
+- The classifier accepts the previously observed native bullet format and ordinary CommonMark `-`, `*`, `+`, `N.`, and `N)` Agent finding markers, including balanced parentheses in Markdown link destinations. CommonMark's zero-to-three-space top-level indentation is accepted; deeper indentation than the current finding remains body content.
 - Each recognized candidate is either retained inside the trusted changed-file scope or recorded as an indexed adapter exclusion.
-- Top-level explicit no-finding text, either standalone or immediately below the first top-level recognized findings heading after optional introductory text, may become `PASS`. Indented examples are never result sentinels or container headings.
+- Top-level explicit no-finding text, either standalone or immediately below the first top-level recognized findings heading after optional introductory text, may become `PASS`. Zero-to-three-space CommonMark indentation remains top-level, while four-space code examples are never result sentinels or container headings.
 - Any priority candidate before that sentinel makes the output contradictory rather than allowing a later section to erase it.
 - Explicit no-finding text followed by any nonblank tail is not accepted as `PASS`.
 - Top-level text after a structured finding is not appended to its body, a trailing no-finding sentinel is contradictory in either accepted grammar, and indented priority text or nested bullets remain body text.

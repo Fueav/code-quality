@@ -91,6 +91,18 @@ func TestRunCodexRejectsActiveDiscoveryBeforeAnotherRepository(t *testing.T) {
 
 func TestRunCodexZeroFindingsUsesOneNativeReviewCall(t *testing.T) {
 	repo, base, target := cliReviewFixture(t)
+	previousWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previousWorkingDirectory); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 	directory := t.TempDir()
 	countPath := filepath.Join(directory, "count")
 	promptPath := filepath.Join(directory, "prompt")

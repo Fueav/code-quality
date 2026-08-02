@@ -481,6 +481,41 @@ func TestAgentOutputAcceptsAllCommonMarkListMarkers(t *testing.T) {
 	}
 }
 
+func TestAgentOutputAcceptsCommonMarkTopLevelIndentation(t *testing.T) {
+	for indentation := 1; indentation <= 3; indentation++ {
+		t.Run(fmt.Sprintf("%d spaces", indentation), func(t *testing.T) {
+			prefix := strings.Repeat(" ", indentation)
+			input := prefix + "- [P2] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)\n\n" +
+				prefix + "  The new branch drops caller cancellation.\n"
+			result, err := parseNativeReviewText(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 1 || result.Findings[0].Body != "The new branch drops caller cancellation." {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
+	}
+}
+
+func TestNativeOutputAcceptsCommonMarkTopLevelIndentation(t *testing.T) {
+	for indentation := 1; indentation <= 3; indentation++ {
+		t.Run(fmt.Sprintf("%d spaces", indentation), func(t *testing.T) {
+			prefix := strings.Repeat(" ", indentation)
+			input := prefix + "Review comment:\n\n" +
+				prefix + "- [P1] Preserve cancellation — /private/tmp/review/client.go:17\n" +
+				prefix + "  The new branch drops caller cancellation.\n"
+			result, err := parseNativeReviewText(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 1 || result.Findings[0].Body != "The new branch drops caller cancellation." {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
+	}
+}
+
 func TestIndentedAgentPriorityBulletRemainsBodyText(t *testing.T) {
 	input := `- [P1] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)
 
@@ -586,6 +621,21 @@ func TestNativeOutputAcceptsHeadedNoFindingsAfterIntroduction(t *testing.T) {
 	}
 	if len(result.Findings) != 0 {
 		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestNativeOutputAcceptsCommonMarkIndentedNoFindings(t *testing.T) {
+	for indentation := 1; indentation <= 3; indentation++ {
+		t.Run(fmt.Sprintf("%d spaces", indentation), func(t *testing.T) {
+			prefix := strings.Repeat(" ", indentation)
+			result, err := parseNativeReviewText(prefix + "## Findings\n\n" + prefix + "No findings.\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Findings) != 0 {
+				t.Fatalf("findings = %#v", result.Findings)
+			}
+		})
 	}
 }
 

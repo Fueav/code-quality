@@ -480,6 +480,7 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 	findings := []nativeFinding{}
 	body := []string{}
 	var current *nativeFinding
+	findingIndent := -1
 	trailingAssessment := false
 	flush := func() error {
 		if current == nil {
@@ -497,19 +498,16 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 
 	for _, line := range lines[heading+1:] {
 		trimmed := strings.TrimSpace(line)
-		if isIndentedLine(line) {
-			if trimmed == "" {
-				continue
-			}
-			if current == nil {
-				return nativeEnvelope{}, fmt.Errorf("unexpected indented text in native review comment section: %q", trimmed)
-			}
-			if !trailingAssessment {
-				body = append(body, trimmed)
-			}
+		if trimmed == "" {
 			continue
 		}
-		finding, recognized, err := parseNativeFindingHeader(line)
+		indent, topLevel := commonMarkIndent(line)
+		finding := nativeFinding{}
+		recognized := false
+		var err error
+		if topLevel && (findingIndent < 0 || indent <= findingIndent) {
+			finding, recognized, err = parseNativeFindingHeader(line)
+		}
 		if err != nil {
 			return nativeEnvelope{}, err
 		}
@@ -521,9 +519,13 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 				return nativeEnvelope{}, err
 			}
 			current = &finding
+			findingIndent = indent
 			continue
 		}
-		if trimmed == "" {
+		if current != nil && (!topLevel || indent > findingIndent) {
+			if !trailingAssessment {
+				body = append(body, trimmed)
+			}
 			continue
 		}
 		if isExplicitNoFindings(line) {
@@ -561,9 +563,12 @@ type markdownLocationMatch struct {
 
 func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 	firstCandidate := -1
+	findingIndent := -1
 	for index := first; index < len(lines); index++ {
-		if !isIndentedLine(lines[index]) && containsPriorityMarker(lines[index]) && agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
+		indent, topLevel := commonMarkIndent(lines[index])
+		if topLevel && containsPriorityMarker(lines[index]) && agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
 			firstCandidate = index
+			findingIndent = indent
 			break
 		}
 	}
@@ -590,19 +595,17 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 
 	for _, line := range lines[firstCandidate:] {
 		trimmed := strings.TrimSpace(line)
-		if isIndentedLine(line) {
-			if trimmed == "" {
-				continue
-			}
-			if current == nil {
-				return nativeEnvelope{}, fmt.Errorf("unexpected indented text in agent findings: %q", trimmed)
-			}
-			if !trailingAssessment {
-				body = append(body, trimmed)
-			}
+		if trimmed == "" {
 			continue
 		}
-		finding, initialBody, recognized, err := parseAgentFindingHeader(line)
+		indent, topLevel := commonMarkIndent(line)
+		finding := nativeFinding{}
+		initialBody := ""
+		recognized := false
+		var err error
+		if topLevel && indent <= findingIndent {
+			finding, initialBody, recognized, err = parseAgentFindingHeader(line)
+		}
 		if err != nil {
 			return nativeEnvelope{}, err
 		}
@@ -614,12 +617,16 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 				return nativeEnvelope{}, err
 			}
 			current = &finding
+			findingIndent = indent
 			if initialBody != "" {
 				body = append(body, initialBody)
 			}
 			continue
 		}
-		if trimmed == "" {
+		if current != nil && (!topLevel || indent > findingIndent) {
+			if !trailingAssessment {
+				body = append(body, trimmed)
+			}
 			continue
 		}
 		if isExplicitNoFindings(trimmed) {
@@ -791,7 +798,7 @@ func cleanAgentBody(raw string) string {
 }
 
 func isExplicitNoFindings(line string) bool {
-	if isIndentedLine(line) {
+	if !isTopLevelMarkdownLine(line) {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(line)) {
@@ -812,7 +819,7 @@ func containsPriorityMarker(line string) bool {
 }
 
 func isNativeReviewHeading(line string) bool {
-	if isIndentedLine(line) {
+	if !isTopLevelMarkdownLine(line) {
 		return false
 	}
 	switch strings.TrimSpace(line) {
@@ -824,7 +831,7 @@ func isNativeReviewHeading(line string) bool {
 }
 
 func isFindingsContainerHeading(line string) bool {
-	if isIndentedLine(line) {
+	if !isTopLevelMarkdownLine(line) {
 		return false
 	}
 	if isNativeReviewHeading(line) {
@@ -861,8 +868,24 @@ func nextNonBlankLine(lines []string, start int) int {
 	return -1
 }
 
-func isIndentedLine(line string) bool {
-	return len(line) > 0 && (line[0] == ' ' || line[0] == '\t')
+func commonMarkIndent(line string) (int, bool) {
+	indent := 0
+	for indent < len(line) {
+		switch line[indent] {
+		case ' ':
+			indent++
+		case '\t':
+			return indent, false
+		default:
+			return indent, indent <= 3
+		}
+	}
+	return indent, indent <= 3
+}
+
+func isTopLevelMarkdownLine(line string) bool {
+	_, topLevel := commonMarkIndent(line)
+	return topLevel
 }
 
 func parseNativeFindingHeader(line string) (nativeFinding, bool, error) {

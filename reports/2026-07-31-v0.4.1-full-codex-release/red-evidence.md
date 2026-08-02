@@ -96,3 +96,12 @@ The eighth fresh full-Agent smoke completed one `gpt-5.6-sol/max` call in 695,36
 - cleaning `..` before symlink resolution could turn an escaping model location into an accepted changed-file path.
 
 All three cases reproduced before implementation. Result headings and sentinels now require top-level content, the CLI checks the active working tree before honoring another repository, and candidate locations containing an unresolved parent-traversal component are rejected before cleaning or canonicalization. These guards change no Codex capability or semantic prompt. The eighth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Ninth candidate review RED
+
+The ninth fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 765,343 ms with 6,139,827 input tokens and 37,762 output tokens. Independent SHA-256 checks matched all three `0400` frozen raw artifacts, and deterministic classification retained both candidates with zero adapter drops. The review found:
+
+- the fake-Codex one-call contract test inherited the outer discovery working directory and was blocked by the production recursion marker;
+- treating every leading space as nested content rejected valid CommonMark findings with one, two, or three spaces of top-level indentation.
+
+The frozen child run and focused probes reproduced both cases. The fake-Codex test now enters its own temporary repository before invoking the CLI, leaving the production recursion guard unchanged. The classifier accepts zero-to-three-space top-level CommonMark indentation, uses the first finding's indentation as its sibling baseline, and still treats deeper priority bullets as body text; four-space no-findings examples remain rejected. The ninth candidate smoke remains diagnostic evidence and is not release acceptance.
