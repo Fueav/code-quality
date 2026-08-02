@@ -605,6 +605,27 @@ func TestAdaptFindingsPreservesDeletedCaseInsensitivePathIdentity(t *testing.T) 
 	}
 }
 
+func TestCaseSensitivityProbeStopsAtMountBoundary(t *testing.T) {
+	mountPath := filepath.Join(string(filepath.Separator), "dev")
+	mountInfo, err := os.Lstat(mountPath)
+	if err != nil {
+		t.Skip("/dev is unavailable")
+	}
+	alternateMountInfo, err := os.Lstat(filepath.Join(string(filepath.Separator), "Dev"))
+	if err != nil || !os.SameFile(mountInfo, alternateMountInfo) {
+		t.Skip("parent filesystem does not expose a case-insensitive /dev lookup")
+	}
+	if _, err := os.Lstat(filepath.Join(mountPath, "fd")); err != nil {
+		t.Skip("/dev/fd is unavailable")
+	}
+	if _, err := os.Lstat(filepath.Join(mountPath, "Fd")); !errors.Is(err, os.ErrNotExist) {
+		t.Skip("mounted /dev filesystem is not observably case-sensitive")
+	}
+	if pathUsesCaseInsensitiveIdentity(mountPath) {
+		t.Fatal("case-sensitive mounted filesystem inherited its parent's case semantics")
+	}
+}
+
 func TestFreezeAndUsageStreamCompleteLargeJSONL(t *testing.T) {
 	layout := reviewsession.NewLayout(t.TempDir())
 	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
@@ -966,6 +987,34 @@ func TestNativeHeadingFallsBackToAgentFindingGrammar(t *testing.T) {
 	}
 }
 
+func TestNativeOutputRejectsMixedFindingGrammars(t *testing.T) {
+	input := `Review comments:
+
+- [P1] Preserve cancellation — /private/tmp/review/client.go:17
+  The new branch drops caller cancellation.
+* [P2] Close the response body — [client.go:31](/private/tmp/review/client.go:31)
+  The success path leaks the response body.
+`
+	if _, err := parseNativeReviewText(input); err == nil {
+		t.Fatal("mixed finding grammars returned a partial finding set")
+	}
+}
+
+func TestAgentOutputIgnoresFencedFindingExamples(t *testing.T) {
+	input := "Example output:\n\n```markdown\n" +
+		"- [P1] Example only — [example.go:4](/private/tmp/review/example.go:4)\n" +
+		"  This is not an actual finding.\n```\n\n" +
+		"- [P2] Preserve cancellation — [client.go:17](/private/tmp/review/client.go:17)\n\n" +
+		"  The new branch drops caller cancellation.\n"
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].Title != "Preserve cancellation" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
 func TestAgentFindingAcceptsParenthesesInAngleBracketDestination(t *testing.T) {
 	input := `## Findings
 
@@ -988,6 +1037,22 @@ func TestAgentFindingAcceptsBalancedParenthesesInOrdinaryDestination(t *testing.
 - [P2] Preserve route-group findings — [page.tsx](/repo/app/(auth)/page.tsx:42)
 
   The parser must retain findings for ordinary Markdown links with balanced parentheses.
+`
+	result, err := parseNativeReviewText(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].CodeLocation.AbsoluteFilePath != "/repo/app/(auth)/page.tsx" {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
+func TestAgentFindingDecodesEscapedMarkdownDestination(t *testing.T) {
+	input := `## Findings
+
+- [P2] Preserve escaped route groups — [page.tsx](/repo/app/\(auth\)/page.tsx:42)
+
+  The parser must map the escaped CommonMark destination to the changed path.
 `
 	result, err := parseNativeReviewText(input)
 	if err != nil {

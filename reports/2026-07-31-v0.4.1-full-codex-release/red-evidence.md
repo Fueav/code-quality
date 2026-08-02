@@ -133,3 +133,14 @@ The twelfth fresh full-Agent smoke used the ChatGPT.app Codex runtime and comple
 - after the first missing component, case-insensitive APFS identity was no longer recoverable, so a differently cased model path for a deleted changed file could become `INCOMPLETE`.
 
 Both defects reproduced before implementation, including the symlinked Git-root miss, the repository-owned-marker false positive, and the deleted-file case mismatch on the release host. Active recursion detection now asks Git for the current root, canonicalizes it, and inspects only the marker outside that root. Changed-path matching first prefers exact spelling and then permits exactly one case-equivalent trusted path only after a read-only inode probe proves that the checkout volume is case-insensitive. The twelfth candidate smoke remains diagnostic evidence and is not release acceptance.
+
+## Thirteenth candidate review RED
+
+The thirteenth fresh full-Agent smoke used the ChatGPT.app Codex runtime and completed one `gpt-5.6-sol/max` call in 935,937 ms with 3,282,054 input tokens and 41,302 output tokens. Independent SHA-256 checks matched all three `0400` frozen raw artifacts: the 2,243-byte final message had digest `6140d863d4443a2e04c1878b139f8901835b0e60acbd858fb81a24cf0d40766b`, the 626,015-byte JSONL had digest `3aa521ae332d79fa7d54b8de523f8c35a34add57b0c752fa2d5b73db1ff26dbc`, and the 2,706-byte stderr had digest `417f273ab1173550034b2e01ce816f1ac665d1cab7f983d6ce8ddcacc185182d`. The recursion marker was absent after completion, and deterministic classification retained all four candidates with zero adapter drops. The review found:
+
+- after a native-format finding, a same-level Agent-format candidate could be treated as trailing assessment and silently omitted;
+- a priority bullet inside a fenced CommonMark example could be promoted into an actual finding;
+- backslash escapes used to delimit a valid Markdown destination were retained in the resulting filesystem path;
+- case-sensitivity probing could walk from a case-sensitive mounted checkout onto its case-insensitive parent volume and inherit the wrong semantics.
+
+All four defects reproduced before implementation. Mixed finding grammars now fail closed when the native parser encounters an unrecognized top-level priority header, rather than returning a partial set. A CommonMark fence-state mask excludes fenced lines from headings and candidates, Markdown destination parsing decodes only CommonMark-escapable ASCII punctuation, and the case probe stops before the parent device differs from the checkout device. The release host's case-sensitive `/dev` mount reproduced the mount-boundary false positive without requiring a synthetic filesystem. The thirteenth candidate smoke remains diagnostic evidence and is not release acceptance.

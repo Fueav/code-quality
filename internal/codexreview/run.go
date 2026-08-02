@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	reviewsession "github.com/Fueav/code-quality/internal/session"
@@ -469,24 +470,25 @@ func readNativeOutput(path string) (nativeEnvelope, error) {
 func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	lines := strings.Split(raw, "\n")
+	fenced := fencedCodeLines(lines)
 	first := firstNonBlankLine(lines)
 	if first < 0 {
 		return nativeEnvelope{}, errors.New("native review output is empty")
 	}
 	noFindingsLine := -1
-	if isExplicitNoFindings(lines[first]) {
+	if !fenced[first] && isExplicitNoFindings(lines[first]) {
 		noFindingsLine = first
 	} else {
 		for index := first; index < len(lines); index++ {
-			if isFindingsContainerHeading(lines[index]) {
-				noFindingsLine = nextNonBlankLine(lines, index+1)
+			if !fenced[index] && isFindingsContainerHeading(lines[index]) {
+				noFindingsLine = nextNonFencedNonBlankLine(lines, fenced, index+1)
 				break
 			}
 		}
 	}
 	if noFindingsLine >= 0 && isExplicitNoFindings(lines[noFindingsLine]) {
-		for _, line := range lines[first:noFindingsLine] {
-			if containsPriorityMarker(line) {
+		for index, line := range lines[first:noFindingsLine] {
+			if !fenced[first+index] && containsPriorityMarker(line) {
 				return nativeEnvelope{}, errors.New("native review contradicts its no-findings result")
 			}
 		}
@@ -504,26 +506,26 @@ func parseNativeReviewText(raw string) (nativeEnvelope, error) {
 
 	heading := -1
 	for index := first; index < len(lines); index++ {
-		if isNativeReviewHeading(lines[index]) {
+		if !fenced[index] && isNativeReviewHeading(lines[index]) {
 			heading = index
 			break
 		}
 	}
 	if heading < 0 {
-		return parseAgentReviewText(lines, first)
+		return parseAgentReviewText(lines, fenced, first)
 	}
-	nativeResult, nativeErr := parseNativeReviewSection(lines, heading)
+	nativeResult, nativeErr := parseNativeReviewSection(lines, fenced, heading)
 	if nativeErr == nil {
 		return nativeResult, nil
 	}
-	agentResult, agentErr := parseAgentReviewText(lines, first)
+	agentResult, agentErr := parseAgentReviewText(lines, fenced, first)
 	if agentErr == nil {
 		return agentResult, nil
 	}
 	return nativeEnvelope{}, fmt.Errorf("unrecognized review findings: native format: %v; agent format: %v", nativeErr, agentErr)
 }
 
-func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, error) {
+func parseNativeReviewSection(lines []string, fenced []bool, heading int) (nativeEnvelope, error) {
 	findings := []nativeFinding{}
 	body := []string{}
 	var current *nativeFinding
@@ -543,7 +545,10 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 		return nil
 	}
 
-	for _, line := range lines[heading+1:] {
+	for index, line := range lines[heading+1:] {
+		if fenced[heading+1+index] {
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -578,6 +583,9 @@ func parseNativeReviewSection(lines []string, heading int) (nativeEnvelope, erro
 		if isExplicitNoFindings(line) {
 			return nativeEnvelope{}, errors.New("native findings contradict a trailing no-findings result")
 		}
+		if containsPriorityMarker(line) {
+			return nativeEnvelope{}, fmt.Errorf("unrecognized native finding header: %q", trimmed)
+		}
 		if current == nil {
 			return nativeEnvelope{}, fmt.Errorf("unexpected text in native review comment section: %q", strings.TrimSpace(line))
 		}
@@ -608,10 +616,13 @@ type markdownLocationMatch struct {
 	end       string
 }
 
-func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
+func parseAgentReviewText(lines []string, fenced []bool, first int) (nativeEnvelope, error) {
 	firstCandidate := -1
 	findingIndent := -1
 	for index := first; index < len(lines); index++ {
+		if fenced[index] {
+			continue
+		}
 		indent, topLevel := commonMarkIndent(lines[index])
 		if topLevel && containsPriorityMarker(lines[index]) && agentListPrefixPattern.MatchString(strings.TrimSpace(lines[index])) {
 			firstCandidate = index
@@ -640,7 +651,10 @@ func parseAgentReviewText(lines []string, first int) (nativeEnvelope, error) {
 		return nil
 	}
 
-	for _, line := range lines[firstCandidate:] {
+	for index, line := range lines[firstCandidate:] {
+		if fenced[firstCandidate+index] {
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -807,7 +821,7 @@ func readMarkdownDestination(raw string, start int) (string, int, bool) {
 		if destination == "" || strings.ContainsAny(destination, "\r\n>") {
 			return "", 0, false
 		}
-		return destination, end + 2, true
+		return unescapeMarkdownDestination(destination), end + 2, true
 	}
 	depth := 1
 	escaped := false
@@ -833,11 +847,32 @@ func readMarkdownDestination(raw string, start int) (string, int, bool) {
 				if index == start {
 					return "", 0, false
 				}
-				return raw[start:index], index + 1, true
+				return unescapeMarkdownDestination(raw[start:index]), index + 1, true
 			}
 		}
 	}
 	return "", 0, false
+}
+
+func unescapeMarkdownDestination(raw string) string {
+	var unescaped strings.Builder
+	unescaped.Grow(len(raw))
+	for index := 0; index < len(raw); index++ {
+		character := raw[index]
+		if character == '\\' && index+1 < len(raw) && isASCIIPunctuation(raw[index+1]) {
+			index++
+			character = raw[index]
+		}
+		unescaped.WriteByte(character)
+	}
+	return unescaped.String()
+}
+
+func isASCIIPunctuation(character byte) bool {
+	return character >= '!' && character <= '/' ||
+		character >= ':' && character <= '@' ||
+		character >= '[' && character <= '`' ||
+		character >= '{' && character <= '~'
 }
 
 func cleanAgentBody(raw string) string {
@@ -915,6 +950,15 @@ func nextNonBlankLine(lines []string, start int) int {
 	return -1
 }
 
+func nextNonFencedNonBlankLine(lines []string, fenced []bool, start int) int {
+	for index := start; index < len(lines); index++ {
+		if !fenced[index] && strings.TrimSpace(lines[index]) != "" {
+			return index
+		}
+	}
+	return -1
+}
+
 func commonMarkIndent(line string) (int, bool) {
 	indent := 0
 	for indent < len(line) {
@@ -928,6 +972,48 @@ func commonMarkIndent(line string) (int, bool) {
 		}
 	}
 	return indent, indent <= 3
+}
+
+func fencedCodeLines(lines []string) []bool {
+	fenced := make([]bool, len(lines))
+	var delimiter byte
+	delimiterLength := 0
+	for index, line := range lines {
+		marker, length, remainder, ok := markdownFenceMarker(line)
+		if delimiter == 0 {
+			if ok && (marker != '`' || !strings.Contains(remainder, "`")) {
+				fenced[index] = true
+				delimiter = marker
+				delimiterLength = length
+			}
+			continue
+		}
+		fenced[index] = true
+		if ok && marker == delimiter && length >= delimiterLength && strings.TrimSpace(remainder) == "" {
+			delimiter = 0
+			delimiterLength = 0
+		}
+	}
+	return fenced
+}
+
+func markdownFenceMarker(line string) (byte, int, string, bool) {
+	indent, topLevel := commonMarkIndent(line)
+	if !topLevel || indent >= len(line) {
+		return 0, 0, "", false
+	}
+	marker := line[indent]
+	if marker != '`' && marker != '~' {
+		return 0, 0, "", false
+	}
+	length := 0
+	for indent+length < len(line) && line[indent+length] == marker {
+		length++
+	}
+	if length < 3 {
+		return 0, 0, "", false
+	}
+	return marker, length, line[indent+length:], true
 }
 
 func isTopLevelMarkdownLine(line string) bool {
@@ -1073,22 +1159,46 @@ func matchChangedPath(candidate string, changedFiles []string, caseInsensitive b
 
 func pathUsesCaseInsensitiveIdentity(path string) bool {
 	current := filepath.Clean(path)
+	currentInfo, err := os.Lstat(current)
+	if err != nil {
+		return false
+	}
+	device, ok := fileDevice(currentInfo)
+	if !ok {
+		return false
+	}
 	for {
-		info, err := os.Lstat(current)
-		if err == nil && info.IsDir() {
-			if alternate, ok := alternateASCIICase(filepath.Base(current)); ok {
-				alternateInfo, err := os.Lstat(filepath.Join(filepath.Dir(current), alternate))
-				if err == nil && os.SameFile(info, alternateInfo) {
-					return true
-				}
-			}
-		}
 		parent := filepath.Dir(current)
 		if parent == current {
 			return false
 		}
+		parentInfo, err := os.Lstat(parent)
+		if err != nil {
+			return false
+		}
+		parentDevice, ok := fileDevice(parentInfo)
+		if !ok || parentDevice != device {
+			return false
+		}
+		if currentInfo.IsDir() {
+			if alternate, ok := alternateASCIICase(filepath.Base(current)); ok {
+				alternateInfo, err := os.Lstat(filepath.Join(parent, alternate))
+				if err == nil && os.SameFile(currentInfo, alternateInfo) {
+					return true
+				}
+			}
+		}
 		current = parent
+		currentInfo = parentInfo
 	}
+}
+
+func fileDevice(info os.FileInfo) (uint64, bool) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return uint64(stat.Dev), true
 }
 
 func alternateASCIICase(value string) (string, bool) {
