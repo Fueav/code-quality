@@ -8,12 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestNativeReviewLeaseAllowsOnlyOneActiveOwner(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "lease")
+	directory := t.TempDir()
 	first, err := acquireNativeReviewLeaseAt(directory)
 	if err != nil {
 		t.Fatal(err)
@@ -25,8 +26,8 @@ func TestNativeReviewLeaseAllowsOnlyOneActiveOwner(t *testing.T) {
 	}
 }
 
-func TestNativeReviewLeaseReusesUnlockedMarker(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "lease")
+func TestNativeReviewLeaseReacquiresAfterUnlock(t *testing.T) {
+	directory := t.TempDir()
 	first, err := acquireNativeReviewLeaseAt(directory)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +46,7 @@ func TestNativeReviewLeaseReusesUnlockedMarker(t *testing.T) {
 }
 
 func TestNativeReviewLeaseReleasesWhenOwnerExits(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "lease")
+	directory := t.TempDir()
 	command := exec.Command(os.Args[0], "-test.run=^TestNativeReviewLeaseOwnerHelper$")
 	command.Env = append(os.Environ(), "CODE_QUALITY_LEASE_HELPER="+directory)
 	if output, err := command.CombinedOutput(); err != nil {
@@ -62,7 +63,7 @@ func TestNativeReviewLeaseReleasesWhenOwnerExits(t *testing.T) {
 }
 
 func TestNativeReviewLeaseRemainsHeldByInheritedFile(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "lease")
+	directory := t.TempDir()
 	lease, err := acquireNativeReviewLeaseAt(directory)
 	if err != nil {
 		t.Fatal(err)
@@ -103,8 +104,34 @@ func TestNativeReviewLeaseRemainsHeldByInheritedFile(t *testing.T) {
 	}
 }
 
-func TestNativeReviewLeaseUsesOwnedUserCache(t *testing.T) {
-	cacheDirectory, err := nativeReviewCacheDirectory()
+func TestNativeReviewLeaseNeedsNoWritablePath(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(directory, 0o700)
+
+	lease, err := acquireNativeReviewLeaseAt(directory)
+	if err != nil {
+		t.Fatalf("acquire on read-only directory: %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("read-only lease created filesystem state: %v", entries)
+	}
+	if info, err := os.Stat(directory); err != nil || info.Mode().Perm() != 0o500 {
+		t.Fatalf("lease changed directory metadata: info=%v error=%v", info, err)
+	}
+}
+
+func TestNativeReviewLeaseUsesOwnedAccountHome(t *testing.T) {
+	homeDirectory, err := currentAccountHomeDirectory()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,33 +139,63 @@ func TestNativeReviewLeaseUsesOwnedUserCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	relative, err := filepath.Rel(cacheDirectory, leaseDirectory)
-	if err != nil || relative == "." || relative == ".." || filepath.IsAbs(relative) {
-		t.Fatalf("lease directory %q is not below user cache %q: relative=%q, error=%v", leaseDirectory, cacheDirectory, relative, err)
+	if leaseDirectory != homeDirectory {
+		t.Fatalf("lease target = %q, want account home %q", leaseDirectory, homeDirectory)
 	}
-	cacheInfo, err := os.Stat(cacheDirectory)
+	info, err := os.Stat(leaseDirectory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ownedByCurrentUser(cacheInfo) || cacheInfo.Mode().Perm()&0o022 != 0 {
-		t.Fatalf("user cache is not owner-controlled by uid %d: mode=%v", os.Getuid(), cacheInfo.Mode())
+	if !ownedByCurrentUser(info) || info.Mode().Perm()&0o022 != 0 {
+		t.Fatalf("account home is not owner-controlled by uid %d: mode=%v", os.Getuid(), info.Mode())
 	}
 }
 
-func TestNativeReviewLeaseNamespaceIgnoresCacheEnvironment(t *testing.T) {
-	before, err := nativeReviewLeaseDirectory()
-	if err != nil {
-		t.Fatal(err)
+func TestNativeReviewLeaseNamespaceIgnoresCacheEnvironmentAcrossProcesses(t *testing.T) {
+	probe := func(home string) string {
+		t.Helper()
+		command := exec.Command(os.Args[0], "-test.run=^TestNativeReviewLeaseNamespaceProbeHelper$")
+		command.Env = []string{
+			"CODE_QUALITY_LEASE_NAMESPACE_PROBE=1",
+			"HOME=" + home,
+			"XDG_CACHE_HOME=" + filepath.Join(home, "cache"),
+			"USER=lease-probe",
+		}
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("lease namespace probe: %v\n%s", err, output)
+		}
+		return strings.TrimSpace(string(output))
 	}
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(t.TempDir(), "cache"))
-	after, err := nativeReviewLeaseDirectory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != before {
+
+	before := probe(filepath.Join(t.TempDir(), "home-a"))
+	after := probe(filepath.Join(t.TempDir(), "home-b"))
+	if before == "" || after != before {
 		t.Fatalf("lease directory changed with cache environment: before=%q after=%q", before, after)
 	}
+}
+
+func TestLookupPasswdHomeFailsClosed(t *testing.T) {
+	passwd := strings.NewReader("root:x:0:0:root:/root:/bin/sh\nreview:x:501:501::/home/review:/bin/sh\n")
+	home, err := lookupPasswdHome(passwd, 501)
+	if err != nil || home != "/home/review" {
+		t.Fatalf("lookup passwd home = %q, %v", home, err)
+	}
+	if _, err := lookupPasswdHome(strings.NewReader("root:x:0:0:root:/root:/bin/sh\n"), 501); err == nil {
+		t.Fatal("missing passwd UID fell back instead of failing")
+	}
+}
+
+func TestNativeReviewLeaseNamespaceProbeHelper(t *testing.T) {
+	if os.Getenv("CODE_QUALITY_LEASE_NAMESPACE_PROBE") == "" {
+		return
+	}
+	directory, err := nativeReviewLeaseDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintln(os.Stdout, directory)
+	os.Exit(0)
 }
 
 func TestNativeReviewLeaseOwnerHelper(t *testing.T) {

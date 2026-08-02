@@ -42,7 +42,7 @@ quality-review run-codex --repo . --goal "这次改动的意图或额外关注�
 
 默认链路只有一次语义调用：确定性固定并隔离 base→target；以 `gpt-5.6-sol` / `max` 执行一次普通 `codex exec`，保留正常配置、规则、Skills、工具与 shell 网络；原始最终回复和 JSONL 先写入冻结清单并设为只读，随后才进行确定性分类和报告发布。`--goal` 只在用户显式提供时作为用户上下文加入。系统不注入 rubric、风险方向、输出 schema、验证器、复审或重试。
 
-同一系统用户同时只允许一个原生审查。CLI 通过系统 UID 账户记录定位经过所有权验证的用户缓存目录，不受 `HOME` 或 `XDG_CACHE_HOME` 改写影响，并把同一锁描述符交给 Codex 子进程；嵌套或并发重复调用不会启动模型，最后一个持有进程退出后锁自动释放。
+同一系统用户同时只允许一个原生审查。CLI 通过系统 UID 账户记录定位经过所有权验证的 home 目录，只读打开并锁定该目录 inode，不创建锁文件，也不受 `HOME`、`TMPDIR` 或 `XDG_CACHE_HOME` 改写影响；同一描述符会交给 Codex 子进程，嵌套或并发重复调用不会启动模型，最后一个持有进程退出后锁自动释放。静态 Linux 构建在 `/etc/passwd` 缺少当前 UID 时明确失败，不回退到环境变量。
 
 每次运行保留 `native-review.txt`、JSONL、stderr、`native-review-freeze.json` 和 `native-run-metrics.json`。分类器不解析 Markdown：只有整份输出精确等于受支持的无发现哨兵才返回 `PASS`；其他非空输出统一返回 `MANUAL_REVIEW` 并以冻结原文为准，进程失败或缺失/空输出返回 `INCOMPLETE`。
 
