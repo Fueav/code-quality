@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -9,6 +10,16 @@ import (
 
 	"github.com/Fueav/code-quality/quality"
 )
+
+func TestNativeResultV3SchemaRemainsFrozen(t *testing.T) {
+	raw, err := Schema("review-result-v3.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != "ecfe2d98d4d06c297119cade7ac56f4965d84aa7598fcce0c14b5f42291fea1a" {
+		t.Fatalf("v3 native result schema changed without a versioned contract: %s", got)
+	}
+}
 
 func TestEmbeddedPolicyMatchesV12Contract(t *testing.T) {
 	raw, err := PolicyManifest()

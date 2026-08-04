@@ -1,6 +1,6 @@
 {
   "name": "code-quality",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Runs a full-capability Codex review, freezes its raw output, then publishes a report-only classification; V1.2 remains offline-only.",
   "author": {
     "name": "Fueav",

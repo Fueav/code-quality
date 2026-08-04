@@ -21,13 +21,7 @@ import (
 
 var version = "dev"
 var codexBinary = "codex"
-var acquireNativeReviewLease = func() (io.Closer, *os.File, error) {
-	lease, err := codexreview.AcquireNativeReviewLease()
-	if err != nil {
-		return nil, nil, err
-	}
-	return lease, lease.InheritedFile(), nil
-}
+var runNativeReview = codexreview.RunTransaction
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -78,18 +72,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-type codexRunSummary struct {
-	SchemaVersion  int    `json:"schema_version"`
-	Status         string `json:"status"`
-	SemanticResult string `json:"semantic_result"`
-	SessionDir     string `json:"session_dir"`
-	ResultPath     string `json:"result_path"`
-	MarkdownPath   string `json:"markdown_path"`
-	FreezePath     string `json:"freeze_path"`
-	MetricsPath    string `json:"metrics_path"`
-	ModelCalls     int    `json:"model_calls"`
-}
-
 func runCodex(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("run-codex", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -108,85 +90,36 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "quality-review: run-codex accepts flags only")
 		return 2
 	}
-	lease, leaseFile, err := acquireNativeReviewLease()
+	transaction, err := runNativeReview(context.Background(), codexreview.TransactionOptions{
+		RepositoryPath:  *repository,
+		Base:            *base,
+		Target:          *target,
+		DiffReason:      *reason,
+		Goal:            *goal,
+		Model:           *model,
+		ReasoningEffort: *reasoningEffort,
+		OutputRoot:      *outputRoot,
+		CodexBinary:     codexBinary,
+	})
 	if errors.Is(err, codexreview.ErrNativeReviewActive) {
 		fmt.Fprintln(stderr, "quality-review: another native Codex review is active for this user; retry after it finishes or review directly in the current Codex agent")
 		return 1
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: acquire native review lease: %v\n", err)
-		return 1
+		fmt.Fprintf(stderr, "quality-review: %v\n", err)
+		return codexreview.TransactionExitCode(err)
 	}
-	defer func() { _ = lease.Close() }()
-	discovered, err := intake.Discover(intake.Options{
-		RepositoryPath: *repository,
-		Base:           *base,
-		Target:         *target,
-		DiffReason:     *reason,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: resolve review scope: %v\n", err)
-		return 1
-	}
-	root, err := resolvePath(*outputRoot, discovered.RepositoryRoot)
-	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: output root: %v\n", err)
-		return 2
-	}
-	prepared, err := reviewsession.PrepareNative(context.Background(), reviewsession.Options{
-		RepositoryRoot: discovered.RepositoryRoot,
-		OutputRoot:     root,
-		Host:           "codex",
-		Request:        discovered.Request,
-		DirtyWorktree:  discovered.DirtyWorktree,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: prepare native review: %v\n", err)
-		return 1
-	}
-	if discovered.DirtyWorktree {
+	if transaction.DirtyWorktree {
 		fmt.Fprintln(stderr, "quality-review: working tree changes are not included; review covers committed base and target only")
 	}
-	result, runErr := codexreview.Run(context.Background(), codexreview.Options{
-		Prepared:                prepared,
-		Request:                 discovered.Request,
-		Goal:                    *goal,
-		Model:                   *model,
-		ReasoningEffort:         *reasoningEffort,
-		EvaluationRubricVersion: quality.EvaluationRubricVersion,
-		CodexBinary:             codexBinary,
-		LeaseFile:               leaseFile,
-	})
-	if runErr != nil {
-		_ = reviewsession.CleanupPreparedCheckout(discovered.RepositoryRoot, prepared)
-		fmt.Fprintf(stderr, "quality-review: run native review: %v\n", runErr)
-		return 1
+	for _, warning := range transaction.Warnings {
+		fmt.Fprintf(stderr, "quality-review: warning: %s\n", warning)
 	}
-	if err := codexreview.Publish(prepared, result); err != nil {
-		_ = reviewsession.CleanupPreparedCheckout(discovered.RepositoryRoot, prepared)
-		fmt.Fprintf(stderr, "quality-review: publish native review: %v\n", err)
-		return 1
-	}
-	if err := reviewsession.CleanupPreparedCheckout(discovered.RepositoryRoot, prepared); err != nil {
-		fmt.Fprintf(stderr, "quality-review: warning: %v\n", err)
-	}
-	status := "COMPLETE"
-	exitCode := 0
-	if result.Adjudication.SemanticResult == quality.ResultIncomplete {
-		status = "INCOMPLETE"
-		exitCode = 1
-	}
-	summary := codexRunSummary{
-		SchemaVersion: 3, Status: status, SemanticResult: result.Adjudication.SemanticResult,
-		SessionDir: prepared.SessionDir, ResultPath: prepared.ResultPath, MarkdownPath: prepared.MarkdownPath,
-		FreezePath: prepared.NativeFreezePath, MetricsPath: prepared.NativeMetricsPath,
-		ModelCalls: result.Execution.ModelCalls,
-	}
-	if err := quality.EncodeJSON(stdout, summary); err != nil {
+	if err := quality.EncodeJSON(stdout, transaction.Summary); err != nil {
 		fmt.Fprintf(stderr, "quality-review: encode native review summary: %v\n", err)
 		return 2
 	}
-	return exitCode
+	return transaction.ExitCode
 }
 
 func runCompare(args []string, stdout, stderr io.Writer) int {

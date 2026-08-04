@@ -39,11 +39,6 @@ type Layout struct {
 	ManifestPath        string
 	MetadataPath        string
 	MainReviewPath      string
-	NativeReviewPath    string
-	NativeStdoutPath    string
-	NativeStderrPath    string
-	NativeFreezePath    string
-	NativeMetricsPath   string
 	RereviewPath        string
 	ReviewInvalidPath   string
 	ResultPath          string
@@ -64,9 +59,6 @@ type Prepared struct {
 	ManifestPath        string       `json:"manifest_path"`
 	MetadataPath        string       `json:"metadata_path"`
 	MainReviewPath      string       `json:"main_review_path"`
-	NativeReviewPath    string       `json:"native_review_path,omitempty"`
-	NativeFreezePath    string       `json:"native_freeze_path,omitempty"`
-	NativeMetricsPath   string       `json:"native_metrics_path,omitempty"`
 	ResultPath          string       `json:"result_path,omitempty"`
 	MarkdownPath        string       `json:"markdown_path,omitempty"`
 	DirtyWorktree       bool         `json:"dirty_worktree"`
@@ -91,122 +83,211 @@ type Metadata struct {
 	RuntimeMode    string       `json:"runtime_mode,omitempty"`
 }
 
+// NativeArtifacts is the mode-specific artifact set for one native Codex
+// review. Its layout is private so callers depend on artifact roles rather than
+// session file names.
+type NativeArtifacts struct {
+	finalMessagePath   string
+	jsonlPath          string
+	stderrPath         string
+	freezeManifestPath string
+	metricsPath        string
+	resultPath         string
+	markdownPath       string
+}
+
+func (artifacts NativeArtifacts) FinalMessagePath() string   { return artifacts.finalMessagePath }
+func (artifacts NativeArtifacts) JSONLPath() string          { return artifacts.jsonlPath }
+func (artifacts NativeArtifacts) StderrPath() string         { return artifacts.stderrPath }
+func (artifacts NativeArtifacts) FreezeManifestPath() string { return artifacts.freezeManifestPath }
+func (artifacts NativeArtifacts) MetricsPath() string        { return artifacts.metricsPath }
+func (artifacts NativeArtifacts) ResultPath() string         { return artifacts.resultPath }
+func (artifacts NativeArtifacts) MarkdownPath() string       { return artifacts.markdownPath }
+
+// NativeSession owns the isolated checkout and retained artifact layout for a
+// native Codex review. Cleanup removes only its checkout.
+type NativeSession struct {
+	repositoryRoot string
+	layout         Layout
+	checkoutMode   CheckoutMode
+	dirtyWorktree  bool
+	request        quality.ReviewRequest
+	artifacts      NativeArtifacts
+}
+
+func (session NativeSession) Directory() string           { return session.layout.SessionDir }
+func (session NativeSession) RepositoryDirectory() string { return session.layout.RepositoryDir }
+func (session NativeSession) DirtyWorktree() bool         { return session.dirtyWorktree }
+func (session NativeSession) Artifacts() NativeArtifacts  { return session.artifacts }
+
+func (session NativeSession) Request() quality.ReviewRequest {
+	request := session.request
+	request.ChangedFiles = append([]string(nil), request.ChangedFiles...)
+	request.AffectedEntries = append([]string(nil), request.AffectedEntries...)
+	return request
+}
+
+func (session NativeSession) ReadTrustedDiff(limit int64) ([]byte, error) {
+	return ReadRegularFile(session.layout.DiffPath, limit)
+}
+
+func (session NativeSession) Cleanup() error {
+	return cleanupPreparedCheckout(
+		session.repositoryRoot,
+		session.layout.SessionDir,
+		session.layout.RepositoryDir,
+		session.checkoutMode,
+	)
+}
+
 func Prepare(ctx context.Context, options Options) (Prepared, error) {
-	return prepare(ctx, options, false)
-}
-
-func PrepareNative(ctx context.Context, options Options) (Prepared, error) {
-	if options.Host != "codex" {
-		return Prepared{}, errors.New("native review host must be codex")
+	preparation, err := startPreparation(ctx, options, "session_agent")
+	if err != nil {
+		return Prepared{}, err
 	}
-	return prepare(ctx, options, true)
+	complete := false
+	defer func() {
+		if !complete {
+			preparation.abort()
+		}
+	}()
+	evidence, err := DiscoverEvidence(options.RepositoryRoot, options.Request.TargetCommit, preparation.layout.EvidenceDir)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("discover optional Harness evidence: %w", err)
+	}
+	if err := encodeEvidenceContext(preparation.layout.EvidenceContextPath, evidence); err != nil {
+		return Prepared{}, err
+	}
+	if err := writeEmbedded(preparation.layout.RubricPath, bundle.ReviewLens); err != nil {
+		return Prepared{}, err
+	}
+	if err := writeEmbedded(preparation.layout.WorkflowPath, bundle.Workflow); err != nil {
+		return Prepared{}, err
+	}
+	if err := writeSchema(preparation.layout.ModelSchemaPath, "model-review.schema.json"); err != nil {
+		return Prepared{}, err
+	}
+	complete = true
+	return Prepared{
+		SchemaVersion:       1,
+		Status:              "READY_FOR_MAIN_REVIEW",
+		SessionDir:          preparation.layout.SessionDir,
+		RepositoryDir:       preparation.layout.RepositoryDir,
+		EvidenceContextPath: preparation.layout.EvidenceContextPath,
+		RequestPath:         preparation.layout.RequestPath,
+		DiffPath:            preparation.layout.DiffPath,
+		RubricPath:          preparation.layout.RubricPath,
+		WorkflowPath:        preparation.layout.WorkflowPath,
+		ModelSchemaPath:     preparation.layout.ModelSchemaPath,
+		ManifestPath:        preparation.layout.ManifestPath,
+		MetadataPath:        preparation.layout.MetadataPath,
+		MainReviewPath:      preparation.layout.MainReviewPath,
+		ResultPath:          preparation.layout.ResultPath,
+		MarkdownPath:        preparation.layout.MarkdownPath,
+		DirtyWorktree:       options.DirtyWorktree,
+		CheckoutMode:        preparation.checkoutMode,
+		EvidencePresent:     len(evidence.Sources) > 0 || len(evidence.Rejected) > 0,
+	}, nil
 }
 
-func prepare(ctx context.Context, options Options, native bool) (Prepared, error) {
+func PrepareNative(ctx context.Context, options Options) (NativeSession, error) {
+	if options.Host != "codex" {
+		return NativeSession{}, errors.New("native review host must be codex")
+	}
+	preparation, err := startPreparation(ctx, options, "codex_native_review")
+	if err != nil {
+		return NativeSession{}, err
+	}
+	return NativeSession{
+		repositoryRoot: options.RepositoryRoot,
+		layout:         preparation.layout,
+		checkoutMode:   preparation.checkoutMode,
+		dirtyWorktree:  options.DirtyWorktree,
+		request:        copyReviewRequest(options.Request),
+		artifacts:      newNativeArtifacts(preparation.layout),
+	}, nil
+}
+
+type preparation struct {
+	outputRoot     string
+	repositoryRoot string
+	layout         Layout
+	checkoutMode   CheckoutMode
+}
+
+func startPreparation(ctx context.Context, options Options, runtimeMode string) (*preparation, error) {
 	if strings.TrimSpace(options.RepositoryRoot) == "" {
-		return Prepared{}, errors.New("repository root is required")
+		return nil, errors.New("repository root is required")
 	}
 	if options.Host != "claude-code" && options.Host != "codex" {
-		return Prepared{}, errors.New("host must be claude-code or codex")
+		return nil, errors.New("host must be claude-code or codex")
 	}
 	if errors := quality.ValidateRequest(options.Request); len(errors) > 0 {
-		return Prepared{}, fmt.Errorf("review request is invalid: %s", strings.Join(errors, "; "))
+		return nil, fmt.Errorf("review request is invalid: %s", strings.Join(errors, "; "))
 	}
 	root, err := prepareOutputRoot(options.OutputRoot)
 	if err != nil {
-		return Prepared{}, err
+		return nil, err
 	}
 	directory, err := os.MkdirTemp(root, "review-")
 	if err != nil {
-		return Prepared{}, fmt.Errorf("create review session: %w", err)
+		return nil, fmt.Errorf("create review session: %w", err)
 	}
 	layout := NewLayout(directory)
-	prepared := false
-	checkoutMode := CheckoutModeWorktree
+	state := &preparation{
+		outputRoot: root, repositoryRoot: options.RepositoryRoot,
+		layout: layout, checkoutMode: CheckoutModeWorktree,
+	}
+	ready := false
 	defer func() {
-		if !prepared {
-			_ = cleanupCheckout(options.RepositoryRoot, layout.SessionDir, layout.RepositoryDir, checkoutMode)
-			_ = cleanupPartialSession(root, directory)
+		if !ready {
+			state.abort()
 		}
 	}()
 	if err := os.MkdirAll(layout.InputDir, 0o700); err != nil {
-		return Prepared{}, err
+		return nil, err
 	}
 	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
-		return Prepared{}, err
+		return nil, err
 	}
-	checkoutMode, err = prepareCheckout(ctx, options.RepositoryRoot, options.Request.TargetCommit, layout)
+	state.checkoutMode, err = prepareCheckout(ctx, options.RepositoryRoot, options.Request.TargetCommit, layout)
 	if err != nil {
-		return Prepared{}, err
-	}
-	evidencePresent := false
-	if !native {
-		evidence, err := DiscoverEvidence(options.RepositoryRoot, options.Request.TargetCommit, layout.EvidenceDir)
-		if err != nil {
-			return Prepared{}, fmt.Errorf("discover optional Harness evidence: %w", err)
-		}
-		if err := encodeEvidenceContext(layout.EvidenceContextPath, evidence); err != nil {
-			return Prepared{}, err
-		}
-		evidencePresent = len(evidence.Sources) > 0 || len(evidence.Rejected) > 0
+		return nil, err
 	}
 	if err := writeJSON(layout.RequestPath, options.Request); err != nil {
-		return Prepared{}, err
+		return nil, err
 	}
-	runtimeMode := "session_agent"
-	if native {
-		runtimeMode = "codex_native_review"
-	}
-	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion, RepositoryRoot: options.RepositoryRoot, CheckoutMode: checkoutMode, RuntimeMode: runtimeMode}); err != nil {
-		return Prepared{}, err
+	if err := writeJSON(layout.MetadataPath, Metadata{SchemaVersion: 1, Host: options.Host, SkillVersion: quality.SkillVersion, RepositoryRoot: options.RepositoryRoot, CheckoutMode: state.checkoutMode, RuntimeMode: runtimeMode}); err != nil {
+		return nil, err
 	}
 	if err := writeTrustedDiff(ctx, options.RepositoryRoot, options.Request, layout.DiffPath); err != nil {
-		return Prepared{}, err
+		return nil, err
 	}
-	if !native {
-		if err := writeEmbedded(layout.RubricPath, bundle.ReviewLens); err != nil {
-			return Prepared{}, err
-		}
-		if err := writeEmbedded(layout.WorkflowPath, bundle.Workflow); err != nil {
-			return Prepared{}, err
-		}
-		if err := writeSchema(layout.ModelSchemaPath, "model-review.schema.json"); err != nil {
-			return Prepared{}, err
-		}
+	ready = true
+	return state, nil
+}
+
+func (preparation *preparation) abort() {
+	_ = cleanupCheckout(preparation.repositoryRoot, preparation.layout.SessionDir, preparation.layout.RepositoryDir, preparation.checkoutMode)
+	_ = cleanupPartialSession(preparation.outputRoot, preparation.layout.SessionDir)
+}
+
+func newNativeArtifacts(layout Layout) NativeArtifacts {
+	return NativeArtifacts{
+		finalMessagePath:   filepath.Join(layout.OutputDir, "native-review.txt"),
+		jsonlPath:          filepath.Join(layout.OutputDir, "native-review.stdout.log"),
+		stderrPath:         filepath.Join(layout.OutputDir, "native-review.stderr.log"),
+		freezeManifestPath: filepath.Join(layout.OutputDir, "native-review-freeze.json"),
+		metricsPath:        filepath.Join(layout.OutputDir, "native-run-metrics.json"),
+		resultPath:         layout.ResultPath,
+		markdownPath:       layout.MarkdownPath,
 	}
-	prepared = true
-	result := Prepared{
-		SchemaVersion:       1,
-		Status:              "READY_FOR_MAIN_REVIEW",
-		SessionDir:          layout.SessionDir,
-		RepositoryDir:       layout.RepositoryDir,
-		EvidenceContextPath: layout.EvidenceContextPath,
-		RequestPath:         layout.RequestPath,
-		DiffPath:            layout.DiffPath,
-		RubricPath:          layout.RubricPath,
-		WorkflowPath:        layout.WorkflowPath,
-		ModelSchemaPath:     layout.ModelSchemaPath,
-		ManifestPath:        layout.ManifestPath,
-		MetadataPath:        layout.MetadataPath,
-		MainReviewPath:      layout.MainReviewPath,
-		ResultPath:          layout.ResultPath,
-		MarkdownPath:        layout.MarkdownPath,
-		DirtyWorktree:       options.DirtyWorktree,
-		CheckoutMode:        checkoutMode,
-		EvidencePresent:     evidencePresent,
-	}
-	if native {
-		result.Status = "READY_FOR_NATIVE_REVIEW"
-		result.EvidenceContextPath = ""
-		result.RubricPath = ""
-		result.WorkflowPath = ""
-		result.ModelSchemaPath = ""
-		result.MainReviewPath = ""
-		result.NativeReviewPath = layout.NativeReviewPath
-		result.NativeFreezePath = layout.NativeFreezePath
-		result.NativeMetricsPath = layout.NativeMetricsPath
-	}
-	return result, nil
+}
+
+func copyReviewRequest(request quality.ReviewRequest) quality.ReviewRequest {
+	request.ChangedFiles = append([]string(nil), request.ChangedFiles...)
+	request.AffectedEntries = append([]string(nil), request.AffectedEntries...)
+	return request
 }
 
 func NewLayout(directory string) Layout {
@@ -231,11 +312,6 @@ func NewLayout(directory string) Layout {
 		ManifestPath:        filepath.Join(directory, "input-manifest.json"),
 		MetadataPath:        filepath.Join(input, "session-metadata.json"),
 		MainReviewPath:      filepath.Join(output, "main-review.json"),
-		NativeReviewPath:    filepath.Join(output, "native-review.txt"),
-		NativeStdoutPath:    filepath.Join(output, "native-review.stdout.log"),
-		NativeStderrPath:    filepath.Join(output, "native-review.stderr.log"),
-		NativeFreezePath:    filepath.Join(output, "native-review-freeze.json"),
-		NativeMetricsPath:   filepath.Join(output, "native-run-metrics.json"),
 		RereviewPath:        filepath.Join(output, "rereview.json"),
 		ReviewInvalidPath:   filepath.Join(output, ".review-invalid-attempted"),
 		ResultPath:          filepath.Join(output, "review-result.json"),
@@ -251,19 +327,23 @@ func CleanupPreparedCheckout(repositoryRoot string, prepared Prepared) error {
 	if filepath.Clean(prepared.RepositoryDir) != layout.RepositoryDir {
 		return errors.New("prepared repository path does not match its session")
 	}
-	switch prepared.CheckoutMode {
+	return cleanupPreparedCheckout(repositoryRoot, layout.SessionDir, layout.RepositoryDir, prepared.CheckoutMode)
+}
+
+func cleanupPreparedCheckout(repositoryRoot, sessionDir, repositoryDir string, mode CheckoutMode) error {
+	switch mode {
 	case CheckoutModeWorktree:
 		var stderr bytes.Buffer
-		command := exec.Command("git", "-C", repositoryRoot, "worktree", "remove", "--force", layout.RepositoryDir)
+		command := exec.Command("git", "-C", repositoryRoot, "worktree", "remove", "--force", repositoryDir)
 		command.Stderr = &stderr
 		if err := command.Run(); err != nil {
 			return fmt.Errorf("remove review worktree: %w: %s", err, strings.TrimSpace(stderr.String()))
 		}
 		return nil
 	case CheckoutModeClone:
-		return removeCloneCheckout(layout.SessionDir, layout.RepositoryDir)
+		return removeCloneCheckout(sessionDir, repositoryDir)
 	default:
-		return fmt.Errorf("unsupported checkout mode %q", prepared.CheckoutMode)
+		return fmt.Errorf("unsupported checkout mode %q", mode)
 	}
 }
 

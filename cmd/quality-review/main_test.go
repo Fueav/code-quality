@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,20 +21,23 @@ import (
 
 func forceTopLevelDiscovery(t *testing.T) {
 	t.Helper()
-	previous := acquireNativeReviewLease
-	acquireNativeReviewLease = func() (io.Closer, *os.File, error) {
-		return io.NopCloser(strings.NewReader("")), nil, nil
+	previous := runNativeReview
+	runNativeReview = func(ctx context.Context, options codexreview.TransactionOptions) (codexreview.TransactionResult, error) {
+		options.AcquireLease = func() (io.Closer, *os.File, error) {
+			return io.NopCloser(strings.NewReader("")), nil, nil
+		}
+		return codexreview.RunTransaction(ctx, options)
 	}
-	t.Cleanup(func() { acquireNativeReviewLease = previous })
+	t.Cleanup(func() { runNativeReview = previous })
 }
 
 func forceActiveDiscovery(t *testing.T) {
 	t.Helper()
-	previous := acquireNativeReviewLease
-	acquireNativeReviewLease = func() (io.Closer, *os.File, error) {
-		return nil, nil, codexreview.ErrNativeReviewActive
+	previous := runNativeReview
+	runNativeReview = func(context.Context, codexreview.TransactionOptions) (codexreview.TransactionResult, error) {
+		return codexreview.TransactionResult{}, codexreview.ErrNativeReviewActive
 	}
-	t.Cleanup(func() { acquireNativeReviewLease = previous })
+	t.Cleanup(func() { runNativeReview = previous })
 }
 
 func TestVersion(t *testing.T) {
@@ -133,7 +137,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 	}
-	var summary codexRunSummary
+	var summary codexreview.NativeRunSummary
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}

@@ -19,11 +19,11 @@ import (
 )
 
 func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	options := Options{
-		Prepared: prepared, Request: request, Goal: "protect settlement correctness",
+	session, request := nativeFixture(t)
+	options := nativeRunOptions{
+		Session: session, Goal: "protect settlement correctness",
 	}
-	if err := normalizeOptions(&options); err != nil {
+	if err := normalizeRunOptions(&options); err != nil {
 		t.Fatal(err)
 	}
 	invocation := buildReviewInvocation(options)
@@ -31,15 +31,15 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 		"exec", "--sandbox", "workspace-write",
 		"--config", "sandbox_workspace_write.network_access=true",
 		"--model", "gpt-5.6-sol", "--config", `model_reasoning_effort="max"`,
-		"--json", "--output-last-message", prepared.NativeReviewPath, "-",
+		"--json", "--output-last-message", session.Artifacts().FinalMessagePath(), "-",
 	}
-	if strings.Join(invocation.Args, "\x00") != strings.Join(want, "\x00") {
-		t.Fatalf("full Codex args = %#v, want %#v", invocation.Args, want)
+	if strings.Join(invocation.args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("full Codex args = %#v, want %#v", invocation.args, want)
 	}
 	for _, forbidden := range []string{"review", "--ignore-user-config", "--ignore-rules", "--ephemeral", "read-only", "--output-schema"} {
-		for _, argument := range invocation.Args {
+		for _, argument := range invocation.args {
 			if argument == forbidden {
-				t.Fatalf("full Codex invocation contains %q: %#v", forbidden, invocation.Args)
+				t.Fatalf("full Codex invocation contains %q: %#v", forbidden, invocation.args)
 			}
 		}
 	}
@@ -47,15 +47,15 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 		"Review the changes introduced by %s relative to %s for actionable defects.\nUser-supplied context: %q\n",
 		request.TargetCommit, request.BaseCommit, "protect settlement correctness",
 	)
-	if invocation.Stdin != wantPrompt {
-		t.Fatalf("prompt = %q, want %q", invocation.Stdin, wantPrompt)
+	if invocation.stdin != wantPrompt {
+		t.Fatalf("prompt = %q, want %q", invocation.stdin, wantPrompt)
 	}
 	if options.Model != "gpt-5.6-sol" || options.ReasoningEffort != "max" {
 		t.Fatalf("defaults = model %q, effort %q", options.Model, options.ReasoningEffort)
 	}
 }
 
-func TestProcessExecutorReturnsChildFailure(t *testing.T) {
+func TestEvidenceCaptureReturnsChildFailure(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")
 	output := filepath.Join(root, "output")
@@ -69,19 +69,20 @@ func TestProcessExecutorReturnsChildFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = (ProcessExecutor{}).Run(context.Background(), Invocation{
-		Executable: executable,
-		Args:       []string{"-c", "exit 7"},
-		Dir:        repository,
-		StdoutPath: filepath.Join(output, "stdout"),
-		StderrPath: filepath.Join(output, "stderr"),
+	err = runCodexProcess(context.Background(), reviewInvocation{
+		executable: executable,
+		args:       []string{"-c", "exit 7"},
+		directory:  repository,
+		paths: capturePaths{
+			jsonl: filepath.Join(output, "stdout"), stderr: filepath.Join(output, "stderr"),
+		},
 	})
 	if err == nil {
 		t.Fatal("failing child process unexpectedly succeeded")
 	}
 }
 
-func TestProcessExecutorPassesInheritedFiles(t *testing.T) {
+func TestEvidenceCapturePassesInheritedFiles(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "repository")
 	if err := os.MkdirAll(repository, 0o700); err != nil {
@@ -97,13 +98,12 @@ func TestProcessExecutorPassesInheritedFiles(t *testing.T) {
 	}
 	defer inherited.Close()
 	stdoutPath := filepath.Join(root, "stdout")
-	err = (ProcessExecutor{}).Run(context.Background(), Invocation{
-		Executable: exec.Command("sh").Path,
-		Args:       []string{"-c", "cat <&3"},
-		Dir:        repository,
-		StdoutPath: stdoutPath,
-		StderrPath: filepath.Join(root, "stderr"),
-		ExtraFiles: []*os.File{inherited},
+	err = runCodexProcess(context.Background(), reviewInvocation{
+		executable: exec.Command("sh").Path,
+		args:       []string{"-c", "cat <&3"},
+		directory:  repository,
+		paths:      capturePaths{jsonl: stdoutPath, stderr: filepath.Join(root, "stderr")},
+		extraFiles: []*os.File{inherited},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestProcessExecutorPassesInheritedFiles(t *testing.T) {
 	}
 }
 
-func TestProcessExecutorQuiescesDescendantWriters(t *testing.T) {
+func TestEvidenceCaptureQuiescesDescendantWriters(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")
 	output := filepath.Join(root, "output")
@@ -124,14 +124,13 @@ func TestProcessExecutorQuiescesDescendantWriters(t *testing.T) {
 	if err := os.MkdirAll(output, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CODE_QUALITY_PROCESS_EXECUTOR_HELPER", "parent")
+	t.Setenv("CODE_QUALITY_EVIDENCE_CAPTURE_HELPER", "parent")
 	stdoutPath := filepath.Join(output, "stdout")
-	err := (ProcessExecutor{}).Run(context.Background(), Invocation{
-		Executable: os.Args[0],
-		Args:       []string{"-test.run=^TestProcessExecutorDescendantWriterHelper$"},
-		Dir:        repository,
-		StdoutPath: stdoutPath,
-		StderrPath: filepath.Join(output, "stderr"),
+	err := runCodexProcess(context.Background(), reviewInvocation{
+		executable: os.Args[0],
+		args:       []string{"-test.run=^TestEvidenceCaptureDescendantWriterHelper$"},
+		directory:  repository,
+		paths:      capturePaths{jsonl: stdoutPath, stderr: filepath.Join(output, "stderr")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -157,13 +156,13 @@ func TestProcessExecutorQuiescesDescendantWriters(t *testing.T) {
 	}
 }
 
-func TestProcessExecutorDescendantWriterHelper(t *testing.T) {
-	switch os.Getenv("CODE_QUALITY_PROCESS_EXECUTOR_HELPER") {
+func TestEvidenceCaptureDescendantWriterHelper(t *testing.T) {
+	switch os.Getenv("CODE_QUALITY_EVIDENCE_CAPTURE_HELPER") {
 	case "":
 		return
 	case "parent":
-		command := exec.Command(os.Args[0], "-test.run=^TestProcessExecutorDescendantWriterHelper$")
-		command.Env = append(os.Environ(), "CODE_QUALITY_PROCESS_EXECUTOR_HELPER=descendant")
+		command := exec.Command(os.Args[0], "-test.run=^TestEvidenceCaptureDescendantWriterHelper$")
+		command.Env = append(os.Environ(), "CODE_QUALITY_EVIDENCE_CAPTURE_HELPER=descendant")
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
 		if err := command.Start(); err != nil {
@@ -181,19 +180,20 @@ func TestProcessExecutorDescendantWriterHelper(t *testing.T) {
 }
 
 func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	raw := agentFindingOutput(filepath.Join(prepared.RepositoryDir, "app.go"), "preserve the result", "The changed branch returns the wrong value.", 1)
-	executor := &scriptedExecutor{outputs: []string{raw}}
+	session, _ := nativeFixture(t)
+	raw := agentFindingOutput(filepath.Join(session.RepositoryDirectory(), "app.go"), "preserve the result", "The changed branch returns the wrong value.", 1)
+	executable, _ := fakeCodexExecutable(t, raw)
 
-	result, err := Run(context.Background(), Options{Prepared: prepared, Request: request, Executor: executor})
+	outcome, err := runNativeSession(context.Background(), nativeRunOptions{Session: session, CodexBinary: executable})
 	if err != nil {
 		t.Fatal(err)
 	}
+	result := outcome.Result()
 	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 0 ||
 		len(result.Execution.AdapterDrops) != 0 {
 		t.Fatalf("result = %#v", result)
 	}
-	layout := reviewsession.NewLayout(prepared.SessionDir)
+	artifacts := session.Artifacts()
 	var manifest struct {
 		SchemaVersion int `json:"schema_version"`
 		Artifacts     []struct {
@@ -203,7 +203,7 @@ func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 			SHA256  string `json:"sha256"`
 		} `json:"artifacts"`
 	}
-	encoded, err := os.ReadFile(layout.NativeFreezePath)
+	encoded, err := os.ReadFile(artifacts.FreezeManifestPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,37 +219,34 @@ func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 		manifest.Artifacts[0].Bytes != len(raw) || manifest.Artifacts[0].SHA256 != wantSHA {
 		t.Fatalf("frozen final message = %#v", manifest.Artifacts[0])
 	}
-	info, err := os.Stat(prepared.NativeReviewPath)
+	info, err := os.Stat(artifacts.FinalMessagePath())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if info.Mode().Perm()&0o222 != 0 {
 		t.Fatalf("raw review remains writable: %o", info.Mode().Perm())
 	}
-	if err := os.WriteFile(prepared.NativeReviewPath, []byte("changed"), 0o600); err == nil {
+	if err := os.WriteFile(artifacts.FinalMessagePath(), []byte("changed"), 0o600); err == nil {
 		t.Fatal("frozen raw review was overwritten")
 	}
 }
 
 func TestFreezeAndUsageStreamCompleteLargeJSONL(t *testing.T) {
-	layout := reviewsession.NewLayout(t.TempDir())
-	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(layout.NativeReviewPath, []byte("No findings.\n"), 0o600); err != nil {
+	paths := captureFixture(t)
+	if err := os.WriteFile(paths.finalMessage, []byte("No findings.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fillerLine := "{\"type\":\"item.completed\"}\n"
 	filler := strings.Repeat(fillerLine, int(maxNativeOutputBytes)/len(fillerLine)+2)
 	usageLine := "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":321,\"output_tokens\":54}}\n"
-	if err := os.WriteFile(layout.NativeStdoutPath, []byte(filler+usageLine), 0o600); err != nil {
+	if err := os.WriteFile(paths.jsonl, []byte(filler+usageLine), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(layout.NativeStderrPath, []byte("warning\n"), 0o600); err != nil {
+	if err := os.WriteFile(paths.stderr, []byte("warning\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	frozen, err := freezeNativeArtifacts(layout)
+	frozen, err := freezeNativeArtifacts(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,21 +260,18 @@ func TestFreezeAndUsageStreamCompleteLargeJSONL(t *testing.T) {
 }
 
 func TestFreezeSnapshotsAwayFromAlreadyOpenWriter(t *testing.T) {
-	layout := reviewsession.NewLayout(t.TempDir())
-	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	paths := captureFixture(t)
 	original := []byte("original evidence\n")
-	if err := os.WriteFile(layout.NativeReviewPath, original, 0o600); err != nil {
+	if err := os.WriteFile(paths.finalMessage, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writer, err := os.OpenFile(layout.NativeReviewPath, os.O_WRONLY, 0)
+	writer, err := os.OpenFile(paths.finalMessage, os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer writer.Close()
 
-	frozen, err := freezeNativeArtifacts(layout)
+	frozen, err := freezeNativeArtifacts(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +281,7 @@ func TestFreezeSnapshotsAwayFromAlreadyOpenWriter(t *testing.T) {
 	if err := writer.Sync(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(layout.NativeReviewPath)
+	got, err := os.ReadFile(paths.finalMessage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,32 +369,32 @@ func TestSnapshotTemporaryPathIsNeverWritable(t *testing.T) {
 }
 
 func TestRunMetricsStayBoundToFrozenStdout(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	layout := reviewsession.NewLayout(prepared.SessionDir)
-	if err := os.WriteFile(layout.NativeReviewPath, []byte("No findings.\n"), 0o600); err != nil {
+	_, request := nativeFixture(t)
+	paths := captureFixture(t)
+	if err := os.WriteFile(paths.finalMessage, []byte("No findings.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	original := `{"type":"turn.completed","usage":{"input_tokens":30,"output_tokens":7}}` + "\n"
-	if err := os.WriteFile(layout.NativeStdoutPath, []byte(original), 0o600); err != nil {
+	if err := os.WriteFile(paths.jsonl, []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(layout.NativeStderrPath, nil, 0o600); err != nil {
+	if err := os.WriteFile(paths.stderr, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	frozen, err := freezeNativeArtifacts(layout)
+	frozen, err := freezeNativeArtifacts(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacement := filepath.Join(layout.OutputDir, "replacement-stdout")
+	replacement := filepath.Join(filepath.Dir(paths.jsonl), "replacement-stdout")
 	other := `{"type":"turn.completed","usage":{"input_tokens":999,"output_tokens":888}}` + "\n"
 	if err := os.WriteFile(replacement, []byte(other), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Rename(replacement, layout.NativeStdoutPath); err != nil {
+	if err := os.Rename(replacement, paths.jsonl); err != nil {
 		t.Fatal(err)
 	}
 
-	metrics := collectRunMetrics(Options{Prepared: prepared, Request: request}, 25*time.Millisecond, 42, frozen)
+	metrics := collectRunMetrics(request, 25*time.Millisecond, 42, frozen)
 	if !metrics.UsageAvailable || metrics.InputTokens == nil || *metrics.InputTokens != 30 ||
 		metrics.OutputTokens == nil || *metrics.OutputTokens != 7 {
 		t.Fatalf("metrics escaped frozen stdout: %#v", metrics)
@@ -431,18 +425,18 @@ func TestDecodeCodexUsageRejectsAllZeroCounters(t *testing.T) {
 }
 
 func TestCollectRunMetricsMarksZeroCountersUnavailable(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	layout := reviewsession.NewLayout(prepared.SessionDir)
-	stdout := layout.NativeStdoutPath
+	_, request := nativeFixture(t)
+	paths := captureFixture(t)
+	stdout := paths.jsonl
 	contents := `{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}` + "\n"
 	if err := os.WriteFile(stdout, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	frozen, err := freezeNativeArtifacts(layout)
+	frozen, err := freezeNativeArtifacts(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	metrics := collectRunMetrics(Options{Prepared: prepared, Request: request}, 25*time.Millisecond, 42, frozen)
+	metrics := collectRunMetrics(request, 25*time.Millisecond, 42, frozen)
 	if metrics.UsageAvailable || metrics.InputTokens != nil || metrics.OutputTokens != nil ||
 		!strings.Contains(metrics.UsageError, "zero token usage") {
 		t.Fatalf("metrics = %#v", metrics)
@@ -450,9 +444,9 @@ func TestCollectRunMetricsMarksZeroCountersUnavailable(t *testing.T) {
 }
 
 func TestNativeReviewPromptOmitsUnsuppliedGoal(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	options := Options{Prepared: prepared, Request: request}
-	if err := normalizeOptions(&options); err != nil {
+	session, request := nativeFixture(t)
+	options := nativeRunOptions{Session: session}
+	if err := normalizeRunOptions(&options); err != nil {
 		t.Fatal(err)
 	}
 	if options.Goal != "" {
@@ -464,45 +458,20 @@ func TestNativeReviewPromptOmitsUnsuppliedGoal(t *testing.T) {
 	}
 }
 
-func TestNativeDocumentClassifierOnlyPassesExactNoFindingsSentinels(t *testing.T) {
-	for _, input := range []string{
-		"No findings.\n",
-		"No actionable findings.\r\n",
-		"  No actionable defects found.  \n",
-	} {
-		if !isExplicitNoFindingsDocument(input) {
-			t.Fatalf("exact no-findings document was not accepted: %q", input)
-		}
-	}
-
-	for _, input := range []string{
-		"",
-		"## Findings\n\nNo findings.\n",
-		"No findings.\n\nHowever, the new branch leaks data.\n",
-		"The change looks correct.\n",
-		"- [P1] Preserve cancellation — [client.go:17](/repo/client.go:17)\n",
-	} {
-		if isExplicitNoFindingsDocument(input) {
-			t.Fatalf("non-sentinel document was accepted as PASS: %q", input)
-		}
-	}
-}
-
 func TestFreezeManifestDoesNotOverwriteExistingEvidence(t *testing.T) {
-	prepared, _ := nativeFixture(t)
-	layout := reviewsession.NewLayout(prepared.SessionDir)
-	for _, artifact := range []string{layout.NativeReviewPath, layout.NativeStdoutPath, layout.NativeStderrPath} {
+	paths := captureFixture(t)
+	for _, artifact := range []string{paths.finalMessage, paths.jsonl, paths.stderr} {
 		if err := os.WriteFile(artifact, []byte("raw"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(layout.NativeFreezePath, []byte("sentinel"), 0o600); err != nil {
+	if err := os.WriteFile(paths.freezeManifest, []byte("sentinel"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := freezeNativeArtifacts(layout); err == nil {
+	if _, err := freezeNativeArtifacts(paths); err == nil {
 		t.Fatal("existing freeze manifest was overwritten")
 	}
-	raw, err := os.ReadFile(layout.NativeFreezePath)
+	raw, err := os.ReadFile(paths.freezeManifest)
 	if err != nil || string(raw) != "sentinel" {
 		t.Fatalf("freeze manifest = %q, error = %v", raw, err)
 	}
@@ -573,32 +542,33 @@ func TestAbsentArtifactValidationRejectsLateCreation(t *testing.T) {
 }
 
 func TestZeroFindingsCompletesAfterOneNativeCall(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	executor := &scriptedExecutor{outputs: []string{"No actionable defects found.\n"}}
+	session, _ := nativeFixture(t)
+	executable, countPath := fakeCodexExecutable(t, "No actionable defects found.\n")
 
-	result, err := Run(context.Background(), Options{
-		Prepared: prepared, Request: request, Goal: "review the change",
-		ReasoningEffort: "high", EvaluationRubricVersion: "1.2.0", Executor: executor,
+	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
+		Session: session, Goal: "review the change", ReasoningEffort: "high", CodexBinary: executable,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	result := outcome.Result()
 	if result.Adjudication.SemanticResult != quality.ResultPass || result.Execution.ModelCalls != 1 {
 		t.Fatalf("result = %#v", result)
 	}
-	if len(executor.invocations) != 1 {
-		t.Fatalf("model calls = %d", len(executor.invocations))
+	if count := readInvocationCount(t, countPath); count != "1" {
+		t.Fatalf("model calls = %s", count)
 	}
 }
 
 func TestWhitespaceOnlyOutputIsIncomplete(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	executor := &scriptedExecutor{outputs: []string{" \r\n\t\n"}}
+	session, _ := nativeFixture(t)
+	executable, _ := fakeCodexExecutable(t, " \r\n\t\n")
 
-	result, err := Run(context.Background(), Options{Prepared: prepared, Request: request, Executor: executor})
+	outcome, err := runNativeSession(context.Background(), nativeRunOptions{Session: session, CodexBinary: executable})
 	if err != nil {
 		t.Fatal(err)
 	}
+	result := outcome.Result()
 	if result.Adjudication.SemanticResult != quality.ResultIncomplete || len(result.Findings) != 0 ||
 		result.Execution.ModelCalls != 1 {
 		t.Fatalf("result = %#v", result)
@@ -606,97 +576,76 @@ func TestWhitespaceOnlyOutputIsIncomplete(t *testing.T) {
 }
 
 func TestNativeReviewOutputRequiresDocumentLevelManualReview(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	path := filepath.Join(prepared.RepositoryDir, "app.go")
-	executor := &scriptedExecutor{outputs: []string{nativeFindingOutput(path, "timeout is ignored", "The new call can wait forever.", 1)}}
+	session, _ := nativeFixture(t)
+	path := filepath.Join(session.RepositoryDirectory(), "app.go")
+	executable, countPath := fakeCodexExecutable(t, nativeFindingOutput(path, "timeout is ignored", "The new call can wait forever.", 1))
 
-	result, err := Run(context.Background(), Options{
-		Prepared: prepared, Request: request, Goal: "review the change",
-		ReasoningEffort: "high", EvaluationRubricVersion: "1.2.0", Executor: executor,
+	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
+		Session: session, Goal: "review the change", ReasoningEffort: "high", CodexBinary: executable,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	result := outcome.Result()
 	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 0 ||
 		len(result.Execution.AdapterDrops) != 0 || result.Execution.ModelCalls != 1 {
 		t.Fatalf("result = %#v", result)
 	}
-	if len(executor.invocations) != 1 {
-		t.Fatalf("model calls = %d", len(executor.invocations))
+	if count := readInvocationCount(t, countPath); count != "1" {
+		t.Fatalf("model calls = %s", count)
 	}
 }
 
 func TestReviewOutputLocationDoesNotChangeDocumentClassification(t *testing.T) {
-	prepared, request := nativeFixture(t)
-	executor := &scriptedExecutor{outputs: []string{
-		nativeFindingOutput("/tmp/outside.go", "wrong result", "The new branch returns the opposite value.", 1),
-	}}
+	session, _ := nativeFixture(t)
+	executable, _ := fakeCodexExecutable(t,
+		nativeFindingOutput("/tmp/outside.go", "wrong result", "The new branch returns the opposite value.", 1))
 
-	result, err := Run(context.Background(), Options{
-		Prepared: prepared, Request: request, Goal: "review the change",
-		ReasoningEffort: "high", EvaluationRubricVersion: "1.2.0", Executor: executor,
+	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
+		Session: session, Goal: "review the change", ReasoningEffort: "high", CodexBinary: executable,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	result := outcome.Result()
 	if result.Adjudication.SemanticResult != quality.ResultManualReview || result.Execution.ModelCalls != 1 ||
 		len(result.Findings) != 0 || len(result.Execution.AdapterDrops) != 0 {
 		t.Fatalf("document-level result = %#v", result)
 	}
 }
 
-type scriptedExecutor struct {
-	outputs     []string
-	errors      []error
-	invocations []Invocation
-}
-
-func (executor *scriptedExecutor) Run(_ context.Context, invocation Invocation) error {
-	index := len(executor.invocations)
-	executor.invocations = append(executor.invocations, invocation)
-	if index < len(executor.errors) && executor.errors[index] != nil {
-		return executor.errors[index]
-	}
-	if index >= len(executor.outputs) {
-		return errors.New("unexpected invocation")
-	}
-	if err := os.WriteFile(invocation.StdoutPath, []byte(`{"type":"turn.completed","usage":{"input_tokens":123,"output_tokens":45}}`+"\n"), 0o600); err != nil {
-		return err
-	}
-	if err := os.WriteFile(invocation.StderrPath, nil, 0o600); err != nil {
-		return err
-	}
-	return os.WriteFile(invocation.OutputPath, []byte(executor.outputs[index]), 0o600)
-}
-
-func nativeFixture(t *testing.T) (reviewsession.Prepared, quality.ReviewRequest) {
+func nativeFixture(t *testing.T) (reviewsession.NativeSession, quality.ReviewRequest) {
 	t.Helper()
-	directory := t.TempDir()
-	repository := filepath.Join(directory, "repository")
-	output := filepath.Join(directory, "output")
-	if err := os.MkdirAll(repository, 0o700); err != nil {
+	repository := t.TempDir()
+	initializeGitRepository(t, repository)
+	runFixtureGit(t, repository, "config", "user.email", "fixture@example.invalid")
+	runFixtureGit(t, repository, "config", "user.name", "Fixture")
+	if err := os.WriteFile(filepath.Join(repository, "app.go"), []byte("package app\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(output, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	runFixtureGit(t, repository, "add", "app.go")
+	runFixtureGit(t, repository, "commit", "-qm", "base")
+	base := strings.TrimSpace(runFixtureGit(t, repository, "rev-parse", "HEAD"))
 	if err := os.WriteFile(filepath.Join(repository, "app.go"), []byte("package app\nfunc Run() bool { return true }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	diffPath := filepath.Join(directory, "trusted.diff")
-	if err := os.WriteFile(diffPath, []byte("+++ b/app.go\n+func Run() bool { return true }\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	prepared := reviewsession.Prepared{
-		SessionDir: directory, RepositoryDir: repository, DiffPath: diffPath,
-		NativeReviewPath: filepath.Join(output, "native-review.txt"),
-	}
+	runFixtureGit(t, repository, "add", "app.go")
+	runFixtureGit(t, repository, "commit", "-qm", "target")
+	target := strings.TrimSpace(runFixtureGit(t, repository, "rev-parse", "HEAD"))
 	request := quality.ReviewRequest{
 		Repository: "example/repo", TargetBranch: "main",
-		BaseCommit: strings.Repeat("a", 40), TargetCommit: strings.Repeat("b", 40),
+		BaseCommit: base, TargetCommit: target,
 		DiffSelectionReason: "test", ChangedFiles: []string{"app.go"}, AffectedEntries: []string{},
 	}
-	return prepared, request
+	session, err := reviewsession.PrepareNative(context.Background(), reviewsession.Options{
+		RepositoryRoot: repository, OutputRoot: filepath.Join(t.TempDir(), "sessions"),
+		Host: "codex", Request: request,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Cleanup() })
+	return session, request
 }
 
 func initializeGitRepository(t *testing.T, repository string) {
@@ -705,6 +654,71 @@ func initializeGitRepository(t *testing.T, repository string) {
 	if err != nil {
 		t.Fatalf("git init: %v\n%s", err, output)
 	}
+}
+
+func runFixtureGit(t *testing.T, repository string, arguments ...string) string {
+	t.Helper()
+	output, err := exec.Command("git", append([]string{"-C", repository}, arguments...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", arguments, err, output)
+	}
+	return string(output)
+}
+
+func captureFixture(t *testing.T) capturePaths {
+	t.Helper()
+	output := filepath.Join(t.TempDir(), "output")
+	if err := os.MkdirAll(output, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return capturePaths{
+		finalMessage:   filepath.Join(output, "native-review.txt"),
+		jsonl:          filepath.Join(output, "native-review.stdout.log"),
+		stderr:         filepath.Join(output, "native-review.stderr.log"),
+		freezeManifest: filepath.Join(output, "native-review-freeze.json"),
+		metrics:        filepath.Join(output, "native-run-metrics.json"),
+	}
+}
+
+func fakeCodexExecutable(t *testing.T, finalMessage string) (string, string) {
+	t.Helper()
+	directory := t.TempDir()
+	path := filepath.Join(directory, "codex")
+	finalPath := path + ".final"
+	countPath := path + ".count"
+	if err := os.WriteFile(finalPath, []byte(finalMessage), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+set -eu
+output=''
+previous=''
+for argument in "$@"; do
+  if [ "$previous" = '--output-last-message' ]; then output="$argument"; fi
+  previous="$argument"
+done
+test -n "$output"
+cat >/dev/null
+count=0
+if [ -f "$0.count" ]; then count=$(cat "$0.count"); fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$0.count"
+cat "$0.final" > "$output"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_tokens":45}}'
+`
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path, countPath
+}
+
+func readInvocationCount(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func nativeFindingOutput(path, title, body string, priority int) string {

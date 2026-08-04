@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 
-	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
 
@@ -50,12 +49,12 @@ type lockedRawArtifact struct {
 	expectedSHA   string
 }
 
-func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, error) {
+func freezeNativeArtifacts(paths capturePaths) (frozenNativeArtifacts, error) {
 	frozen := frozenNativeArtifacts{Manifest: NativeFreezeManifest{SchemaVersion: 1, Artifacts: []FrozenArtifact{}}}
 	specs := []rawArtifactSpec{
-		{name: "final_message", path: layout.NativeReviewPath, capture: true, maxBytes: maxNativeOutputBytes},
-		{name: "jsonl_stdout", path: layout.NativeStdoutPath},
-		{name: "stderr", path: layout.NativeStderrPath},
+		{name: "final_message", path: paths.finalMessage, capture: true, maxBytes: maxNativeOutputBytes},
+		{name: "jsonl_stdout", path: paths.jsonl},
+		{name: "stderr", path: paths.stderr},
 	}
 	locked := make([]lockedRawArtifact, 0, len(specs))
 	absent := make([]string, 0, len(specs))
@@ -101,12 +100,12 @@ func freezeNativeArtifacts(layout reviewsession.Layout) (frozenNativeArtifacts, 
 		}
 		return validateAbsentArtifactPaths(absent)
 	}
-	if err := writeDurableFreezeManifest(layout.NativeFreezePath, frozen.Manifest, validateLockedPaths); err != nil {
+	if err := writeDurableFreezeManifest(paths.freezeManifest, frozen.Manifest, validateLockedPaths); err != nil {
 		return frozenNativeArtifacts{}, fmt.Errorf("write raw freeze manifest: %w", err)
 	}
 	frozen.UsageError = os.ErrNotExist
 	for _, artifact := range locked {
-		if artifact.path != layout.NativeStdoutPath {
+		if artifact.path != paths.jsonl {
 			continue
 		}
 		frozen.InputTokens, frozen.OutputTokens, frozen.UsageError = readCodexUsageFile(artifact.file)

@@ -15,7 +15,7 @@ Report-only 代码质量审查组件。它让完整 Codex Agent 审查一个**�
 # 最新版
 curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
 # 指定版本
-curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.4.1
+curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.4.2
 ```
 
 确认：`quality-review version`
@@ -24,11 +24,11 @@ curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/instal
 
 ```sh
 # Codex
-codex plugin marketplace add Fueav/code-quality --ref v0.4.1 && codex plugin add code-quality@fueav-code-quality
+codex plugin marketplace add Fueav/code-quality --ref v0.4.2 && codex plugin add code-quality@fueav-code-quality
 
 ```
 
-v0.4.1 只对 Codex 路径做发布资格验证；Claude Code 兼容继续延后，不属于本版本能力声明。
+v0.4.2 只对 Codex 路径做发布资格验证；Claude Code 兼容继续延后，不属于本版本能力声明。
 
 ## 使用
 
