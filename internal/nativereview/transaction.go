@@ -1,4 +1,4 @@
-package codexreview
+package nativereview
 
 import (
 	"context"
@@ -14,15 +14,15 @@ import (
 )
 
 type NativeRunSummary struct {
-	SchemaVersion  int    `json:"schema_version"`
-	Status         string `json:"status"`
-	SemanticResult string `json:"semantic_result"`
-	SessionDir     string `json:"session_dir"`
-	ResultPath     string `json:"result_path"`
-	MarkdownPath   string `json:"markdown_path"`
-	FreezePath     string `json:"freeze_path"`
-	MetricsPath    string `json:"metrics_path"`
-	ModelCalls     int    `json:"model_calls"`
+	SchemaVersion       int    `json:"schema_version"`
+	Status              string `json:"status"`
+	SemanticResult      string `json:"semantic_result"`
+	SessionDir          string `json:"session_dir"`
+	ResultPath          string `json:"result_path"`
+	MarkdownPath        string `json:"markdown_path"`
+	FreezePath          string `json:"freeze_path"`
+	MetricsPath         string `json:"metrics_path"`
+	ProviderInvocations int    `json:"provider_invocations"`
 }
 
 type TransactionOptions struct {
@@ -34,8 +34,10 @@ type TransactionOptions struct {
 	Model           string
 	ReasoningEffort string
 	OutputRoot      string
-	CodexBinary     string
-	AcquireLease    func() (io.Closer, *os.File, error)
+	Provider        Provider
+	// CodexBinary is retained for source compatibility. Prefer Provider.
+	CodexBinary  string
+	AcquireLease func() (io.Closer, *os.File, error)
 }
 
 type TransactionResult struct {
@@ -71,6 +73,13 @@ func TransactionExitCode(err error) int {
 // acquired before discovery and remains held until report publication and
 // isolated-checkout cleanup have both completed.
 func RunTransaction(ctx context.Context, options TransactionOptions) (transaction TransactionResult, returnErr error) {
+	provider := options.Provider
+	if provider == nil {
+		provider = NewCodexProvider(options.CodexBinary)
+	}
+	if err := validateProvider(provider); err != nil {
+		return TransactionResult{}, atStage("select native review provider", 2, err)
+	}
 	acquireLease := options.AcquireLease
 	if acquireLease == nil {
 		acquireLease = func() (io.Closer, *os.File, error) {
@@ -106,7 +115,7 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	session, err := reviewsession.PrepareNative(ctx, reviewsession.Options{
 		RepositoryRoot: discovered.RepositoryRoot,
 		OutputRoot:     outputRoot,
-		Host:           "codex",
+		Host:           provider.Host(),
 		Request:        discovered.Request,
 		DirtyWorktree:  discovered.DirtyWorktree,
 	})
@@ -121,7 +130,7 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 
 	outcome, err := runNativeSession(ctx, nativeRunOptions{
 		Session: session, Goal: options.Goal, Model: options.Model,
-		ReasoningEffort: options.ReasoningEffort, CodexBinary: options.CodexBinary, LeaseFile: leaseFile,
+		ReasoningEffort: options.ReasoningEffort, Provider: provider, LeaseFile: leaseFile,
 	})
 	if err != nil {
 		return TransactionResult{}, atStage("run native review", 1, err)
@@ -139,9 +148,9 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	artifacts := session.Artifacts()
 	transaction = TransactionResult{
 		Summary: NativeRunSummary{
-			SchemaVersion: 3, Status: status, SemanticResult: outcome.SemanticResult(),
+			SchemaVersion: quality.NativeResultSchemaVersion, Status: status, SemanticResult: outcome.SemanticResult(),
 			SessionDir: session.Directory(), ResultPath: artifacts.ResultPath(), MarkdownPath: artifacts.MarkdownPath(),
-			FreezePath: artifacts.FreezeManifestPath(), MetricsPath: artifacts.MetricsPath(), ModelCalls: outcome.ModelCalls(),
+			FreezePath: artifacts.FreezeManifestPath(), MetricsPath: artifacts.MetricsPath(), ProviderInvocations: outcome.ProviderInvocations(),
 		},
 		DirtyWorktree: session.DirtyWorktree(),
 		Warnings:      []string{},

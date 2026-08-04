@@ -1,4 +1,4 @@
-package codexreview
+package nativereview
 
 import (
 	"context"
@@ -18,7 +18,7 @@ type nativeRunOptions struct {
 	Goal            string
 	Model           string
 	ReasoningEffort string
-	CodexBinary     string
+	Provider        Provider
 	LeaseFile       *os.File
 }
 
@@ -33,6 +33,7 @@ func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.Na
 	return quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
 		Request:         options.Session.Request(),
 		ReviewGoal:      options.Goal,
+		Host:            options.Provider.Host(),
 		Model:           options.Model,
 		ReasoningEffort: options.ReasoningEffort,
 	}, captured.finalMessage, captured.processErr)
@@ -57,62 +58,38 @@ func normalizeRunOptions(options *nativeRunOptions) error {
 	if len(options.Goal) > 4000 {
 		return errors.New("review goal exceeds 4000 bytes")
 	}
-	if options.Model == "" {
-		options.Model = "gpt-5.6-sol"
+	if options.Provider == nil {
+		options.Provider = NewCodexProvider("")
 	}
-	if options.ReasoningEffort == "" {
-		options.ReasoningEffort = "max"
+	if err := validateProvider(options.Provider); err != nil {
+		return err
 	}
-	validEffort := map[string]bool{"minimal": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true, "ultra": true}
-	if !validEffort[options.ReasoningEffort] {
-		return fmt.Errorf("unsupported reasoning effort %q", options.ReasoningEffort)
+	if strings.TrimSpace(options.Model) == "" {
+		options.Model = options.Provider.defaultModel()
 	}
-	if options.CodexBinary == "" {
-		options.CodexBinary = "codex"
+	if strings.TrimSpace(options.ReasoningEffort) == "" {
+		options.ReasoningEffort = options.Provider.defaultReasoningEffort()
 	}
-	return nil
+	return options.Provider.validateReasoningEffort(options.ReasoningEffort)
 }
 
 func buildReviewInvocation(options nativeRunOptions) reviewInvocation {
-	artifacts := options.Session.Artifacts()
-	args := []string{
-		"exec", "--sandbox", "workspace-write",
-		"--config", "sandbox_workspace_write.network_access=true",
-	}
-	args = appendModelOptions(args, options)
-	args = append(args,
-		"--json",
-		"--output-last-message", artifacts.FinalMessagePath(),
-		"-",
-	)
-	invocation := reviewInvocation{
-		executable: options.CodexBinary,
-		args:       args,
-		directory:  options.Session.RepositoryDirectory(),
-		stdin:      buildReviewPrompt(options),
-		paths:      capturePathsFromSession(options.Session),
-	}
-	if options.LeaseFile != nil {
-		invocation.extraFiles = []*os.File{options.LeaseFile}
-	}
-	return invocation
+	return options.Provider.buildInvocation(providerInvocationOptions{
+		Session: options.Session, Goal: options.Goal, Model: options.Model,
+		ReasoningEffort: options.ReasoningEffort, LeaseFile: options.LeaseFile,
+	})
 }
 
-func buildReviewPrompt(options nativeRunOptions) string {
-	request := options.Session.Request()
+func buildReviewPrompt(request quality.ReviewRequest, goal string, reportOnlyBoundary bool) string {
 	var prompt strings.Builder
 	fmt.Fprintf(&prompt, "Review the changes introduced by %s relative to %s for actionable defects.\n", request.TargetCommit, request.BaseCommit)
-	if options.Goal != "" {
-		fmt.Fprintf(&prompt, "User-supplied context: %s\n", strconv.Quote(options.Goal))
+	if goal != "" {
+		fmt.Fprintf(&prompt, "User-supplied context: %s\n", strconv.Quote(goal))
+	}
+	if reportOnlyBoundary {
+		prompt.WriteString("Report findings only. Do not modify files, commit, push, deploy, or change external state.\n")
 	}
 	return prompt.String()
-}
-
-func appendModelOptions(args []string, options nativeRunOptions) []string {
-	if strings.TrimSpace(options.Model) != "" {
-		args = append(args, "--model", options.Model)
-	}
-	return append(args, "--config", "model_reasoning_effort="+strconv.Quote(options.ReasoningEffort))
 }
 
 func publishNativeOutcome(session reviewsession.NativeSession, outcome quality.NativeOutcome) error {

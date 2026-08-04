@@ -32,7 +32,7 @@ func TestClassifyFrozenNativeReviewPreservesThinThreeStateContract(t *testing.T)
 				t.Fatal(err)
 			}
 			result := outcome.Result()
-			if result.Adjudication.SemanticResult != test.want || result.Execution.ModelCalls != 1 {
+			if result.Adjudication.SemanticResult != test.want || result.Execution.ProviderInvocations != 1 {
 				t.Fatalf("result = %#v", result)
 			}
 			if len(result.Findings) != 0 || len(result.Execution.AdapterDrops) != 0 {
@@ -69,8 +69,8 @@ func TestNativeOutcomeKeepsOneValidatedFactForJSONAndMarkdown(t *testing.T) {
 	}
 
 	mutated := outcome.Result()
-	mutated.Execution.ModelCalls = 2
-	if outcome.Result().Execution.ModelCalls != 1 {
+	mutated.Execution.ProviderInvocations = 2
+	if outcome.Result().Execution.ProviderInvocations != 1 {
 		t.Fatal("exported wire result mutated the validated outcome")
 	}
 }

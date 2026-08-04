@@ -1,6 +1,6 @@
 //go:build linux
 
-package codexreview
+package nativereview
 
 import (
 	"fmt"

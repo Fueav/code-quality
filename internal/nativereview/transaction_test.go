@@ -1,4 +1,4 @@
-package codexreview
+package nativereview
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func TestNativeReviewTransactionPublishesAndCleansBeforeLeaseRelease(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !lease.closed || transaction.ExitCode != 0 || transaction.Summary.ModelCalls != 1 {
+	if !lease.closed || transaction.ExitCode != 0 || transaction.Summary.ProviderInvocations != 1 {
 		t.Fatalf("transaction = %#v, lease = %#v", transaction, lease)
 	}
 	for _, path := range []string{transaction.Summary.ResultPath, transaction.Summary.MarkdownPath, transaction.Summary.FreezePath, transaction.Summary.MetricsPath} {
@@ -105,7 +105,7 @@ func TestNativeReviewTransactionPublishesIncompleteProcessFailure(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if transaction.ExitCode != 1 || transaction.Summary.Status != "INCOMPLETE" || transaction.Summary.SemanticResult != "INCOMPLETE" || transaction.Summary.ModelCalls != 1 {
+	if transaction.ExitCode != 1 || transaction.Summary.Status != "INCOMPLETE" || transaction.Summary.SemanticResult != "INCOMPLETE" || transaction.Summary.ProviderInvocations != 1 {
 		t.Fatalf("transaction = %#v", transaction)
 	}
 	if _, err := os.Stat(transaction.Summary.ResultPath); err != nil {

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evaluation_rubric_version", "request", "findings", "execution", "adjudication"],
+  "properties": {
+    "schema_version": {"const": 4},
+    "evaluation_rubric_version": {"type": "string", "minLength": 1},
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "target_branch", "base_commit", "target_commit", "diff_selection_reason", "changed_files", "affected_entries"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "target_branch": {"type": "string", "minLength": 1},
+        "base_commit": {"type": "string", "minLength": 1},
+        "target_commit": {"type": "string", "minLength": 1},
+        "diff_selection_reason": {"type": "string", "minLength": 1},
+        "changed_files": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "affected_entries": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "review_goal": {"type": "string", "minLength": 1},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body", "priority", "code_location"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1},
+          "body": {"type": "string", "minLength": 1},
+          "priority": {"type": "integer", "minimum": 0, "maximum": 3},
+          "code_location": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "start_line", "end_line"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "start_line": {"type": "integer", "minimum": 1},
+              "end_line": {"type": "integer", "minimum": 1}
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "review_mode", "reasoning_effort", "provider_invocations", "adapter_drops"],
+      "properties": {
+        "host": {"enum": ["codex", "claude-code"]},
+        "review_mode": {"const": "native_review"},
+        "model": {"type": "string"},
+        "reasoning_effort": {"type": "string", "minLength": 1},
+        "provider_invocations": {"const": 1},
+        "adapter_drops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["index", "reason"],
+            "properties": {
+              "index": {"type": "integer", "minimum": 0},
+              "reason": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_result", "rollout_mode", "ci_action", "reasons"],
+      "properties": {
+        "semantic_result": {"enum": ["PASS", "MANUAL_REVIEW", "INCOMPLETE"]},
+        "rollout_mode": {"const": "report_only"},
+        "ci_action": {"const": "publish_report"},
+        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1}
+      }
+    }
+  }
+}

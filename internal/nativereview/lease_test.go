@@ -1,4 +1,4 @@
-package codexreview
+package nativereview
 
 import (
 	"bufio"

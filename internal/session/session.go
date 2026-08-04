@@ -83,7 +83,7 @@ type Metadata struct {
 	RuntimeMode    string       `json:"runtime_mode,omitempty"`
 }
 
-// NativeArtifacts is the mode-specific artifact set for one native Codex
+// NativeArtifacts is the mode-specific artifact set for one native provider
 // review. Its layout is private so callers depend on artifact roles rather than
 // session file names.
 type NativeArtifacts struct {
@@ -105,7 +105,7 @@ func (artifacts NativeArtifacts) ResultPath() string         { return artifacts.
 func (artifacts NativeArtifacts) MarkdownPath() string       { return artifacts.markdownPath }
 
 // NativeSession owns the isolated checkout and retained artifact layout for a
-// native Codex review. Cleanup removes only its checkout.
+// native provider review. Cleanup removes only its checkout.
 type NativeSession struct {
 	repositoryRoot string
 	layout         Layout
@@ -191,10 +191,11 @@ func Prepare(ctx context.Context, options Options) (Prepared, error) {
 }
 
 func PrepareNative(ctx context.Context, options Options) (NativeSession, error) {
-	if options.Host != "codex" {
-		return NativeSession{}, errors.New("native review host must be codex")
+	if options.Host != "codex" && options.Host != "claude-code" {
+		return NativeSession{}, errors.New("native review host must be claude-code or codex")
 	}
-	preparation, err := startPreparation(ctx, options, "codex_native_review")
+	runtimeMode := strings.ReplaceAll(options.Host, "-", "_") + "_native_review"
+	preparation, err := startPreparation(ctx, options, runtimeMode)
 	if err != nil {
 		return NativeSession{}, err
 	}
@@ -250,7 +251,10 @@ func startPreparation(ctx context.Context, options Options, runtimeMode string) 
 	if err := os.MkdirAll(layout.OutputDir, 0o700); err != nil {
 		return nil, err
 	}
-	state.checkoutMode, err = prepareCheckout(ctx, options.RepositoryRoot, options.Request.TargetCommit, layout)
+	state.checkoutMode, err = prepareCheckout(
+		ctx, options.RepositoryRoot, options.Request.TargetCommit, layout,
+		runtimeMode != "claude_code_native_review",
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -498,12 +502,18 @@ func addWorktree(ctx context.Context, root, commit, worktreePath string) error {
 	return nil
 }
 
-func prepareCheckout(ctx context.Context, root, commit string, layout Layout) (CheckoutMode, error) {
+func prepareCheckout(ctx context.Context, root, commit string, layout Layout, allowCloneFallback bool) (CheckoutMode, error) {
 	if err := addWorktree(ctx, root, commit, layout.RepositoryDir); err == nil {
 		return CheckoutModeWorktree, nil
 	} else {
 		worktreeErr := err
 		removeWorktree(root, layout.RepositoryDir)
+		if !allowCloneFallback {
+			return CheckoutModeWorktree, fmt.Errorf(
+				"%w; shared-clone fallback is disabled to preserve the native project identity",
+				worktreeErr,
+			)
+		}
 		if err := removeCloneCheckout(layout.SessionDir, layout.RepositoryDir); err != nil {
 			return CheckoutModeClone, fmt.Errorf("%v; prepare shared-clone fallback: %w", worktreeErr, err)
 		}

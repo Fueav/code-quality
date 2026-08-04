@@ -8,7 +8,7 @@ import (
 func ValidateNativeResult(result NativeReviewResult) []string {
 	var problems []string
 	if result.SchemaVersion != NativeResultSchemaVersion {
-		problems = append(problems, "native result schema_version must be 3")
+		problems = append(problems, fmt.Sprintf("native result schema_version must be %d", NativeResultSchemaVersion))
 	}
 	if strings.TrimSpace(result.EvaluationRubricVersion) == "" {
 		problems = append(problems, "evaluation_rubric_version is required")
@@ -36,14 +36,14 @@ func ValidateNativeResult(result NativeReviewResult) []string {
 			problems = append(problems, prefix+" code_location is not in a changed file")
 		}
 	}
-	if result.Execution.Host != "codex" || result.Execution.ReviewMode != "native_review" {
-		problems = append(problems, "execution must use codex native_review")
+	if (result.Execution.Host != "codex" && result.Execution.Host != "claude-code") || result.Execution.ReviewMode != "native_review" {
+		problems = append(problems, "execution must use a supported native_review provider")
 	}
 	if strings.TrimSpace(result.Execution.ReasoningEffort) == "" {
 		problems = append(problems, "execution.reasoning_effort is required")
 	}
-	if result.Execution.ModelCalls != 1 {
-		problems = append(problems, "execution.model_calls must be exactly 1")
+	if result.Execution.ProviderInvocations != 1 {
+		problems = append(problems, "execution.provider_invocations must be exactly 1")
 	}
 	for index, dropped := range result.Execution.AdapterDrops {
 		if dropped.Index < 0 || strings.TrimSpace(dropped.Reason) == "" {

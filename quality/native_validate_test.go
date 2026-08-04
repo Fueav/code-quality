@@ -18,11 +18,23 @@ func TestValidateNativeResultEnforcesChangedFileAndSemanticContract(t *testing.T
 	}
 }
 
-func TestValidateNativeResultEnforcesSingleModelCall(t *testing.T) {
+func TestValidateNativeResultEnforcesSingleProviderInvocation(t *testing.T) {
 	result := validNativeResult()
-	result.Execution.ModelCalls = 2
+	result.Execution.ProviderInvocations = 2
 	if problems := ValidateNativeResult(result); len(problems) == 0 {
-		t.Fatal("native result with two model calls was accepted")
+		t.Fatal("native result with two provider invocations was accepted")
+	}
+}
+
+func TestValidateNativeResultSupportsBothNativeProvidersOnly(t *testing.T) {
+	result := validNativeResult()
+	result.Execution.Host = "claude-code"
+	if problems := ValidateNativeResult(result); len(problems) != 0 {
+		t.Fatalf("Claude Code native result problems = %#v", problems)
+	}
+	result.Execution.Host = "custom-orchestrator"
+	if problems := ValidateNativeResult(result); len(problems) == 0 {
+		t.Fatal("unknown native review provider was accepted")
 	}
 }
 
@@ -56,7 +68,7 @@ func validNativeResult() NativeReviewResult {
 			CodeLocation: NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
 		}},
 		Execution: NativeExecution{
-			Host: "codex", ReviewMode: "native_review", ReasoningEffort: "high", ModelCalls: 1,
+			Host: "codex", ReviewMode: "native_review", ReasoningEffort: "high", ProviderInvocations: 1,
 			AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{

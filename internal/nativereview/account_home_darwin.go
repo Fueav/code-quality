@@ -1,6 +1,6 @@
 //go:build darwin
 
-package codexreview
+package nativereview
 
 import (
 	"fmt"

@@ -792,7 +792,9 @@ def run_session(
                 findings = normalize_product_result(result)
                 execution = result.get("execution", {})
                 adjudication = result.get("adjudication", {})
-                model_calls = execution.get("model_calls", 0)
+                model_calls = execution.get(
+                    "provider_invocations", execution.get("model_calls", 0)
+                )
                 verifier_status = execution.get("verifier_status", "unknown")
                 semantic_result = adjudication.get("semantic_result", "INCOMPLETE")
                 native_candidate = pathlib.Path(result_path).parent / "native-review.txt"

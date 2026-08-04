@@ -1,9 +1,7 @@
-package codexreview
+package nativereview
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -58,16 +56,6 @@ type NativeRunMetrics struct {
 	TrustedDiffBytes int64  `json:"trusted_diff_bytes"`
 }
 
-type codexEvent struct {
-	Type  string      `json:"type"`
-	Usage *codexUsage `json:"usage,omitempty"`
-}
-
-type codexUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-}
-
 func capturePathsFromSession(session reviewsession.NativeSession) capturePaths {
 	artifacts := session.Artifacts()
 	return capturePaths{
@@ -86,11 +74,13 @@ func captureNativeEvidence(ctx context.Context, options nativeRunOptions) (captu
 	}
 	invocation := buildReviewInvocation(options)
 	started := time.Now()
-	processErr := runCodexProcess(ctx, invocation)
-	frozen, err := freezeNativeArtifacts(invocation.paths)
+	processErr := runNativeProcess(ctx, invocation)
+	materializeErr := materializeProviderFinalMessage(options.Provider, invocation.paths)
+	frozen, err := freezeNativeArtifacts(invocation.paths, options.Provider)
 	if err != nil {
 		return capturedNativeEvidence{}, err
 	}
+	processErr = errors.Join(processErr, materializeErr, frozen.ProtocolError)
 	metrics := collectRunMetrics(options.Session.Request(), time.Since(started), int64(len(trustedDiff)), frozen)
 	if err := writeExclusiveJSON(invocation.paths.metrics, metrics); err != nil {
 		return capturedNativeEvidence{}, fmt.Errorf("write native run metrics: %w", err)
@@ -98,7 +88,7 @@ func captureNativeEvidence(ctx context.Context, options nativeRunOptions) (captu
 	return capturedNativeEvidence{finalMessage: frozen.FinalMessage, processErr: processErr}, nil
 }
 
-func runCodexProcess(ctx context.Context, invocation reviewInvocation) error {
+func runNativeProcess(ctx context.Context, invocation reviewInvocation) error {
 	stdout, err := os.OpenFile(invocation.paths.jsonl, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open command stdout log: %w", err)
@@ -118,7 +108,35 @@ func runCodexProcess(ctx context.Context, invocation reviewInvocation) error {
 	command.ExtraFiles = invocation.extraFiles
 	command.WaitDelay = processOutputDrainTimeout
 	if err := command.Run(); err != nil {
-		return fmt.Errorf("codex process: %w", err)
+		return fmt.Errorf("native review process: %w", err)
+	}
+	return nil
+}
+
+// runCodexProcess remains as a narrow compatibility shim for existing tests
+// and callers inside this package. New code uses the provider-neutral name.
+func runCodexProcess(ctx context.Context, invocation reviewInvocation) error {
+	return runNativeProcess(ctx, invocation)
+}
+
+func materializeProviderFinalMessage(provider Provider, paths capturePaths) error {
+	if !provider.finalMessageFromTranscript() {
+		return nil
+	}
+	file, err := os.Open(paths.jsonl)
+	if err != nil {
+		return fmt.Errorf("open provider transcript: %w", err)
+	}
+	transcript, decodeErr := provider.decodeTranscript(file)
+	closeErr := file.Close()
+	if decodeErr != nil {
+		return fmt.Errorf("decode provider transcript: %w", decodeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close provider transcript: %w", closeErr)
+	}
+	if err := writeExclusiveFile(paths.finalMessage, transcript.FinalMessage); err != nil {
+		return fmt.Errorf("materialize provider final message: %w", err)
 	}
 	return nil
 }
@@ -138,44 +156,17 @@ func collectRunMetrics(request quality.ReviewRequest, duration time.Duration, tr
 	return metrics
 }
 
-func readCodexUsageFile(file *os.File) (*int64, *int64, error) {
+func readProviderTranscriptFile(file *os.File, provider Provider) (decodedTranscript, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, nil, err
+		return decodedTranscript{}, err
 	}
-	return decodeCodexUsageReader(file)
+	return provider.decodeTranscript(file)
 }
 
 func decodeCodexUsageReader(reader io.Reader) (*int64, *int64, error) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 64<<10), int(maxNativeOutputBytes))
-	var latest *codexUsage
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		var event codexEvent
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			return nil, nil, fmt.Errorf("decode Codex JSONL event: %w", err)
-		}
-		if event.Type == "turn.completed" && event.Usage != nil {
-			if event.Usage.InputTokens < 0 || event.Usage.OutputTokens < 0 {
-				return nil, nil, errors.New("Codex usage tokens must be non-negative")
-			}
-			copy := *event.Usage
-			latest = &copy
-		}
+	transcript, err := NewCodexProvider("").decodeTranscript(reader)
+	if err != nil {
+		return nil, nil, err
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, nil, fmt.Errorf("scan Codex JSONL events: %w", err)
-	}
-	if latest == nil {
-		return nil, nil, errors.New("Codex JSONL has no turn.completed usage event")
-	}
-	if latest.InputTokens == 0 && latest.OutputTokens == 0 {
-		return nil, nil, errors.New("Codex JSONL reported zero token usage; counters are unavailable")
-	}
-	inputTokens := latest.InputTokens
-	outputTokens := latest.OutputTokens
-	return &inputTokens, &outputTokens, nil
+	return transcript.InputTokens, transcript.OutputTokens, transcript.UsageError
 }

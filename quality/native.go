@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	NativeResultSchemaVersion = 3
+	NativeResultSchemaVersion = 4
 	EvaluationRubricVersion   = "1.2.0"
 )
 
@@ -30,12 +30,12 @@ type AdapterDrop struct {
 }
 
 type NativeExecution struct {
-	Host            string        `json:"host"`
-	ReviewMode      string        `json:"review_mode"`
-	Model           string        `json:"model,omitempty"`
-	ReasoningEffort string        `json:"reasoning_effort"`
-	ModelCalls      int           `json:"model_calls"`
-	AdapterDrops    []AdapterDrop `json:"adapter_drops"`
+	Host                string        `json:"host"`
+	ReviewMode          string        `json:"review_mode"`
+	Model               string        `json:"model,omitempty"`
+	ReasoningEffort     string        `json:"reasoning_effort"`
+	ProviderInvocations int           `json:"provider_invocations"`
+	AdapterDrops        []AdapterDrop `json:"adapter_drops"`
 }
 
 type NativeReviewResult struct {
@@ -82,8 +82,9 @@ func RenderNativeMarkdown(result NativeReviewResult) string {
 	fmt.Fprintln(&output)
 	fmt.Fprintln(&output, "## Execution")
 	fmt.Fprintln(&output)
+	fmt.Fprintf(&output, "- Host: `%s`\n", result.Execution.Host)
 	fmt.Fprintf(&output, "- Mode: `%s`\n", result.Execution.ReviewMode)
-	fmt.Fprintf(&output, "- Model calls: %d\n", result.Execution.ModelCalls)
+	fmt.Fprintf(&output, "- Provider invocations: %d\n", result.Execution.ProviderInvocations)
 	if len(result.Execution.AdapterDrops) > 0 {
 		fmt.Fprintln(&output, "- Adapter exclusions:")
 		for _, dropped := range result.Execution.AdapterDrops {

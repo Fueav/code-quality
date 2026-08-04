@@ -1,7 +1,7 @@
 {
   "name": "code-quality",
   "version": "0.4.2",
-  "description": "Runs a full-capability Codex review, freezes its raw output, then publishes a report-only classification; V1.2 remains offline-only.",
+  "description": "调用当前宿主的完整原生代码审查能力，冻结原始输出，再发布只报告的确定性分类；V1.2 仅用于离线评测。",
   "author": {
     "name": "Fueav",
     "url": "https://github.com/Fueav"
@@ -15,8 +15,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Code Quality",
-    "shortDescription": "Run a full Codex review with frozen evidence",
-    "longDescription": "Review a trusted committed Git increment with one full Codex Agent call, immutable raw evidence, and deterministic post-classification.",
+    "shortDescription": "使用原生 Agent 审查并冻结证据",
+    "longDescription": "用当前宿主的一次顶层原生 Agent 调用审查可信的已提交 Git 增量，保留不可变原始证据并做确定性后分类。",
     "developerName": "Fueav",
     "category": "Developer Tools",
     "capabilities": [
@@ -25,7 +25,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Run the full Codex report-only review for this committed change and report the retained raw freeze and result paths."
+      "对这个已提交改动执行当前宿主的完整原生只报告审查，并汇报保留的原始冻结路径和结果路径。"
     ]
   }
 }

@@ -1,4 +1,4 @@
-package codexreview
+package nativereview
 
 import (
 	"bytes"
@@ -28,11 +28,12 @@ type NativeFreezeManifest struct {
 }
 
 type frozenNativeArtifacts struct {
-	FinalMessage []byte
-	Manifest     NativeFreezeManifest
-	InputTokens  *int64
-	OutputTokens *int64
-	UsageError   error
+	FinalMessage  []byte
+	Manifest      NativeFreezeManifest
+	InputTokens   *int64
+	OutputTokens  *int64
+	UsageError    error
+	ProtocolError error
 }
 
 type rawArtifactSpec struct {
@@ -49,7 +50,17 @@ type lockedRawArtifact struct {
 	expectedSHA   string
 }
 
-func freezeNativeArtifacts(paths capturePaths) (frozenNativeArtifacts, error) {
+func freezeNativeArtifacts(paths capturePaths, providers ...Provider) (frozenNativeArtifacts, error) {
+	provider := NewCodexProvider("")
+	if len(providers) > 0 {
+		provider = providers[0]
+	}
+	if len(providers) > 1 {
+		return frozenNativeArtifacts{}, errors.New("freeze accepts exactly one native review provider")
+	}
+	if err := validateProvider(provider); err != nil {
+		return frozenNativeArtifacts{}, err
+	}
 	frozen := frozenNativeArtifacts{Manifest: NativeFreezeManifest{SchemaVersion: 1, Artifacts: []FrozenArtifact{}}}
 	specs := []rawArtifactSpec{
 		{name: "final_message", path: paths.finalMessage, capture: true, maxBytes: maxNativeOutputBytes},
@@ -58,6 +69,7 @@ func freezeNativeArtifacts(paths capturePaths) (frozenNativeArtifacts, error) {
 	}
 	locked := make([]lockedRawArtifact, 0, len(specs))
 	absent := make([]string, 0, len(specs))
+	finalMessagePresent := false
 	defer func() {
 		for _, artifact := range locked {
 			_ = artifact.file.Close()
@@ -77,6 +89,9 @@ func freezeNativeArtifacts(paths capturePaths) (frozenNativeArtifacts, error) {
 		entry.Bytes = bytesRead
 		entry.SHA256 = digest
 		entry.Present = true
+		if spec.name == "final_message" {
+			finalMessagePresent = true
+		}
 		frozen.Manifest.Artifacts = append(frozen.Manifest.Artifacts, entry)
 		locked = append(locked, lockedRawArtifact{
 			path: spec.path, file: file, expectedBytes: bytesRead, expectedSHA: digest,
@@ -108,8 +123,29 @@ func freezeNativeArtifacts(paths capturePaths) (frozenNativeArtifacts, error) {
 		if artifact.path != paths.jsonl {
 			continue
 		}
-		frozen.InputTokens, frozen.OutputTokens, frozen.UsageError = readCodexUsageFile(artifact.file)
+		transcript, decodeErr := readProviderTranscriptFile(artifact.file, provider)
+		if decodeErr != nil {
+			frozen.UsageError = decodeErr
+			if provider.finalMessageFromTranscript() {
+				frozen.ProtocolError = fmt.Errorf("decode frozen provider transcript: %w", decodeErr)
+			}
+			break
+		}
+		frozen.InputTokens = transcript.InputTokens
+		frozen.OutputTokens = transcript.OutputTokens
+		frozen.UsageError = transcript.UsageError
+		if provider.finalMessageFromTranscript() {
+			switch {
+			case !finalMessagePresent:
+				frozen.ProtocolError = errors.New("provider final message is absent from frozen evidence")
+			case !bytes.Equal(frozen.FinalMessage, transcript.FinalMessage):
+				frozen.ProtocolError = errors.New("provider final message does not match the frozen transcript result")
+			}
+		}
 		break
+	}
+	if provider.finalMessageFromTranscript() && errors.Is(frozen.UsageError, os.ErrNotExist) {
+		frozen.ProtocolError = errors.New("provider transcript is absent from frozen evidence")
 	}
 	return frozen, nil
 }

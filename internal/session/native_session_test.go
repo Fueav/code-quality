@@ -55,6 +55,53 @@ func TestNativeSessionOwnsModeSpecificArtifactsAndCleanup(t *testing.T) {
 	}
 }
 
+func TestNativeSessionAcceptsClaudeCodeWithoutChangingCheckoutIsolation(t *testing.T) {
+	repository, base, target := nativeSessionRepository(t)
+	session, err := PrepareNative(context.Background(), Options{
+		RepositoryRoot: repository,
+		OutputRoot:     filepath.Join(t.TempDir(), "sessions"),
+		Host:           "claude-code",
+		Request: quality.ReviewRequest{
+			Repository: "example/repo", TargetBranch: "main", BaseCommit: base, TargetCommit: target,
+			DiffSelectionReason: "test", ChangedFiles: []string{"app.go"}, AffectedEntries: []string{},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Cleanup() })
+	if session.RepositoryDirectory() == repository {
+		t.Fatal("Claude native review reused the caller's checkout")
+	}
+	raw, err := os.ReadFile(filepath.Join(session.Directory(), "input", "session-metadata.json"))
+	if err != nil || !strings.Contains(string(raw), `"host": "claude-code"`) ||
+		!strings.Contains(string(raw), `"runtime_mode": "claude_code_native_review"`) {
+		t.Fatalf("Claude session metadata = %s, error = %v", raw, err)
+	}
+}
+
+func TestClaudeCheckoutDoesNotFallBackToIndependentClone(t *testing.T) {
+	repository, _, target := nativeSessionRepository(t)
+	layout := NewLayout(t.TempDir())
+	if err := os.MkdirAll(layout.InputDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.RepositoryDir, []byte("block worktree creation"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mode, err := prepareCheckout(context.Background(), repository, target, layout, false)
+	if err == nil || !strings.Contains(err.Error(), "shared-clone fallback is disabled") {
+		t.Fatalf("Claude checkout error = %v", err)
+	}
+	if mode != CheckoutModeWorktree {
+		t.Fatalf("Claude checkout reported degraded mode %q", mode)
+	}
+	info, statErr := os.Lstat(layout.RepositoryDir)
+	if statErr != nil || !info.Mode().IsRegular() {
+		t.Fatalf("Claude checkout replaced the blocker with an independent clone: info=%v error=%v", info, statErr)
+	}
+}
+
 func nativeSessionRepository(t *testing.T) (string, string, string) {
 	t.Helper()
 	repository := t.TempDir()

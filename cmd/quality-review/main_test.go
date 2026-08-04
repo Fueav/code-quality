@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Fueav/code-quality/internal/codexreview"
 	evalrunner "github.com/Fueav/code-quality/internal/eval"
+	"github.com/Fueav/code-quality/internal/nativereview"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
@@ -22,11 +22,11 @@ import (
 func forceTopLevelDiscovery(t *testing.T) {
 	t.Helper()
 	previous := runNativeReview
-	runNativeReview = func(ctx context.Context, options codexreview.TransactionOptions) (codexreview.TransactionResult, error) {
+	runNativeReview = func(ctx context.Context, options nativereview.TransactionOptions) (nativereview.TransactionResult, error) {
 		options.AcquireLease = func() (io.Closer, *os.File, error) {
 			return io.NopCloser(strings.NewReader("")), nil, nil
 		}
-		return codexreview.RunTransaction(ctx, options)
+		return nativereview.RunTransaction(ctx, options)
 	}
 	t.Cleanup(func() { runNativeReview = previous })
 }
@@ -34,8 +34,8 @@ func forceTopLevelDiscovery(t *testing.T) {
 func forceActiveDiscovery(t *testing.T) {
 	t.Helper()
 	previous := runNativeReview
-	runNativeReview = func(context.Context, codexreview.TransactionOptions) (codexreview.TransactionResult, error) {
-		return codexreview.TransactionResult{}, codexreview.ErrNativeReviewActive
+	runNativeReview = func(context.Context, nativereview.TransactionOptions) (nativereview.TransactionResult, error) {
+		return nativereview.TransactionResult{}, nativereview.ErrNativeReviewActive
 	}
 	t.Cleanup(func() { runNativeReview = previous })
 }
@@ -67,7 +67,7 @@ func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
 	if code := run([]string{"run-codex", "--repo", repo, "--base", base, "--target", target}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "another native Codex review is active") {
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "another native review is active") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
@@ -78,7 +78,7 @@ func TestRunCodexRejectsActiveDiscoveryBeforeAnotherRepository(t *testing.T) {
 	code := run([]string{
 		"run-codex", "--repo", filepath.Join(t.TempDir(), "missing-repository"),
 	}, &stdout, &stderr)
-	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "another native Codex review is active") {
+	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "another native review is active") {
 		t.Fatalf("exit code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
 	}
 }
@@ -137,11 +137,11 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 	}
-	var summary codexreview.NativeRunSummary
+	var summary nativereview.NativeRunSummary
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.SchemaVersion != 3 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ModelCalls != 1 {
+	if summary.SchemaVersion != 4 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ProviderInvocations != 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	var summaryDocument struct {
@@ -168,14 +168,14 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	}
 	count, err := os.ReadFile(countPath)
 	if err != nil || strings.TrimSpace(string(count)) != "1" {
-		t.Fatalf("model call count = %q, err = %v", count, err)
+		t.Fatalf("provider invocation count = %q, err = %v", count, err)
 	}
 	prompt, err := os.ReadFile(promptPath)
 	if err != nil || strings.Contains(string(prompt), "risk directions") || !strings.Contains(string(prompt), "protect behavior") {
 		t.Fatalf("prompt = %q, err = %v", prompt, err)
 	}
 	result := readJSON[quality.NativeReviewResult](t, summary.ResultPath)
-	if result.SchemaVersion != 3 || result.Execution.ModelCalls != 1 {
+	if result.SchemaVersion != 4 || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json"} {
@@ -197,6 +197,93 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	}
 	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "repository")); !os.IsNotExist(err) {
 		t.Fatalf("isolated checkout was not removed: %v", err)
+	}
+}
+
+func TestRunClaudeZeroFindingsUsesOneNativeProviderInvocation(t *testing.T) {
+	forceTopLevelDiscovery(t)
+	repo, base, target := cliReviewFixture(t)
+	directory := t.TempDir()
+	countPath := filepath.Join(directory, "count")
+	scriptPath := filepath.Join(directory, "claude")
+	script := `#!/bin/sh
+set -eu
+count=0
+if [ -f "$FAKE_CLAUDE_COUNT_PATH" ]; then count=$(cat "$FAKE_CLAUDE_COUNT_PATH"); fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$FAKE_CLAUDE_COUNT_PATH"
+printf '%s\n' '{"type":"system","subtype":"init","tools":["Read","Grep"],"mcp_servers":[]}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"No findings.","usage":{"input_tokens":77,"output_tokens":9}}'
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_CLAUDE_COUNT_PATH", countPath)
+	previousBinary := claudeBinary
+	claudeBinary = scriptPath
+	t.Cleanup(func() { claudeBinary = previousBinary })
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"run-claude", "--repo", repo, "--base", base, "--target", target,
+		"--diff-reason", "test_increment", "--goal", "protect behavior",
+		"--output-root", filepath.Join(directory, "sessions"),
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	var summary nativereview.NativeRunSummary
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.SchemaVersion != 4 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ProviderInvocations != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	result := readJSON[quality.NativeReviewResult](t, summary.ResultPath)
+	if result.SchemaVersion != 4 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	count, err := os.ReadFile(countPath)
+	if err != nil || strings.TrimSpace(string(count)) != "1" {
+		t.Fatalf("provider invocation count = %q, err = %v", count, err)
+	}
+	final, err := os.ReadFile(filepath.Join(summary.SessionDir, "output", "native-review.txt"))
+	if err != nil || string(final) != "No findings." {
+		t.Fatalf("Claude final message = %q, err = %v", final, err)
+	}
+}
+
+func TestRunClaudeRefusesSharedCloneFallbackBeforeProviderInvocation(t *testing.T) {
+	forceTopLevelDiscovery(t)
+	repo, base, target := cliReviewFixture(t)
+	restore := makeGitMetadataReadOnly(t, repo)
+	t.Cleanup(restore)
+	directory := t.TempDir()
+	invokedPath := filepath.Join(directory, "invoked")
+	scriptPath := filepath.Join(directory, "claude")
+	script := `#!/bin/sh
+set -eu
+printf invoked > "$FAKE_CLAUDE_INVOKED_PATH"
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"No findings.","usage":{"input_tokens":1,"output_tokens":1}}'
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_CLAUDE_INVOKED_PATH", invokedPath)
+	previousBinary := claudeBinary
+	claudeBinary = scriptPath
+	t.Cleanup(func() { claudeBinary = previousBinary })
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"run-claude", "--repo", repo, "--base", base, "--target", target,
+		"--output-root", filepath.Join(directory, "sessions"),
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "shared-clone fallback is disabled") {
+		t.Fatalf("exit code = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Lstat(invokedPath); !os.IsNotExist(err) {
+		t.Fatalf("Claude provider ran with a degraded checkout: %v", err)
 	}
 }
 

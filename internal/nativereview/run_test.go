@@ -1,4 +1,4 @@
-package codexreview
+package nativereview
 
 import (
 	"context"
@@ -184,7 +184,7 @@ func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 	raw := agentFindingOutput(filepath.Join(session.RepositoryDirectory(), "app.go"), "preserve the result", "The changed branch returns the wrong value.", 1)
 	executable, _ := fakeCodexExecutable(t, raw)
 
-	outcome, err := runNativeSession(context.Background(), nativeRunOptions{Session: session, CodexBinary: executable})
+	outcome, err := runNativeSession(context.Background(), nativeRunOptions{Session: session, Provider: NewCodexProvider(executable)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func TestNativeReviewPromptOmitsUnsuppliedGoal(t *testing.T) {
 		t.Fatalf("wrapper invented goal %q", options.Goal)
 	}
 	want := fmt.Sprintf("Review the changes introduced by %s relative to %s for actionable defects.\n", request.TargetCommit, request.BaseCommit)
-	if prompt := buildReviewPrompt(options); prompt != want {
+	if prompt := buildReviewPrompt(options.Session.Request(), options.Goal, false); prompt != want {
 		t.Fatalf("prompt = %q, want %q", prompt, want)
 	}
 }
@@ -546,17 +546,17 @@ func TestZeroFindingsCompletesAfterOneNativeCall(t *testing.T) {
 	executable, countPath := fakeCodexExecutable(t, "No actionable defects found.\n")
 
 	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
-		Session: session, Goal: "review the change", ReasoningEffort: "high", CodexBinary: executable,
+		Session: session, Goal: "review the change", ReasoningEffort: "high", Provider: NewCodexProvider(executable),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
-	if result.Adjudication.SemanticResult != quality.ResultPass || result.Execution.ModelCalls != 1 {
+	if result.Adjudication.SemanticResult != quality.ResultPass || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	if count := readInvocationCount(t, countPath); count != "1" {
-		t.Fatalf("model calls = %s", count)
+		t.Fatalf("provider invocations = %s", count)
 	}
 }
 
@@ -564,13 +564,13 @@ func TestWhitespaceOnlyOutputIsIncomplete(t *testing.T) {
 	session, _ := nativeFixture(t)
 	executable, _ := fakeCodexExecutable(t, " \r\n\t\n")
 
-	outcome, err := runNativeSession(context.Background(), nativeRunOptions{Session: session, CodexBinary: executable})
+	outcome, err := runNativeSession(context.Background(), nativeRunOptions{Session: session, Provider: NewCodexProvider(executable)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
 	if result.Adjudication.SemanticResult != quality.ResultIncomplete || len(result.Findings) != 0 ||
-		result.Execution.ModelCalls != 1 {
+		result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 }
@@ -581,18 +581,18 @@ func TestNativeReviewOutputRequiresDocumentLevelManualReview(t *testing.T) {
 	executable, countPath := fakeCodexExecutable(t, nativeFindingOutput(path, "timeout is ignored", "The new call can wait forever.", 1))
 
 	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
-		Session: session, Goal: "review the change", ReasoningEffort: "high", CodexBinary: executable,
+		Session: session, Goal: "review the change", ReasoningEffort: "high", Provider: NewCodexProvider(executable),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
 	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 0 ||
-		len(result.Execution.AdapterDrops) != 0 || result.Execution.ModelCalls != 1 {
+		len(result.Execution.AdapterDrops) != 0 || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	if count := readInvocationCount(t, countPath); count != "1" {
-		t.Fatalf("model calls = %s", count)
+		t.Fatalf("provider invocations = %s", count)
 	}
 }
 
@@ -602,13 +602,13 @@ func TestReviewOutputLocationDoesNotChangeDocumentClassification(t *testing.T) {
 		nativeFindingOutput("/tmp/outside.go", "wrong result", "The new branch returns the opposite value.", 1))
 
 	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
-		Session: session, Goal: "review the change", ReasoningEffort: "high", CodexBinary: executable,
+		Session: session, Goal: "review the change", ReasoningEffort: "high", Provider: NewCodexProvider(executable),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
-	if result.Adjudication.SemanticResult != quality.ResultManualReview || result.Execution.ModelCalls != 1 ||
+	if result.Adjudication.SemanticResult != quality.ResultManualReview || result.Execution.ProviderInvocations != 1 ||
 		len(result.Findings) != 0 || len(result.Execution.AdapterDrops) != 0 {
 		t.Fatalf("document-level result = %#v", result)
 	}

@@ -12,16 +12,17 @@ import (
 	"strings"
 
 	bundle "github.com/Fueav/code-quality"
-	"github.com/Fueav/code-quality/internal/codexreview"
 	evalrunner "github.com/Fueav/code-quality/internal/eval"
 	"github.com/Fueav/code-quality/internal/intake"
+	"github.com/Fueav/code-quality/internal/nativereview"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
 
 var version = "dev"
 var codexBinary = "codex"
-var runNativeReview = codexreview.RunTransaction
+var claudeBinary = "claude"
+var runNativeReview = nativereview.RunTransaction
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -29,7 +30,7 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "quality-review: run `quality-review run-codex` for the default native review")
+		fmt.Fprintln(stderr, "quality-review: run `quality-review run-codex` or `quality-review run-claude` for a native review")
 		fmt.Fprintln(stderr, "quality-review: offline and legacy commands: prepare, finalize, adjudicate, compare, eval, replay, validate, render")
 		return 2
 	}
@@ -43,6 +44,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "run-codex":
 		return runCodex(args[1:], stdout, stderr)
+	case "run-claude":
+		return runClaude(args[1:], stdout, stderr)
 	}
 	policy, err := loadPolicy()
 	if err != nil {
@@ -73,24 +76,48 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func runCodex(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("run-codex", flag.ContinueOnError)
+	return runNativeProvider(args, stdout, stderr, nativeProviderCommand{
+		name: "run-codex", model: "gpt-5.6-sol", modelHelp: "Codex model",
+		effortHelp: "Codex reasoning effort",
+		provider:   func() nativereview.Provider { return nativereview.NewCodexProvider(codexBinary) },
+	})
+}
+
+func runClaude(args []string, stdout, stderr io.Writer) int {
+	return runNativeProvider(args, stdout, stderr, nativeProviderCommand{
+		name: "run-claude", model: "opus", modelHelp: "Claude model or alias",
+		effortHelp: "Claude reasoning effort",
+		provider:   func() nativereview.Provider { return nativereview.NewClaudeProvider(claudeBinary) },
+	})
+}
+
+type nativeProviderCommand struct {
+	name       string
+	model      string
+	modelHelp  string
+	effortHelp string
+	provider   func() nativereview.Provider
+}
+
+func runNativeProvider(args []string, stdout, stderr io.Writer, config nativeProviderCommand) int {
+	flags := flag.NewFlagSet(config.name, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	repository := flags.String("repo", ".", "Git repository path")
 	base := flags.String("base", "", "base commit")
 	target := flags.String("target", "", "target commit")
 	reason := flags.String("diff-reason", "", "diff selection reason")
 	goal := flags.String("goal", "", "optional change intent or extra review concern")
-	model := flags.String("model", "gpt-5.6-sol", "Codex model")
-	reasoningEffort := flags.String("reasoning-effort", "max", "Codex reasoning effort")
+	model := flags.String("model", config.model, config.modelHelp)
+	reasoningEffort := flags.String("reasoning-effort", "max", config.effortHelp)
 	outputRoot := flags.String("output-root", ".code-quality", "session output root")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "quality-review: run-codex accepts flags only")
+		fmt.Fprintf(stderr, "quality-review: %s accepts flags only\n", config.name)
 		return 2
 	}
-	transaction, err := runNativeReview(context.Background(), codexreview.TransactionOptions{
+	transaction, err := runNativeReview(context.Background(), nativereview.TransactionOptions{
 		RepositoryPath:  *repository,
 		Base:            *base,
 		Target:          *target,
@@ -99,15 +126,15 @@ func runCodex(args []string, stdout, stderr io.Writer) int {
 		Model:           *model,
 		ReasoningEffort: *reasoningEffort,
 		OutputRoot:      *outputRoot,
-		CodexBinary:     codexBinary,
+		Provider:        config.provider(),
 	})
-	if errors.Is(err, codexreview.ErrNativeReviewActive) {
-		fmt.Fprintln(stderr, "quality-review: another native Codex review is active for this user; retry after it finishes or review directly in the current Codex agent")
+	if errors.Is(err, nativereview.ErrNativeReviewActive) {
+		fmt.Fprintln(stderr, "quality-review: another native review is active for this user; retry after it finishes or review directly in the current host agent")
 		return 1
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: %v\n", err)
-		return codexreview.TransactionExitCode(err)
+		return nativereview.TransactionExitCode(err)
 	}
 	if transaction.DirtyWorktree {
 		fmt.Fprintln(stderr, "quality-review: working tree changes are not included; review covers committed base and target only")

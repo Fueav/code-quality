@@ -7,30 +7,38 @@ import (
 )
 
 // NativeOutcomeOptions contains only the facts that are fixed before the
-// native Codex process runs. Classification consumes the frozen final message
+// native provider process runs. Classification consumes the frozen final message
 // separately so callers cannot substitute a parsed or rewritten finding set.
 type NativeOutcomeOptions struct {
 	Request         ReviewRequest
 	ReviewGoal      string
+	Host            string
 	Model           string
 	ReasoningEffort string
 }
 
-// NativeOutcome is the validated runtime outcome of one ordinary Codex review.
-// Its wire representation remains NativeReviewResult schema v3.
+// NativeOutcome is the validated runtime outcome of one ordinary provider review.
+// Its wire representation is NativeReviewResult schema v4.
 type NativeOutcome struct {
 	result NativeReviewResult
 }
 
 // ClassifyFrozenNativeReview applies the thin deterministic three-state
-// contract to the exact frozen final-message bytes from the Codex process.
+// contract to the exact frozen final-message bytes from the provider process.
 func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byte, processErr error) (NativeOutcome, error) {
 	options.ReviewGoal = strings.TrimSpace(options.ReviewGoal)
 	if len(options.ReviewGoal) > 4000 {
 		return NativeOutcome{}, fmt.Errorf("review goal exceeds 4000 bytes")
 	}
+	if options.Host == "" {
+		options.Host = "codex"
+	}
 	if options.Model == "" {
-		options.Model = "gpt-5.6-sol"
+		if options.Host == "claude-code" {
+			options.Model = "opus"
+		} else {
+			options.Model = "gpt-5.6-sol"
+		}
 	}
 	if options.ReasoningEffort == "" {
 		options.ReasoningEffort = "max"
@@ -42,8 +50,8 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 		ReviewGoal:              options.ReviewGoal,
 		Findings:                []NativeFinding{},
 		Execution: NativeExecution{
-			Host: "codex", ReviewMode: "native_review", Model: options.Model,
-			ReasoningEffort: options.ReasoningEffort, ModelCalls: 1, AdapterDrops: []AdapterDrop{},
+			Host: options.Host, ReviewMode: "native_review", Model: options.Model,
+			ReasoningEffort: options.ReasoningEffort, ProviderInvocations: 1, AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{
 			SemanticResult: ResultIncomplete,
@@ -72,7 +80,7 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 	return NativeOutcome{result: result}, nil
 }
 
-// Result returns a detached copy of the schema-v3 wire representation.
+// Result returns a detached copy of the schema-v4 wire representation.
 func (outcome NativeOutcome) Result() NativeReviewResult {
 	return cloneNativeReviewResult(outcome.result)
 }
@@ -94,8 +102,8 @@ func (outcome NativeOutcome) SemanticResult() string {
 	return outcome.result.Adjudication.SemanticResult
 }
 
-func (outcome NativeOutcome) ModelCalls() int {
-	return outcome.result.Execution.ModelCalls
+func (outcome NativeOutcome) ProviderInvocations() int {
+	return outcome.result.Execution.ProviderInvocations
 }
 
 func isExactNoFindingsDocument(raw string) bool {

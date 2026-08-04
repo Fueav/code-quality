@@ -59,15 +59,17 @@ func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 	skill := string(raw)
 	for _, required := range []string{
 		"quality-review run-codex",
+		"quality-review run-claude",
 		"--goal",
 		"--base",
 		"--target",
-		"exactly one full `codex exec`",
+		"恰好一次顶层原生 Provider 调用",
+		"不得削减 Claude Code 的工具、MCP、插件、设置或用户上下文",
 		"raw freeze path",
 		"metrics path",
-		"Never delete the session directory",
-		"one active review per system user",
-		"do not retry or bypass",
+		"不要删除 session 目录",
+		"每个系统用户只允许一个活动审查",
+		"不要重试或绕过",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("Skill is missing %q", required)
@@ -154,6 +156,7 @@ func TestReadmeProvidesCopyPastePluginInstallCommands(t *testing.T) {
 		"codex plugin marketplace add Fueav/code-quality",
 		"--ref v" + quality.SkillVersion,
 		"codex plugin add code-quality@" + marketplaceName,
+		"quality-review run-claude",
 	} {
 		if !strings.Contains(readme, command) {
 			t.Errorf("README is missing %q", command)
