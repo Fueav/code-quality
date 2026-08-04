@@ -3,6 +3,7 @@ package nativereview
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -165,13 +166,63 @@ func atStage(stage string, exitCode int, err error) error {
 
 func resolveTransactionOutputRoot(value, repositoryRoot string) (string, error) {
 	if strings.TrimSpace(value) == "" {
-		value = ".code-quality"
+		return DefaultOutputRoot(repositoryRoot)
 	}
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value), nil
+	if !filepath.IsAbs(value) {
+		return "", errors.New("output root must be an absolute path outside the reviewed repository")
 	}
-	if strings.TrimSpace(repositoryRoot) == "" {
-		return "", errors.New("repository root is required for a relative path")
+	canonicalRoot, err := canonicalPath(value)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize output root: %w", err)
 	}
-	return filepath.Join(repositoryRoot, filepath.Clean(value)), nil
+	if err := rejectOutputRootInsideRepository(canonicalRoot, repositoryRoot); err != nil {
+		return "", err
+	}
+	return canonicalRoot, nil
+}
+
+// DefaultOutputRoot creates a private root in the sandbox-writable system temp
+// area and rejects any root that would fall inside the reviewed repository.
+func DefaultOutputRoot(repositoryRoot string) (string, error) {
+	temporaryDirectory, err := canonicalPath(os.TempDir())
+	if err != nil {
+		return "", fmt.Errorf("resolve system temporary directory for output: %w", err)
+	}
+	root, err := os.MkdirTemp(temporaryDirectory, fmt.Sprintf("code-quality-%d-", os.Getuid()))
+	if err != nil {
+		return "", fmt.Errorf("create private output root: %w", err)
+	}
+	canonicalRoot, err := canonicalPath(root)
+	if err != nil {
+		_ = os.Remove(root)
+		return "", fmt.Errorf("canonicalize private output root: %w", err)
+	}
+	if err := rejectOutputRootInsideRepository(canonicalRoot, repositoryRoot); err != nil {
+		_ = os.Remove(root)
+		return "", err
+	}
+	return canonicalRoot, nil
+}
+
+func rejectOutputRootInsideRepository(canonicalRoot, repositoryRoot string) error {
+	canonicalRepository, err := canonicalPath(repositoryRoot)
+	if err != nil {
+		return fmt.Errorf("canonicalize reviewed repository for output: %w", err)
+	}
+	inside, err := pathWithin(canonicalRepository, canonicalRoot)
+	if err != nil {
+		return err
+	}
+	if inside {
+		return errors.New("output root would be inside the reviewed repository; provide an absolute --output-root outside the repository")
+	}
+	return nil
+}
+
+func pathWithin(parent, candidate string) (bool, error) {
+	relative, err := filepath.Rel(parent, candidate)
+	if err != nil {
+		return false, fmt.Errorf("compare output root with reviewed repository: %w", err)
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))), nil
 }

@@ -81,6 +81,9 @@ func Discover(options Options) (Result, error) {
 	if err != nil {
 		return Result{RepositoryRoot: root}, err
 	}
+	if len(changedFiles) == 0 {
+		return Result{RepositoryRoot: root}, errors.New("no committed changes found between base and target")
+	}
 	dirty, err := dirtyWorktree(root)
 	if err != nil {
 		return Result{RepositoryRoot: root}, err

@@ -15,6 +15,7 @@ import (
 	evalrunner "github.com/Fueav/code-quality/internal/eval"
 	"github.com/Fueav/code-quality/internal/intake"
 	"github.com/Fueav/code-quality/internal/nativereview"
+	"github.com/Fueav/code-quality/internal/onboarding"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
@@ -34,6 +35,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "quality-review: offline and legacy commands: prepare, finalize, adjudicate, compare, eval, replay, validate, render")
 		return 2
 	}
+	if args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+		printHelp(stdout)
+		return 0
+	}
+	if len(args) == 2 && isHelpArgument(args[1]) {
+		switch args[0] {
+		case "version":
+			fmt.Fprintln(stdout, "usage: quality-review version")
+			return 0
+		case "replay":
+			fmt.Fprintln(stdout, "usage: quality-review replay <record|summarize> ...")
+			return 0
+		case "validate":
+			fmt.Fprintln(stdout, "usage: quality-review validate <review-result.json>")
+			return 0
+		case "render":
+			fmt.Fprintln(stdout, "usage: quality-review render <review-result.json>")
+			return 0
+		}
+	}
 	switch args[0] {
 	case "version":
 		if len(args) != 1 {
@@ -46,6 +67,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runCodex(args[1:], stdout, stderr)
 	case "run-claude":
 		return runClaude(args[1:], stdout, stderr)
+	case "doctor":
+		return runDoctor(args[1:], stdout, stderr)
 	}
 	policy, err := loadPolicy()
 	if err != nil {
@@ -73,6 +96,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "quality-review: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+func printHelp(writer io.Writer) {
+	fmt.Fprintln(writer, "quality-review - report-only review of one committed Git increment")
+	fmt.Fprintln(writer)
+	fmt.Fprintln(writer, "Usage:")
+	fmt.Fprintln(writer, "  quality-review doctor --host <codex|claude-code> --repo <path>")
+	fmt.Fprintln(writer, "  quality-review run-codex [flags]")
+	fmt.Fprintln(writer, "  quality-review run-claude [flags]")
+	fmt.Fprintln(writer, "  quality-review version")
 }
 
 func runCodex(args []string, stdout, stderr io.Writer) int {
@@ -109,9 +142,9 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	goal := flags.String("goal", "", "optional change intent or extra review concern")
 	model := flags.String("model", config.model, config.modelHelp)
 	reasoningEffort := flags.String("reasoning-effort", "max", config.effortHelp)
-	outputRoot := flags.String("output-root", ".code-quality", "session output root")
+	outputRoot := flags.String("output-root", "", "absolute session output root outside the repository (default: private system temp directory)")
 	if err := flags.Parse(args); err != nil {
-		return 2
+		return flagParseExitCode(err)
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintf(stderr, "quality-review: %s accepts flags only\n", config.name)
@@ -149,13 +182,45 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	return transaction.ExitCode
 }
 
+func runDoctor(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	host := flags.String("host", "", "native review host: codex or claude-code")
+	repository := flags.String("repo", ".", "Git repository path")
+	base := flags.String("base", "", "base commit")
+	target := flags.String("target", "", "target commit")
+	reason := flags.String("diff-reason", "", "diff selection reason")
+	if err := flags.Parse(args); err != nil {
+		return flagParseExitCode(err)
+	}
+	if flags.NArg() != 0 || strings.TrimSpace(*host) == "" {
+		fmt.Fprintln(stderr, "usage: quality-review doctor --host <codex|claude-code> --repo <path> [--base <commit> --target <commit>]")
+		return 2
+	}
+	report, err := onboarding.Run(context.Background(), onboarding.Options{
+		Host: *host, RepositoryPath: *repository, Base: *base, Target: *target, DiffReason: *reason,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: doctor: %v\n", err)
+		return 2
+	}
+	if err := quality.EncodeJSON(stdout, report); err != nil {
+		fmt.Fprintf(stderr, "quality-review: encode doctor report: %v\n", err)
+		return 2
+	}
+	if report.Status != onboarding.StatusReady {
+		return 1
+	}
+	return 0
+}
+
 func runCompare(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("compare", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	productPath := flags.String("product", "", "product finding set JSON")
 	baselinePath := flags.String("baseline", "", "externally supplied baseline finding set JSON")
 	if err := flags.Parse(args); err != nil {
-		return 2
+		return flagParseExitCode(err)
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*productPath) == "" || strings.TrimSpace(*baselinePath) == "" {
 		fmt.Fprintln(stderr, "usage: quality-review compare --product <findings.json> --baseline <findings.json>")
@@ -189,7 +254,7 @@ func runPrepare(args []string, stdout, stderr io.Writer) int {
 	host := flags.String("host", "", "host Agent runtime: claude-code or codex")
 	outputRoot := flags.String("output-root", ".code-quality", "session output root")
 	if err := flags.Parse(args); err != nil {
-		return 2
+		return flagParseExitCode(err)
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "quality-review: prepare accepts flags only")
@@ -236,7 +301,7 @@ func runFinalize(args []string, policy quality.PolicyManifest, stdout, stderr io
 	flags.SetOutput(stderr)
 	sessionDir := flags.String("session", "", "prepared review session directory")
 	if err := flags.Parse(args); err != nil {
-		return 2
+		return flagParseExitCode(err)
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*sessionDir) == "" {
 		fmt.Fprintln(stderr, "usage: quality-review finalize --session <directory>")
@@ -259,7 +324,7 @@ func runAdjudicate(args []string, policy quality.PolicyManifest, stdout, stderr 
 	flags.SetOutput(stderr)
 	host := flags.String("host", "", "host Agent runtime: claude-code or codex")
 	if err := flags.Parse(args); err != nil {
-		return 2
+		return flagParseExitCode(err)
 	}
 	if flags.NArg() != 2 || (*host != "claude-code" && *host != "codex") {
 		fmt.Fprintln(stderr, "usage: quality-review adjudicate --host <claude-code|codex> <request.json> <model-review.json>")
@@ -286,7 +351,7 @@ func runEval(args []string, policy quality.PolicyManifest, stdout, stderr io.Wri
 	flags.SetOutput(stderr)
 	casesPath := flags.String("cases", "evals/cases.json", "deterministic eval case manifest")
 	if err := flags.Parse(args); err != nil {
-		return 2
+		return flagParseExitCode(err)
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "quality-review: eval accepts flags only")
@@ -328,7 +393,7 @@ func runReplay(args []string, policy quality.PolicyManifest, stdout, stderr io.W
 		outputTokens := flags.Int("output-tokens", -1, "host-reported output tokens; provide with input tokens and duration")
 		durationMS := flags.Int("duration-ms", -1, "host-observed wall duration; provide with token metrics")
 		if err := flags.Parse(args[1:]); err != nil {
-			return 2
+			return flagParseExitCode(err)
 		}
 		if flags.NArg() != 0 || *caseID == "" || *host == "" || *resultPath == "" {
 			fmt.Fprintln(stderr, "usage: quality-review replay record --case-id <id> --host <claude-code|codex> --result <review-result.json> [--run-number N] [--human-status <status>]")
@@ -374,7 +439,7 @@ func runReplay(args []string, policy quality.PolicyManifest, stdout, stderr io.W
 		casesPath := flags.String("cases", "evals/cases.json", "eval case manifest")
 		recordsDir := flags.String("records", "", "directory containing replay JSON records")
 		if err := flags.Parse(args[1:]); err != nil {
-			return 2
+			return flagParseExitCode(err)
 		}
 		if flags.NArg() != 0 || *recordsDir == "" {
 			fmt.Fprintln(stderr, "usage: quality-review replay summarize --records <directory> [--cases <cases.json>]")
@@ -439,6 +504,17 @@ func encodeJSON(stdout, stderr io.Writer, value any) int {
 		return 2
 	}
 	return 0
+}
+
+func flagParseExitCode(err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	return 2
+}
+
+func isHelpArgument(argument string) bool {
+	return argument == "-h" || argument == "--help"
 }
 
 func runValidate(args []string, policy quality.PolicyManifest, stdout, stderr io.Writer) int {

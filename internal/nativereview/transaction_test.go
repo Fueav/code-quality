@@ -2,6 +2,7 @@ package nativereview
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -24,6 +25,91 @@ func TestNativeReviewTransactionAcquiresLeaseBeforeDiscovery(t *testing.T) {
 	}
 	if !lease.acquired || !lease.closed {
 		t.Fatalf("lease lifecycle = %#v", lease)
+	}
+}
+
+func TestDefaultTransactionOutputRootStaysOutsideRepository(t *testing.T) {
+	repository := t.TempDir()
+	root, err := resolveTransactionOutputRoot("", repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(root); err != nil {
+			t.Errorf("remove empty default output root: %v", err)
+		}
+	})
+	temporaryDirectory, err := canonicalPath(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(root) != temporaryDirectory || !strings.HasPrefix(filepath.Base(root), fmt.Sprintf("code-quality-%d-", os.Getuid())) || !filepath.IsAbs(root) {
+		t.Fatalf("default output root = %q, want a private child of %q", root, temporaryDirectory)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("default output root mode = %v", info.Mode())
+	}
+	inside, err := pathWithin(repository, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inside {
+		t.Fatalf("default output root %q is inside repository %q", root, repository)
+	}
+}
+
+func TestDefaultTransactionOutputRootRejectsRepositoryOverlap(t *testing.T) {
+	repository := t.TempDir()
+	t.Setenv("TMPDIR", repository)
+	root, err := resolveTransactionOutputRoot("", repository)
+	if err == nil || !strings.Contains(err.Error(), "inside the reviewed repository") {
+		t.Fatalf("root = %q, error = %v", root, err)
+	}
+	entries, readErr := os.ReadDir(repository)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("overlapping default output root was not cleaned up: %#v", entries)
+	}
+}
+
+func TestExplicitTransactionOutputRootMustBeAbsolute(t *testing.T) {
+	_, err := resolveTransactionOutputRoot("relative-sessions", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "must be an absolute path") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestExplicitTransactionOutputRootRejectsSymlinkBackIntoRepository(t *testing.T) {
+	repository := t.TempDir()
+	link := filepath.Join(t.TempDir(), "repository-link")
+	if err := os.Symlink(repository, link); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resolveTransactionOutputRoot(filepath.Join(link, "evidence"), repository)
+	if err == nil || !strings.Contains(err.Error(), "inside the reviewed repository") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestExplicitTransactionOutputRootCanonicalizesOutsideRepository(t *testing.T) {
+	repository := t.TempDir()
+	outsideParent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(outsideParent, "evidence")
+	root, err := resolveTransactionOutputRoot(want, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != want {
+		t.Fatalf("root = %q, want %q", root, want)
 	}
 }
 

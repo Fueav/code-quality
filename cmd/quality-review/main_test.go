@@ -60,6 +60,40 @@ func TestBareCommandPointsToNativeReview(t *testing.T) {
 	}
 }
 
+func TestTopLevelHelpSucceedsAndListsOnboardingCommands(t *testing.T) {
+	for _, argument := range []string{"--help", "-h", "help"} {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{argument}, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s exit code = %d, stderr = %s", argument, code, stderr.String())
+		}
+		for _, command := range []string{"doctor", "run-codex", "run-claude"} {
+			if !strings.Contains(stdout.String(), command) {
+				t.Fatalf("%s help is missing %s: %q", argument, command, stdout.String())
+			}
+		}
+	}
+}
+
+func TestEverySubcommandHelpSucceeds(t *testing.T) {
+	for _, helpArgument := range []string{"-h", "--help"} {
+		for _, command := range []string{
+			"adjudicate", "compare", "doctor", "eval", "finalize", "prepare", "render", "replay",
+			"run-claude", "run-codex", "validate", "version",
+		} {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{command, helpArgument}, &stdout, &stderr); code != 0 {
+				t.Fatalf("%s %s exit code = %d, stderr = %s", command, helpArgument, code, stderr.String())
+			}
+		}
+		for _, command := range []string{"record", "summarize"} {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"replay", command, helpArgument}, &stdout, &stderr); code != 0 {
+				t.Fatalf("replay %s %s exit code = %d, stderr = %s", command, helpArgument, code, stderr.String())
+			}
+		}
+	}
+}
+
 func TestRunCodexRejectsNestedDiscovery(t *testing.T) {
 	forceActiveDiscovery(t)
 	repo, base, target := cliReviewFixture(t)

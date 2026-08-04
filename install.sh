@@ -25,7 +25,9 @@ case "$os" in
 esac
 
 asset="${BIN}_${os}_${arch}"
-if [ "$VERSION" = "latest" ]; then
+if [ -n "${QUALITY_REVIEW_RELEASE_BASE:-}" ]; then
+	base="$QUALITY_REVIEW_RELEASE_BASE"
+elif [ "$VERSION" = "latest" ]; then
 	base="https://github.com/${REPO}/releases/latest/download"
 else
 	base="https://github.com/${REPO}/releases/download/${VERSION}"
@@ -57,6 +59,7 @@ mkdir -p "$INSTALL_DIR"
 mv "${tmp}/${BIN}" "${INSTALL_DIR}/${BIN}"
 chmod +x "${INSTALL_DIR}/${BIN}"
 echo "Installed ${BIN} -> ${INSTALL_DIR}/${BIN}"
+echo "QUALITY_REVIEW_BIN=${INSTALL_DIR}/${BIN}"
 
 case ":${PATH}:" in
 	*":${INSTALL_DIR}:"*) ;;

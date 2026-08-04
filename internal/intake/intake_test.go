@@ -57,6 +57,14 @@ func TestExplicitBaselineRequiresBothEndpoints(t *testing.T) {
 	}
 }
 
+func TestExplicitBaselineRejectsEmptyCommittedRange(t *testing.T) {
+	repo, base, _ := fixtureRepository(t)
+	_, err := Discover(Options{RepositoryPath: repo, Base: base, Target: base, Environment: map[string]string{}})
+	if err == nil || !strings.Contains(err.Error(), "no committed changes") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestExplicitReasonRequiresRange(t *testing.T) {
 	repo, _, _ := fixtureRepository(t)
 	_, err := Discover(Options{RepositoryPath: repo, DiffReason: "manual", Environment: map[string]string{}})

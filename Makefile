@@ -4,6 +4,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 VERIFY_COMPARE_REF ?= $(shell git describe --tags --abbrev=0 HEAD^ 2>/dev/null)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PLATFORMS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
+RELEASE_BINARIES := $(foreach platform,$(PLATFORMS),$(BIN)_$(subst /,_,$(platform)))
 LIVE_DATA_ROOT ?= $(HOME)/AiProject/code-quality-live
 LIVE_WATCH_CRON ?= 17 2 * * *
 LIVE_ADJUDICATE_CRON ?= 43 3 * * 1
@@ -31,6 +32,8 @@ mining-test:
 release-check: export CODE_QUALITY_RELEASE_TAG := $(VERSION)
 release-check: test
 	go vet ./...
+	sh -n install.sh
+	sh -n plugins/code-quality/scripts/bootstrap.sh
 	@unformatted="$$(git ls-files '*.go' | xargs gofmt -l)"; \
 		if [ -n "$$unformatted" ]; then echo "gofmt required:"; echo "$$unformatted"; exit 1; fi
 	git diff --check
@@ -51,14 +54,15 @@ live-uninstall:
 # the installer as a release asset. Run: make dist VERSION=vX.Y.Z
 dist: release-check
 	rm -rf dist && mkdir -p dist
-	@for p in $(PLATFORMS); do \
+	@set -e; for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \
 		echo "building $$os/$$arch"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 \
 			go build -ldflags "$(LDFLAGS)" -o dist/$(BIN)_$${os}_$${arch} $(PKG); \
 	done
 	cp install.sh dist/install.sh
-	cd dist && shasum -a 256 $(BIN)_* > checksums.txt
+	cp plugins/code-quality/scripts/bootstrap.sh dist/bootstrap.sh
+	cd dist && shasum -a 256 $(RELEASE_BINARIES) install.sh bootstrap.sh > checksums.txt
 	@echo "dist ready (VERSION=$(VERSION)):" && ls dist
 
 clean:

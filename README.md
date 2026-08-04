@@ -1,67 +1,86 @@
 # code-quality (`quality-review`)
 
-Report-only 代码质量审查组件。它让当前宿主的完整原生 Agent（Codex 或 Claude Code）审查一个**已提交的代码增量**，冻结原始输出后再做薄的确定性分类——**只给建议，不阻断合并、不改 CI**。
+用当前 Codex 或 Claude Code 的完整原生 Agent 审查一个**已提交的 Git 增量**，冻结原始证据后发布 `PASS / MANUAL_REVIEW / INCOMPLETE`。它只给建议，不修改代码、不阻断合并、不改变 CI。
 
-## 形态
+## 一句话开始
 
-- **`quality-review`** — 静态 Go CLI，固定审查范围并调用本机已登录的完整 Codex 或 Claude Code Agent。
-- **`plugins/code-quality/`** — 薄 Skill，只负责触发 CLI，不复制审查方法论。
+在需要审查的仓库中，把下面整句话交给 Codex 或 Claude Code：
 
-## 安装
+> 请为当前仓库安装并运行 Fueav code-quality v0.5.0；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.0/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只报告审查，用中文汇报结论和证据路径，不修改代码、Git、CI、远端或部署状态。
 
-**1) CLI 二进制**（自动判平台、校验 sha256、装到 `~/.local/bin`）：
-
-```sh
-# 最新版
-curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh
-# 指定版本
-curl -fsSL https://github.com/Fueav/code-quality/releases/latest/download/install.sh | sh -s -- v0.4.2
-```
-
-确认：`quality-review version`
-
-**2) Plugin**：按宿主复制整行命令；它会登记本仓库 marketplace 并安装 `code-quality`：
+Agent 使用下面对应的固定版本入口：
 
 ```sh
 # Codex
-codex plugin marketplace add Fueav/code-quality --ref v0.4.2 && codex plugin add code-quality@fueav-code-quality
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.0/bootstrap.sh | sh -s -- v0.5.0 codex
+
+# Claude Code
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.0/bootstrap.sh | sh -s -- v0.5.0 claude
 ```
 
-已发布的 v0.4.2 仍只对 Codex 路径做过发布资格验证；源码中的 Claude Code 路径须在下一版本完成发布门禁后才构成正式版本声明。
+bootstrap 会输出 `QUALITY_REVIEW_BIN=<绝对路径>` 和下一条 doctor 命令。首次运行必须使用该绝对路径，不依赖当前 shell 已包含 `~/.local/bin`。它不会修改 shell profile。
 
-## 使用
+## 使用前提
 
-在 Codex 或 Claude Code 会话里用自然语言触发，或按宿主直接运行：
+- macOS 或 Linux，arm64/amd64；
+- 当前宿主 CLI 已安装并登录；
+- 当前目录是 Git 仓库，并能确定 `origin/HEAD`，或用户明确给出 `base` 与 `target`；
+- 要审查的改动已经提交。未提交文件不属于审查范围，官方自然语言路径会在模型调用前停止。
+
+## 预检与运行
 
 ```sh
+# Codex
+quality-review doctor --host codex --repo .
 quality-review run-codex --repo . --goal "这次改动的意图或额外关注点"
+
+# Claude Code
+quality-review doctor --host claude-code --repo .
 quality-review run-claude --repo . --goal "这次改动的意图或额外关注点"
 ```
 
-显式范围只需同时传 `--base <base> --target <target>`；`--diff-reason` 是可选审计说明，未提供时使用确定性的 `explicit_commit_range`。
+`--goal` 仅在用户明确给出意图或关注点时添加。显式范围必须同时传 `--base <base> --target <target>`；`--diff-reason` 是可选审计说明。
 
-默认链路只有一次顶层 Provider 调用：确定性固定并隔离 base→target；Codex 以 `gpt-5.6-sol` / `max` 执行一次普通 `codex exec`，Claude Code 以 `opus` / `max` 执行一次普通 `claude -p`。包装层不限制 Claude Code 的正常配置、`CLAUDE.md`、settings、Skills、commands、plugins、MCP/connectors、内置工具、Git 历史或网络；Git worktree 只隔离待审查代码，并保留原仓库的自动记忆身份，若 worktree 不可用则 Claude 路径明确失败，绝不回落到具有新记忆身份的 shared clone。Claude 使用原生 `auto` 权限模式，不传 `--safe-mode`、`--bare`、`--disable-slash-commands`、`--strict-mcp-config`、工具 allowlist、`--setting-sources`、自定义 `CLAUDE_CONFIG_DIR`/`HOME`、turn/budget 上限或受限权限模式；若本机版本不支持 `auto`，运行明确返回 `INCOMPLETE`，不会静默降级。原始最终回复和 JSONL 先冻结再分类；`--goal` 只转交用户上下文，系统不注入 rubric、输出 schema、验证器、复审或重试。
+## 人工分步安装
 
-同一系统用户同时只允许一个原生审查。CLI 通过系统 UID 账户记录定位经过所有权验证的 home 目录，只读打开并锁定该目录 inode，不创建锁文件，也不受 `HOME`、`TMPDIR` 或 `XDG_CACHE_HOME` 改写影响；同一描述符会交给原生 Provider 子进程，嵌套或并发重复调用不会启动第二个 Provider，最后一个持有进程退出后锁自动释放。静态 Linux 构建在 `/etc/passwd` 缺少当前 UID 时明确失败，不回退到环境变量。
+升级时优先直接重跑上面的固定版本 bootstrap；它会让 CLI 与当前宿主插件保持同一版本。需要排查安装步骤时，再使用下面的分步命令。
 
-每次运行保留 `native-review.txt`、JSONL、stderr、`native-review-freeze.json` 和 `native-run-metrics.json`。分类器不解析 Markdown：只有整份输出精确等于受支持的无发现哨兵才返回 `PASS`；其他非空输出统一返回 `MANUAL_REVIEW` 并以冻结原文为准，进程失败或缺失/空输出返回 `INCOMPLETE`。
+CLI 安装器自动判平台、校验 SHA-256，并安装到 `~/.local/bin`（可用 `INSTALL_DIR` 覆盖）：
 
-20 条 V1.2 底线保留为离线评测量尺，不注入运行时 Prompt。历史合成样本只用于回归和校准，不作为产品优越性门槛；未来 A/B 必须使用独立资格审查后的冻结样本，并把新发现的合理缺陷标记为争议样本而不是直接计作误报。
+```sh
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.0/install.sh | sh -s -- v0.5.0
+```
 
-## 对照评测
+Codex plugin：
 
-`quality-review compare --product <findings.json> --baseline <findings.json>` 接受两份来源无关的 finding set，输出仅本产品、仅对照、双方共有三个分区，并附带逐条人工判定模板。每条输入包含 `id`、`comparison_key`、`dimension`、`code_locations` 和 `description`；两侧属于同一问题时由评测准备者赋相同 `comparison_key`。引擎不猜测语义等价，也不自动判断发现是否有效。
+```sh
+codex plugin marketplace add Fueav/code-quality --ref v0.5.0
+codex plugin add code-quality@fueav-code-quality
+```
 
-## 版本冻结
+Claude Code plugin 使用 HTTPS 和固定 Tag，不要求 GitHub SSH：
 
-每个 release tag 冻结 schema、确定性范围逻辑、CLI 与离线评测量尺，报告可追溯到具体版本。
+```sh
+claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.0
+claude plugin install code-quality@fueav-code-quality --scope user
+```
 
-## 发布（维护者）
+若在已打开的 Claude Code 会话中安装或升级，运行 `/reload-plugins`；新会话会自动加载。
+
+## 运行语义
+
+CLI 确定性固定并隔离 committed base→target，然后只启动一次顶层原生 Provider：Codex 默认 `gpt-5.6-sol / max`，Claude Code 默认 `opus / max`。包装层不注入自研 rubric、输出 schema、复审或重试，也不削减宿主正常配置、规则、Skills、工具、MCP、插件或网络能力。
+
+每次运行保留 `native-review.txt`、stdout JSONL、stderr、`native-review-freeze.json`、`native-run-metrics.json` 和最终报告。精确无发现哨兵返回 `PASS`；其他非空原生输出返回 `MANUAL_REVIEW` 并以冻结原文为准；进程或证据失败返回 `INCOMPLETE`。同一系统用户同时只允许一个原生审查。
+
+原生审查默认在仓库外的系统临时区创建一次运行独占、权限为 `0700` 的证据根目录，兼容宿主沙箱且不会在被审查仓库内生成未跟踪目录。CLI 不会主动删除报告；若要跨系统临时目录清理周期长期归档，请使用宿主允许写入、仓库外的绝对 `--output-root`。相对路径或经 symlink 解析回仓库内的路径会在创建 session 前被拒绝。
+
+## 维护者发布
 
 ```sh
 make release-check VERSION=vX.Y.Z VERIFY_COMPARE_REF=vPREVIOUS
 git tag -a vX.Y.Z -m "vX.Y.Z"
-make dist VERSION=vX.Y.Z    # 交叉编译到 dist/ + checksums.txt + install.sh
-git push origin main vX.Y.Z
-gh release create vX.Y.Z dist/* --title vX.Y.Z --notes "…"
+make dist VERSION=vX.Y.Z VERIFY_COMPARE_REF=vPREVIOUS
+git push --atomic origin main vX.Y.Z
+gh release create vX.Y.Z dist/* --title vX.Y.Z --notes-file <release-notes>
 ```
