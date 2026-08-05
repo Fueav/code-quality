@@ -1,0 +1,257 @@
+name: code-quality reusable review
+
+on:
+  workflow_call:
+    inputs:
+      provider:
+        description: "Native review provider: codex or claude"
+        required: true
+        type: string
+      base_sha:
+        description: Exact 40-character base commit SHA
+        required: true
+        type: string
+      target_sha:
+        description: Exact 40-character target commit SHA
+        required: true
+        type: string
+      model:
+        description: Optional provider model override
+        required: false
+        default: ""
+        type: string
+      reasoning_effort:
+        description: Provider reasoning effort
+        required: false
+        default: low
+        type: string
+      artifact_retention_days:
+        description: Number of days to retain frozen review evidence
+        required: false
+        default: 14
+        type: number
+    secrets:
+      provider_api_key:
+        description: Dedicated API key for the selected provider
+        required: true
+
+jobs:
+  review:
+    name: ${{ inputs.provider }} report-only review
+    if: >-
+      github.event_name != 'pull_request' ||
+      (!github.event.pull_request.draft &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: quality-review-${{ github.repository }}-${{ github.event.pull_request.number || inputs.target_sha }}-${{ inputs.provider }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Validate workflow inputs
+        env:
+          PROVIDER: ${{ inputs.provider }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          REASONING_EFFORT: ${{ inputs.reasoning_effort }}
+          ARTIFACT_RETENTION_DAYS: ${{ inputs.artifact_retention_days }}
+        run: |
+          set -eu
+          case "$PROVIDER" in
+            codex | claude) ;;
+            *) echo "provider must be codex or claude" >&2; exit 2 ;;
+          esac
+          case "$REASONING_EFFORT" in
+            low | medium | high | max) ;;
+            *) echo "reasoning_effort must be low, medium, high, or max" >&2; exit 2 ;;
+          esac
+          printf '%s\n' "$BASE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'
+          printf '%s\n' "$TARGET_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'
+          test "$ARTIFACT_RETENTION_DAYS" -ge 1
+          test "$ARTIFACT_RETENTION_DAYS" -le 90
+
+      - name: Check out the exact target
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Install quality-review v0.5.1
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/quality-bin"
+          curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.1/install.sh |
+            INSTALL_DIR="$RUNNER_TEMP/quality-bin" sh -s -- v0.5.1
+          "$RUNNER_TEMP/quality-bin/quality-review" version
+          printf 'QUALITY_REVIEW_BIN=%s\n' "$RUNNER_TEMP/quality-bin/quality-review" >> "$GITHUB_ENV"
+          printf 'QUALITY_REVIEW_OUTPUT_ROOT=%s\n' "$RUNNER_TEMP/code-quality" >> "$GITHUB_ENV"
+
+      - name: Install Codex CLI 0.145.0
+        if: inputs.provider == 'codex'
+        run: npm install --global @openai/codex@0.145.0
+
+      - name: Configure Codex machine identity
+        if: inputs.provider == 'codex'
+        env:
+          OPENAI_API_KEY: ${{ secrets.provider_api_key }}
+        run: |
+          set -eu
+          test -n "$OPENAI_API_KEY"
+          mkdir -p "$RUNNER_TEMP/codex-home"
+          printenv OPENAI_API_KEY |
+            CODEX_HOME="$RUNNER_TEMP/codex-home" codex login --with-api-key >/dev/null
+          printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+
+      - name: Install Claude Code 2.1.220
+        if: inputs.provider == 'claude'
+        env:
+          DISABLE_AUTOUPDATER: "1"
+        run: npm install --global @anthropic-ai/claude-code@2.1.220
+
+      - name: Doctor Codex
+        id: codex_doctor
+        if: inputs.provider == 'codex'
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          "$QUALITY_REVIEW_BIN" doctor --host codex --repo "$GITHUB_WORKSPACE" \
+            --base "$BASE_SHA" --target "$TARGET_SHA" |
+            tee "$RUNNER_TEMP/quality-review-doctor-codex.json"
+
+      - name: Doctor Claude Code
+        id: claude_doctor
+        if: inputs.provider == 'claude'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.provider_api_key }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          DISABLE_AUTOUPDATER: "1"
+        run: |
+          set -euo pipefail
+          test -n "$ANTHROPIC_API_KEY"
+          "$QUALITY_REVIEW_BIN" doctor --host claude-code --repo "$GITHUB_WORKSPACE" \
+            --base "$BASE_SHA" --target "$TARGET_SHA" |
+            tee "$RUNNER_TEMP/quality-review-doctor-claude.json"
+
+      - name: Run Codex report-only review
+        id: codex_review
+        if: inputs.provider == 'codex'
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          MODEL: ${{ inputs.model }}
+          REASONING_EFFORT: ${{ inputs.reasoning_effort }}
+        run: |
+          set -euo pipefail
+          model="$MODEL"
+          if [ -z "$model" ]; then model='gpt-5.6-sol'; fi
+          "$QUALITY_REVIEW_BIN" run-codex --repo "$GITHUB_WORKSPACE" \
+            --base "$BASE_SHA" --target "$TARGET_SHA" \
+            --diff-reason ci_explicit_commit_range \
+            --model "$model" --reasoning-effort "$REASONING_EFFORT" \
+            --output-root "$QUALITY_REVIEW_OUTPUT_ROOT" |
+            tee "$RUNNER_TEMP/quality-review-run-codex.json"
+
+      - name: Run Claude report-only review
+        id: claude_review
+        if: inputs.provider == 'claude'
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.provider_api_key }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          MODEL: ${{ inputs.model }}
+          REASONING_EFFORT: ${{ inputs.reasoning_effort }}
+          DISABLE_AUTOUPDATER: "1"
+        run: |
+          set -euo pipefail
+          test -n "$ANTHROPIC_API_KEY"
+          model="$MODEL"
+          if [ -z "$model" ]; then model='sonnet'; fi
+          "$QUALITY_REVIEW_BIN" run-claude --repo "$GITHUB_WORKSPACE" \
+            --base "$BASE_SHA" --target "$TARGET_SHA" \
+            --diff-reason ci_explicit_commit_range \
+            --model "$model" --reasoning-effort "$REASONING_EFFORT" \
+            --output-root "$QUALITY_REVIEW_OUTPUT_ROOT" |
+            tee "$RUNNER_TEMP/quality-review-run-claude.json"
+
+      - name: Publish job summary
+        if: always()
+        env:
+          PROVIDER: ${{ inputs.provider }}
+        run: |
+          set -eu
+          output_root="${QUALITY_REVIEW_OUTPUT_ROOT:-$RUNNER_TEMP/code-quality}"
+          summary_file=''
+          for candidate in \
+            "$RUNNER_TEMP/quality-review-run-codex.json" \
+            "$RUNNER_TEMP/quality-review-run-claude.json"; do
+            if [ -s "$candidate" ]; then summary_file="$candidate"; break; fi
+          done
+          {
+            echo '## code-quality'
+            echo
+            echo "- Provider: \`$PROVIDER\`"
+            if [ -n "$summary_file" ]; then
+              echo "- Status: \`$(jq -r '.status' "$summary_file")\`"
+              echo "- Semantic result: \`$(jq -r '.semantic_result' "$summary_file")\`"
+              echo "- Provider invocations: \`$(jq -r '.provider_invocations' "$summary_file")\`"
+            else
+              echo '- Status: `NOT_RUN`'
+              echo '- Inspect the doctor artifact for the blocking reason.'
+            fi
+            native_review=$(find "$output_root" -path '*/output/native-review.txt' -type f -print -quit 2>/dev/null || true)
+            if [ -n "$native_review" ]; then
+              echo
+              echo '### Frozen native review'
+              echo
+              sed -n '1,240p' "$native_review" | sed 's/^/> /'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload frozen review evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: code-quality-${{ inputs.provider }}-${{ inputs.target_sha }}
+          path: |
+            ${{ runner.temp }}/quality-review
+            ${{ runner.temp }}/quality-review-doctor-*.json
+            ${{ runner.temp }}/quality-review-run-*.json
+          if-no-files-found: warn
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+      - name: Enforce execution health
+        if: always()
+        env:
+          PROVIDER: ${{ inputs.provider }}
+          CODEX_DOCTOR_OUTCOME: ${{ steps.codex_doctor.outcome }}
+          CODEX_REVIEW_OUTCOME: ${{ steps.codex_review.outcome }}
+          CLAUDE_DOCTOR_OUTCOME: ${{ steps.claude_doctor.outcome }}
+          CLAUDE_REVIEW_OUTCOME: ${{ steps.claude_review.outcome }}
+        run: |
+          set -eu
+          case "$PROVIDER" in
+            codex)
+              test "$CODEX_DOCTOR_OUTCOME" = success
+              test "$CODEX_REVIEW_OUTCOME" = success
+              ;;
+            claude)
+              test "$CLAUDE_DOCTOR_OUTCOME" = success
+              test "$CLAUDE_REVIEW_OUTCOME" = success
+              ;;
+            *) exit 2 ;;
+          esac
