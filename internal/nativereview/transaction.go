@@ -27,15 +27,16 @@ type NativeRunSummary struct {
 }
 
 type TransactionOptions struct {
-	RepositoryPath  string
-	Base            string
-	Target          string
-	DiffReason      string
-	Goal            string
-	Model           string
-	ReasoningEffort string
-	OutputRoot      string
-	Provider        Provider
+	RepositoryPath   string
+	Base             string
+	Target           string
+	DiffReason       string
+	Goal             string
+	Model            string
+	ReasoningEffort  string
+	ExecutionProfile string
+	OutputRoot       string
+	Provider         Provider
 	// CodexBinary is retained for source compatibility. Prefer Provider.
 	CodexBinary  string
 	AcquireLease func() (io.Closer, *os.File, error)
@@ -131,7 +132,8 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 
 	outcome, err := runNativeSession(ctx, nativeRunOptions{
 		Session: session, Goal: options.Goal, Model: options.Model,
-		ReasoningEffort: options.ReasoningEffort, Provider: provider, LeaseFile: leaseFile,
+		ReasoningEffort: options.ReasoningEffort, ExecutionProfile: options.ExecutionProfile,
+		Provider: provider, LeaseFile: leaseFile,
 	})
 	if err != nil {
 		return TransactionResult{}, atStage("run native review", 1, err)

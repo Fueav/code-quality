@@ -10,6 +10,23 @@
     "target_commit": {"type": "string", "minLength": 1},
     "diff_selection_reason": {"type": "string", "minLength": 1},
     "changed_files": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
-    "affected_entries": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+    "affected_entries": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "change": {"$ref": "#/$defs/change"}
+  },
+  "$defs": {
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "base_ref", "head_ref", "base_tip_commit"],
+      "properties": {
+        "kind": {"enum": ["pull_request", "merge_request"]},
+        "id": {"type": "string", "minLength": 1},
+        "base_ref": {"type": "string", "minLength": 1},
+        "head_ref": {"type": "string", "minLength": 1},
+        "base_tip_commit": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "minLength": 1},
+        "run_url": {"type": "string", "minLength": 1}
+      }
+    }
   }
 }

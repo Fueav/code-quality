@@ -8,16 +8,16 @@
 
 在需要审查的仓库中，把下面整句话交给 Codex 或 Claude Code：
 
-> 请为当前仓库安装并运行 Fueav code-quality v0.5.1；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.1/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只报告审查，用中文汇报结论和证据路径，不修改代码、Git、CI、远端或部署状态。
+> 请为当前仓库安装并运行 Fueav code-quality v0.5.2；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.2/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只报告审查，用中文汇报结论和证据路径，不修改代码、Git、CI、远端或部署状态。
 
 Agent 会根据当前宿主执行下面一个固定版本入口：
 
 ```sh
 # Codex
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.1/bootstrap.sh | sh -s -- v0.5.1 codex
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/bootstrap.sh | sh -s -- v0.5.2 codex
 
 # Claude Code
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.1/bootstrap.sh | sh -s -- v0.5.1 claude
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/bootstrap.sh | sh -s -- v0.5.2 claude
 ```
 
 bootstrap 会同时安装 CLI 和对应插件，并输出 `QUALITY_REVIEW_BIN=<绝对路径>` 及下一条 doctor 命令。首次运行使用这个绝对路径，不依赖当前 shell 是否已包含 `~/.local/bin`；bootstrap 不会修改 shell profile。
@@ -43,20 +43,20 @@ quality-review run-claude --repo . --goal "这次改动的意图或额外关注�
 CLI 安装器会判断平台、校验 SHA-256，并安装到 `~/.local/bin`（可用 `INSTALL_DIR` 覆盖）：
 
 ```sh
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.1/install.sh | sh -s -- v0.5.1
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/install.sh | sh -s -- v0.5.2
 ```
 
 Codex plugin：
 
 ```sh
-codex plugin marketplace add Fueav/code-quality --ref v0.5.1
+codex plugin marketplace add Fueav/code-quality --ref v0.5.2
 codex plugin add code-quality@fueav-code-quality
 ```
 
 Claude Code plugin 使用 HTTPS 和固定 Tag，不要求 GitHub SSH：
 
 ```sh
-claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.1
+claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.2
 claude plugin install code-quality@fueav-code-quality --scope user
 ```
 
@@ -72,26 +72,43 @@ claude plugin install code-quality@fueav-code-quality --scope user
 
 原生审查默认在仓库外的系统临时区创建一次运行独占、权限为 `0700` 的证据根目录。CLI 不会主动删除报告；长期归档时可传宿主允许写入、仓库外的绝对 `--output-root`。相对路径或经 symlink 解析回仓库内的路径会在创建 session 前被拒绝。
 
-## 公司 CI：集中配置、仓库最小接入
+## Linux CI：复用自托管 Runner 的原生登录态
 
-CI 不需要安装 Codex 或 Claude Code 插件。推荐由平台团队集中维护本仓库的 [`.github/workflows/code-quality-reusable.yml`](.github/workflows/code-quality-reusable.yml)、一个专用 Provider API key 和版本升级；业务仓库只调用 reusable workflow。
+这个入口面向一台受控的 self-hosted Linux runner。运行 GitHub Actions Runner 的同一个系统用户必须已经安装 `quality-review v0.5.2`，并安装、登录 Codex 或 Claude Code；workflow 不接收 Provider API key，不安装任何 CLI，也不创建临时登录。`quality-review run-codex` 会直接复用该用户的登录态，原生启动一次 `codex exec`；选择 Claude 时同理启动 `claude`。
 
-这个入口固定安装 `quality-review v0.5.1`、Codex CLI `0.145.0` 或 Claude Code `2.1.220`，一次只调用一个 Provider，默认 `reasoning_effort: low`。它不会写 PR 评论，也不会把模型发现直接变成合并门禁。
+CI 不需要安装 Codex 或 Claude Code 插件。reusable workflow 只验证预装的 `quality-review` 版本，然后执行 `doctor → 原生审查 → 上传证据`。生产路径以 PR 为审查单元，而不是按每个 commit 单独审查：套件从 GitHub PR 事件读取 base tip 与 head，计算真实 `merge-base → head` 范围，并把 PR 编号、分支、base tip 和 Actions run URL 冻结到 schema v5 结果中。一次只调用一个 Provider，默认 `reasoning_effort: low`；它不会写 PR 评论，也不会把模型发现直接变成合并门禁。
 
-### 1. 平台团队配置机器身份
+### 1. 准备 Linux runner
 
-在 GitHub Organization 或业务仓库创建一个 CI 专用 secret，并只授权需要试点的仓库：
+创建名为 `code-quality` 的 runner group，只授权给接入的可信私有仓库；给组内 Linux runner 增加 `self-hosted`、`linux`、`code-quality` 标签。先切换到实际运行 Actions Runner 服务的系统用户，安装套件并确保安装目录属于该服务的 `PATH`：
 
-| Provider | 建议的组织 secret | reusable workflow 内的使用方式 |
-| --- | --- | --- |
-| Claude Code | `CODE_QUALITY_CLAUDE_API_KEY` | 映射为 `provider_api_key`，仅在 doctor/run 步骤作为 `ANTHROPIC_API_KEY` 注入 |
-| Codex | `CODE_QUALITY_OPENAI_API_KEY` | 映射为 `provider_api_key`，写入 runner 临时 `CODEX_HOME` 的机器登录 |
+```sh
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.2
+command -v quality-review
+quality-review version  # 必须精确输出 quality-review v0.5.2
+```
 
-不要把个人订阅登录目录、个人 token 或本机配置复制进 CI。试点时先选一个 Provider；若要双端对比，创建两个独立 caller job 和两把独立受限密钥。
+再验证所选 Provider：
 
-### 2. 业务仓库添加最小 caller
+```sh
+# Codex 路径
+command -v codex
+codex --version
+codex exec --help >/dev/null
+codex login status
 
-在业务仓库创建 `.github/workflows/code-quality.yml`：
+# Claude Code 路径
+command -v claude
+claude --version
+claude auth status --json
+```
+
+登录必须在 runner 机器上、以这个系统用户预先完成。不要把登录目录、token 或 API key 复制到仓库、caller workflow 或 GitHub Actions secrets。workflow 会先验证 `quality-review` 精确版本；`doctor` 会在模型调用前再次检查 Provider CLI 能力、登录态、Git 范围与工作区。任何一项不满足都会失败或返回 `BLOCKED`，不会启动 Provider。
+
+### 2. 仓库添加最小 caller
+
+在接入仓库创建 `.github/workflows/code-quality.yml`：
 
 ```yaml
 name: code quality
@@ -109,21 +126,17 @@ jobs:
       !github.event.pull_request.draft &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.1
+    uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.2
     with:
       provider: claude
-      base_sha: ${{ github.event.pull_request.base.sha }}
-      target_sha: ${{ github.event.pull_request.head.sha }}
       model: sonnet
       reasoning_effort: low
       artifact_retention_days: 14
-    secrets:
-      provider_api_key: ${{ secrets.CODE_QUALITY_CLAUDE_API_KEY }}
 ```
 
-示例固定引用已经包含该 reusable workflow 的 `v0.5.1`，不要改为 `main`。workflow 内部也固定使用同版本 CLI。改用 Codex 时只需把 `provider` 改为 `codex`、`model` 改为 `gpt-5.6-sol`，并把 secret 映射到 `CODE_QUALITY_OPENAI_API_KEY`。
+示例固定引用包含已纠正 runner 契约的 `v0.5.2`，不要改为 `main`。改用 Codex 时只需把 `provider` 改为 `codex`、`model` 改为 `gpt-5.6-sol`；两种 Provider 都不传 secrets。job 会被调度到 `code-quality` runner group 内、带对应标签的 self-hosted Linux runner。
 
-`base_sha` 和 `target_sha` 必须是可解析的完整 40 位 commit SHA；workflow 会完整拉取历史并精确检出 `target_sha`。对于 GitHub PR，使用上面 event 中的 base/head SHA。每次 PR 更新都会取消同一 Provider 的旧 run，避免浪费额度。
+caller 不传 `base_sha` 或 `target_sha`。reusable workflow 只接受 `pull_request` 事件，完整拉取历史、精确检出 PR head，再由套件计算 merge-base；目标分支在 PR 创建后继续前进，也不会把目标分支自己的新增提交混进本次审查。每次 PR 更新都会取消同一 Provider 的旧 run，避免浪费额度。
 
 ### 3. 把“执行健康”设为 required check
 
@@ -141,36 +154,36 @@ CI 的门禁含义是“审查是否完整执行”，不是“模型是否报�
 
 ### 4. 安全边界
 
-- 只在可信的同仓 PR 上运行；fork PR、Dependabot PR 和 draft PR 会在 caller 与 reusable workflow 两层跳过，因为 Provider 拥有正常的工具和网络能力。[GitHub 官方限制](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-on-actions)说明 Actions secrets 不会提供给 Dependabot 触发的普通 PR workflow。
-- 不要改成 `pull_request_target` 后再检出或审查 PR head；这会把密钥暴露给不可信代码。
+- reusable workflow 只在私有仓库的可信同仓 PR 上运行；fork PR、Dependabot PR 和 draft PR 会在 caller 与 reusable workflow 两层跳过。
+- CI 固定传 `--execution-profile production-ci`：Codex 使用 `read-only` sandbox，并忽略用户配置、execpolicy rules 与 session 持久化；Claude Code 使用只读 `plan` 权限、`safe-mode` 和空 MCP 配置。个人路径仍默认使用完整原生能力。
+- 使用专用 runner 和专用低权限系统用户；不要在该用户下保存与审查无关的凭据。用 `code-quality` runner group 限制可调度仓库，不要把带登录态的 runner 暴露给公开仓库的任意工作流。
+- 不要改成 `pull_request_target` 后再检出或审查 PR head；这会让持久机器登录态接触不可信代码。
 - job 只有 `contents: read`，checkout 使用 `persist-credentials: false`，不授予 `contents: write` 或 `pull-requests: write`。
-- Provider API key 只用于这个 job，按仓库限制访问范围并定期轮换；artifact 的读取权限沿用仓库权限。
-- 当前每个 runner 系统用户同一时间只允许一个原生审查。GitHub-hosted runner 每个 job 独立，不会互相争用。
+- artifact 的读取权限沿用仓库权限。当前每个 runner 系统用户同一时间只允许一个原生审查，因此这台机器的 runner 并发必须与该限制匹配。
 
 ### 非 GitHub CI
 
-GitLab CI、Jenkins 或其他 runner 使用相同契约：完整拉取 Git 历史，安装固定版本 CLI 与一个 Provider CLI，注入专用 API key，显式传入 base/target SHA，并把证据目录作为 `always` artifact 上传。
+GitLab CI、Jenkins 或其他 runner 使用相同契约：在实际运行 job 的 Linux 系统用户下预装固定版本 `quality-review`，并预先安装、登录一个 Provider；job 完整拉取 Git 历史，显式传入 base/target SHA，并把证据目录作为 `always` artifact 上传。
 
 先把四个变量映射清楚：`WORKSPACE` 是 checkout 的绝对路径；`CI_TMP_DIR` 是 checkout 之外的绝对临时目录（可由 `mktemp -d` 创建）；`BASE_SHA` 和 `TARGET_SHA` 是完整 commit SHA。GitLab MR 通常分别使用 `CI_MERGE_REQUEST_DIFF_BASE_SHA` 与 `CI_COMMIT_SHA`；Jenkins 应在完整 fetch 后用目标分支和 `GIT_COMMIT` 计算 merge-base。然后运行，例如 Claude Code：
 
 ```sh
-npm install --global @anthropic-ai/claude-code@2.1.220
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.1/install.sh |
-  INSTALL_DIR="$CI_TMP_DIR/quality-bin" sh -s -- v0.5.1
+claude auth status --json
+test "$(quality-review version)" = 'quality-review v0.5.2'
 
-export ANTHROPIC_API_KEY="$CODE_QUALITY_CLAUDE_API_KEY"
-"$CI_TMP_DIR/quality-bin/quality-review" doctor --host claude-code --repo "$WORKSPACE" \
-  --base "$BASE_SHA" --target "$TARGET_SHA"
-"$CI_TMP_DIR/quality-bin/quality-review" run-claude --repo "$WORKSPACE" \
+quality-review doctor --host claude-code --repo "$WORKSPACE" \
+  --base "$BASE_SHA" --target "$TARGET_SHA" --execution-profile production-ci
+quality-review run-claude --repo "$WORKSPACE" \
   --base "$BASE_SHA" --target "$TARGET_SHA" --diff-reason ci_explicit_commit_range \
-  --model sonnet --reasoning-effort low --output-root "$CI_TMP_DIR/code-quality"
+  --execution-profile production-ci --model sonnet --reasoning-effort low \
+  --output-root "$CI_TMP_DIR/code-quality"
 ```
 
-Codex runner 需要安装 `@openai/codex@0.145.0`，创建临时 `CODEX_HOME`，再用 `printenv OPENAI_API_KEY | codex login --with-api-key` 建立机器身份；其余 doctor、范围、退出码和 artifact 规则相同。
+Codex runner 先以 job 的系统用户运行 `codex login status` 与 `codex exec --help` 验证现有环境，再使用 `doctor --host codex` 和 `run-codex`；无需导出 API key 或创建临时 `CODEX_HOME`。
 
 ## 运行语义
 
-CLI 会固定并隔离 committed base-to-target，然后只启动一次顶层原生 Provider。个人路径默认使用 Codex `gpt-5.6-sol / max` 或 Claude Code `opus / max`；公司 CI 为控制成本，默认使用 Codex `gpt-5.6-sol / low` 或 Claude Code `sonnet / low`。包装层不注入自研 rubric、输出 schema、复审或重试，也不削减宿主正常配置、规则、Skills、工具、MCP、插件或网络能力。
+CLI 会固定并隔离 committed base-to-target，然后只启动一次顶层原生 Provider。个人路径默认使用 Codex `gpt-5.6-sol / max` 或 Claude Code `opus / max`，并保留宿主正常配置与能力；Linux CI 为控制成本，默认使用 Codex `gpt-5.6-sol / low` 或 Claude Code `sonnet / low`，并由 `production-ci` profile 限制为只读、无自定义扩展的审查。包装层不注入自研 rubric、输出 schema、复审或重试。
 
 精确无发现哨兵返回 `PASS`；其他非空原生输出返回 `MANUAL_REVIEW` 并以冻结原文为准；进程或证据失败返回 `INCOMPLETE`。同一系统用户同时只允许一个原生审查。
 

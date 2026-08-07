@@ -17,7 +17,8 @@
         "target_commit": {"type": "string"},
         "diff_selection_reason": {"type": "string"},
         "changed_files": {"type": "array", "items": {"type": "string"}},
-        "affected_entries": {"type": "array", "items": {"type": "string"}}
+        "affected_entries": {"type": "array", "items": {"type": "string"}},
+        "change": {"$ref": "#/$defs/change"}
       }
     },
     "activated_rule_families": {"type": "array", "items": {"$ref": "#/$defs/dimension"}, "uniqueItems": true},
@@ -62,6 +63,20 @@
     }
   },
   "$defs": {
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "base_ref", "head_ref", "base_tip_commit"],
+      "properties": {
+        "kind": {"enum": ["pull_request", "merge_request"]},
+        "id": {"type": "string", "minLength": 1},
+        "base_ref": {"type": "string", "minLength": 1},
+        "head_ref": {"type": "string", "minLength": 1},
+        "base_tip_commit": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "minLength": 1},
+        "run_url": {"type": "string", "minLength": 1}
+      }
+    },
     "dimension": {"enum": ["D1", "D2", "D3", "D4"]},
     "rule_id": {
       "enum": [

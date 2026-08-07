@@ -42,6 +42,9 @@ func ValidateNativeResult(result NativeReviewResult) []string {
 	if strings.TrimSpace(result.Execution.ReasoningEffort) == "" {
 		problems = append(problems, "execution.reasoning_effort is required")
 	}
+	if result.Execution.ExecutionProfile != ExecutionProfilePersonal && result.Execution.ExecutionProfile != ExecutionProfileProductionCI {
+		problems = append(problems, "execution.execution_profile must be personal or production-ci")
+	}
 	if result.Execution.ProviderInvocations != 1 {
 		problems = append(problems, "execution.provider_invocations must be exactly 1")
 	}

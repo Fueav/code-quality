@@ -10,15 +10,16 @@ import (
 // native provider process runs. Classification consumes the frozen final message
 // separately so callers cannot substitute a parsed or rewritten finding set.
 type NativeOutcomeOptions struct {
-	Request         ReviewRequest
-	ReviewGoal      string
-	Host            string
-	Model           string
-	ReasoningEffort string
+	Request          ReviewRequest
+	ReviewGoal       string
+	Host             string
+	ExecutionProfile string
+	Model            string
+	ReasoningEffort  string
 }
 
 // NativeOutcome is the validated runtime outcome of one ordinary provider review.
-// Its wire representation is NativeReviewResult schema v4.
+// Its wire representation is NativeReviewResult schema v5.
 type NativeOutcome struct {
 	result NativeReviewResult
 }
@@ -40,6 +41,9 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 			options.Model = "gpt-5.6-sol"
 		}
 	}
+	if options.ExecutionProfile == "" {
+		options.ExecutionProfile = ExecutionProfilePersonal
+	}
 	if options.ReasoningEffort == "" {
 		options.ReasoningEffort = "max"
 	}
@@ -50,7 +54,7 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 		ReviewGoal:              options.ReviewGoal,
 		Findings:                []NativeFinding{},
 		Execution: NativeExecution{
-			Host: options.Host, ReviewMode: "native_review", Model: options.Model,
+			Host: options.Host, ReviewMode: "native_review", ExecutionProfile: options.ExecutionProfile, Model: options.Model,
 			ReasoningEffort: options.ReasoningEffort, ProviderInvocations: 1, AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{
@@ -80,7 +84,7 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 	return NativeOutcome{result: result}, nil
 }
 
-// Result returns a detached copy of the schema-v4 wire representation.
+// Result returns a detached copy of the schema-v5 wire representation.
 func (outcome NativeOutcome) Result() NativeReviewResult {
 	return cloneNativeReviewResult(outcome.result)
 }
@@ -126,5 +130,9 @@ func cloneNativeReviewResult(result NativeReviewResult) NativeReviewResult {
 func cloneReviewRequest(request ReviewRequest) ReviewRequest {
 	request.ChangedFiles = append([]string(nil), request.ChangedFiles...)
 	request.AffectedEntries = append([]string(nil), request.AffectedEntries...)
+	if request.Change != nil {
+		change := *request.Change
+		request.Change = &change
+	}
 	return request
 }

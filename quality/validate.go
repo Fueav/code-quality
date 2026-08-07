@@ -112,6 +112,22 @@ func ValidateRequest(request ReviewRequest) []string {
 	if hasBlankOrDuplicate(request.AffectedEntries) {
 		errors = append(errors, "affected_entries must contain unique non-empty values")
 	}
+	if request.Change != nil {
+		for name, value := range map[string]string{
+			"change.kind":            request.Change.Kind,
+			"change.id":              request.Change.ID,
+			"change.base_ref":        request.Change.BaseRef,
+			"change.head_ref":        request.Change.HeadRef,
+			"change.base_tip_commit": request.Change.BaseTipCommit,
+		} {
+			if strings.TrimSpace(value) == "" {
+				errors = append(errors, name+" is required")
+			}
+		}
+		if request.Change.Kind != "pull_request" && request.Change.Kind != "merge_request" {
+			errors = append(errors, "change.kind must be pull_request or merge_request")
+		}
+	}
 	return uniqueSorted(errors)
 }
 

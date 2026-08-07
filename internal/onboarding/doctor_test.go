@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Fueav/code-quality/quality"
 )
 
 func TestDoctorReadyForBothProvidersWithoutStartingAReview(t *testing.T) {
@@ -33,6 +35,28 @@ func TestDoctorReadyForBothProvidersWithoutStartingAReview(t *testing.T) {
 			}
 			if strings.Contains(string(invocations), "exec --sandbox") || strings.Contains(string(invocations), " -p ") {
 				t.Fatalf("doctor started a provider review: %s", invocations)
+			}
+		})
+	}
+}
+
+func TestDoctorProductionCIRequiresIsolationCapabilities(t *testing.T) {
+	for _, host := range []string{"codex", "claude-code"} {
+		t.Run(host, func(t *testing.T) {
+			repo, base, target := doctorRepository(t)
+			binDir := t.TempDir()
+			writeDoctorProvider(t, binDir, host, filepath.Join(binDir, "invocations"), true, true)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			report, err := Run(context.Background(), Options{
+				Host: host, RepositoryPath: repo, Base: base, Target: target,
+				ExecutionProfile: quality.ExecutionProfileProductionCI,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Status != StatusReady {
+				t.Fatalf("report = %#v", report)
 			}
 		})
 	}
@@ -131,8 +155,11 @@ func writeDoctorProvider(t *testing.T, directory, host, logPath string, authenti
 	if host == "claude-code" {
 		name = "claude"
 		version = "2.1.220 (Claude Code)"
-		capabilities = "--output-format stream-json --permission-mode auto --effort --no-session-persistence --model"
+		capabilities = "--output-format stream-json --permission-mode auto plan --safe-mode --strict-mcp-config --effort --no-session-persistence --model"
 		authOutput = `{"loggedIn":true}`
+	}
+	if host == "codex" {
+		capabilities += " read-only --ephemeral --ignore-user-config --ignore-rules --disable"
 	}
 	authExit := "0"
 	if !authenticated {

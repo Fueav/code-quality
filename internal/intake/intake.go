@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Fueav/code-quality/quality"
@@ -34,12 +35,15 @@ type githubEvent struct {
 		FullName string `json:"full_name"`
 	} `json:"repository"`
 	PullRequest struct {
-		Base struct {
+		Number  int    `json:"number"`
+		HTMLURL string `json:"html_url"`
+		Base    struct {
 			SHA string `json:"sha"`
 			Ref string `json:"ref"`
 		} `json:"base"`
 		Head struct {
 			SHA string `json:"sha"`
+			Ref string `json:"ref"`
 		} `json:"head"`
 	} `json:"pull_request"`
 }
@@ -66,7 +70,7 @@ func Discover(options Options) (Result, error) {
 	if err != nil {
 		return Result{RepositoryRoot: root}, err
 	}
-	base, err := resolveCommit(root, selection.base)
+	baseTip, err := resolveCommit(root, selection.base)
 	if err != nil {
 		return Result{RepositoryRoot: root}, fmt.Errorf("resolve base commit: %w", err)
 	}
@@ -74,8 +78,14 @@ func Discover(options Options) (Result, error) {
 	if err != nil {
 		return Result{RepositoryRoot: root}, fmt.Errorf("resolve target commit: %w", err)
 	}
-	if _, err := git(root, "merge-base", base, target); err != nil {
+	mergeBase, err := git(root, "merge-base", baseTip, target)
+	if err != nil {
 		return Result{RepositoryRoot: root}, fmt.Errorf("base and target have no merge base: %w", err)
+	}
+	base := baseTip
+	if selection.normalizeMergeBase {
+		base = strings.TrimSpace(mergeBase)
+		selection.change.BaseTipCommit = baseTip
 	}
 	changedFiles, err := changedFiles(root, base, target)
 	if err != nil {
@@ -100,6 +110,7 @@ func Discover(options Options) (Result, error) {
 		DiffSelectionReason: selection.reason,
 		ChangedFiles:        changedFiles,
 		AffectedEntries:     []string{},
+		Change:              selection.change,
 	}
 	if validationErrors := quality.ValidateRequest(request); len(validationErrors) > 0 {
 		return Result{RepositoryRoot: root}, fmt.Errorf("generated review request is invalid: %s", strings.Join(validationErrors, "; "))
@@ -113,12 +124,14 @@ func Discover(options Options) (Result, error) {
 }
 
 type baseline struct {
-	base         string
-	target       string
-	reason       string
-	targetBranch string
-	repository   string
-	source       string
+	base               string
+	target             string
+	reason             string
+	targetBranch       string
+	repository         string
+	source             string
+	normalizeMergeBase bool
+	change             *quality.ChangeContext
 }
 
 func selectBaseline(root string, options Options, environment map[string]string) (baseline, error) {
@@ -142,24 +155,31 @@ func selectBaseline(root string, options Options, environment map[string]string)
 		}, nil
 	}
 	if eventPath := environment["GITHUB_EVENT_PATH"]; eventPath != "" && environment["GITHUB_EVENT_NAME"] == "pull_request" {
-		return githubBaseline(eventPath)
+		return githubBaseline(eventPath, environment)
 	}
 	if environment["CI_MERGE_REQUEST_IID"] != "" {
 		base := environment["CI_MERGE_REQUEST_DIFF_BASE_SHA"]
 		target := environment["CI_COMMIT_SHA"]
 		branch := environment["CI_MERGE_REQUEST_TARGET_BRANCH_NAME"]
-		if base == "" || target == "" || branch == "" {
+		headBranch := environment["CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"]
+		if base == "" || target == "" || branch == "" || headBranch == "" {
 			return baseline{}, errors.New("GitLab merge request environment is incomplete")
 		}
 		return baseline{
 			base: base, target: target, reason: "gitlab_merge_request",
 			targetBranch: branch, repository: environment["CI_PROJECT_PATH"], source: "gitlab",
+			normalizeMergeBase: true,
+			change: &quality.ChangeContext{
+				Kind: "merge_request", ID: environment["CI_MERGE_REQUEST_IID"],
+				BaseRef: branch, HeadRef: headBranch, URL: environment["CI_MERGE_REQUEST_PROJECT_URL"],
+				RunURL: environment["CI_JOB_URL"],
+			},
 		}, nil
 	}
 	return localBaseline(root)
 }
 
-func githubBaseline(path string) (baseline, error) {
+func githubBaseline(path string, environment map[string]string) (baseline, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return baseline{}, fmt.Errorf("read GitHub event: %w", err)
@@ -178,13 +198,23 @@ func githubBaseline(path string) (baseline, error) {
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return baseline{}, fmt.Errorf("parse GitHub event: %w", err)
 	}
-	if event.PullRequest.Base.SHA == "" || event.PullRequest.Head.SHA == "" || event.PullRequest.Base.Ref == "" {
+	if event.PullRequest.Number <= 0 || event.PullRequest.Base.SHA == "" || event.PullRequest.Head.SHA == "" || event.PullRequest.Base.Ref == "" || event.PullRequest.Head.Ref == "" {
 		return baseline{}, errors.New("GitHub pull request event is incomplete")
+	}
+	runURL := ""
+	if environment["GITHUB_SERVER_URL"] != "" && environment["GITHUB_REPOSITORY"] != "" && environment["GITHUB_RUN_ID"] != "" {
+		runURL = strings.TrimRight(environment["GITHUB_SERVER_URL"], "/") + "/" + environment["GITHUB_REPOSITORY"] + "/actions/runs/" + environment["GITHUB_RUN_ID"]
 	}
 	return baseline{
 		base: event.PullRequest.Base.SHA, target: event.PullRequest.Head.SHA,
 		reason: "github_pull_request", targetBranch: event.PullRequest.Base.Ref,
 		repository: event.Repository.FullName, source: "github",
+		normalizeMergeBase: true,
+		change: &quality.ChangeContext{
+			Kind: "pull_request", ID: strconv.Itoa(event.PullRequest.Number),
+			BaseRef: event.PullRequest.Base.Ref, HeadRef: event.PullRequest.Head.Ref,
+			URL: event.PullRequest.HTMLURL, RunURL: runURL,
+		},
 	}, nil
 }
 

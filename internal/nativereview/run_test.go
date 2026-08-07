@@ -55,6 +55,29 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 	}
 }
 
+func TestProductionCICodexInvocationIsReadOnlyAndIgnoresCustomizations(t *testing.T) {
+	session, _ := nativeFixture(t)
+	options := nativeRunOptions{Session: session, ExecutionProfile: quality.ExecutionProfileProductionCI}
+	if err := normalizeRunOptions(&options); err != nil {
+		t.Fatal(err)
+	}
+	invocation := buildReviewInvocation(options)
+	joined := strings.Join(invocation.args, "\x00")
+	for _, required := range []string{"read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--disable", "hooks"} {
+		if !strings.Contains(joined, required) {
+			t.Errorf("production Codex args are missing %q: %#v", required, invocation.args)
+		}
+	}
+	for _, forbidden := range []string{"workspace-write", "sandbox_workspace_write.network_access=true"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("production Codex args contain %q: %#v", forbidden, invocation.args)
+		}
+	}
+	if !strings.Contains(invocation.stdin, "Do not modify files") {
+		t.Fatalf("production prompt = %q", invocation.stdin)
+	}
+}
+
 func TestEvidenceCaptureReturnsChildFailure(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")

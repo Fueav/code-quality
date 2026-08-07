@@ -68,7 +68,8 @@ func validNativeResult() NativeReviewResult {
 			CodeLocation: NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
 		}},
 		Execution: NativeExecution{
-			Host: "codex", ReviewMode: "native_review", ReasoningEffort: "high", ProviderInvocations: 1,
+			Host: "codex", ReviewMode: "native_review", ExecutionProfile: ExecutionProfilePersonal,
+			ReasoningEffort: "high", ProviderInvocations: 1,
 			AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{

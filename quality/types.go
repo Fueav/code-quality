@@ -1,16 +1,35 @@
 package quality
 
-const SkillVersion = "0.5.1"
+const SkillVersion = "0.5.2"
+
+const (
+	ExecutionProfilePersonal     = "personal"
+	ExecutionProfileProductionCI = "production-ci"
+)
+
+// ChangeContext identifies the pull or merge request that owns a review.
+// BaseCommit remains the canonical merge base; BaseTipCommit records the
+// target branch tip observed when the change was discovered.
+type ChangeContext struct {
+	Kind          string `json:"kind"`
+	ID            string `json:"id"`
+	BaseRef       string `json:"base_ref"`
+	HeadRef       string `json:"head_ref"`
+	BaseTipCommit string `json:"base_tip_commit"`
+	URL           string `json:"url,omitempty"`
+	RunURL        string `json:"run_url,omitempty"`
+}
 
 // ReviewRequest is the trusted review baseline produced by the runner.
 type ReviewRequest struct {
-	Repository          string   `json:"repository"`
-	TargetBranch        string   `json:"target_branch"`
-	BaseCommit          string   `json:"base_commit"`
-	TargetCommit        string   `json:"target_commit"`
-	DiffSelectionReason string   `json:"diff_selection_reason"`
-	ChangedFiles        []string `json:"changed_files"`
-	AffectedEntries     []string `json:"affected_entries"`
+	Repository          string         `json:"repository"`
+	TargetBranch        string         `json:"target_branch"`
+	BaseCommit          string         `json:"base_commit"`
+	TargetCommit        string         `json:"target_commit"`
+	DiffSelectionReason string         `json:"diff_selection_reason"`
+	ChangedFiles        []string       `json:"changed_files"`
+	AffectedEntries     []string       `json:"affected_entries"`
+	Change              *ChangeContext `json:"change,omitempty"`
 }
 
 type InactiveRuleFamily struct {

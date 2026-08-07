@@ -22,11 +22,12 @@ type Provider interface {
 }
 
 type providerInvocationOptions struct {
-	Session         reviewsession.NativeSession
-	Goal            string
-	Model           string
-	ReasoningEffort string
-	LeaseFile       *os.File
+	Session          reviewsession.NativeSession
+	Goal             string
+	Model            string
+	ReasoningEffort  string
+	ExecutionProfile string
+	LeaseFile        *os.File
 }
 
 type decodedTranscript struct {

@@ -101,6 +101,7 @@ func TestGitHubPullRequestBaseline(t *testing.T) {
 		"action":     "synchronize",
 		"repository": map[string]any{"full_name": "acme/service", "private": true},
 		"pull_request": map[string]any{
+			"number": 17, "html_url": "https://github.example/acme/service/pull/17",
 			"base": map[string]any{"sha": base, "ref": "main", "extra": true},
 			"head": map[string]any{"sha": target, "ref": "feature"},
 		},
@@ -117,6 +118,9 @@ func TestGitHubPullRequestBaseline(t *testing.T) {
 		Environment: map[string]string{
 			"GITHUB_EVENT_NAME": "pull_request",
 			"GITHUB_EVENT_PATH": eventPath,
+			"GITHUB_SERVER_URL": "https://github.example",
+			"GITHUB_REPOSITORY": "acme/service",
+			"GITHUB_RUN_ID":     "9001",
 		},
 	})
 	if err != nil {
@@ -125,13 +129,45 @@ func TestGitHubPullRequestBaseline(t *testing.T) {
 	if result.Request.Repository != "acme/service" || result.Request.TargetBranch != "main" || result.DetectionSource != "github" {
 		t.Fatalf("result = %#v", result)
 	}
+	change := result.Request.Change
+	if change == nil || change.Kind != "pull_request" || change.ID != "17" || change.BaseRef != "main" || change.HeadRef != "feature" || change.BaseTipCommit != base || change.RunURL != "https://github.example/acme/service/actions/runs/9001" {
+		t.Fatalf("change = %#v", change)
+	}
+}
+
+func TestGitHubPullRequestUsesMergeBaseWhenTargetBranchAdvances(t *testing.T) {
+	repo, common, target := fixtureRepository(t)
+	runGit(t, repo, "switch", "main")
+	writeFile(t, filepath.Join(repo, "main-only.txt"), "target branch advanced\n")
+	runGit(t, repo, "add", "main-only.txt")
+	runGit(t, repo, "commit", "-m", "advance main")
+	baseTip := runGit(t, repo, "rev-parse", "HEAD")
+	runGit(t, repo, "switch", "feature")
+	eventPath := filepath.Join(t.TempDir(), "event.json")
+	writeFile(t, eventPath, `{"repository":{"full_name":"acme/service"},"pull_request":{"number":42,"base":{"sha":"`+baseTip+`","ref":"main"},"head":{"sha":"`+target+`","ref":"feature"}}}`)
+
+	result, err := Discover(Options{RepositoryPath: repo, Environment: map[string]string{
+		"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": eventPath,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Request.BaseCommit != common || result.Request.TargetCommit != target {
+		t.Fatalf("range = %s..%s, want %s..%s", result.Request.BaseCommit, result.Request.TargetCommit, common, target)
+	}
+	if strings.Join(result.Request.ChangedFiles, ",") != "docs/guide.md" {
+		t.Fatalf("PR scope contains target-branch-only files: %#v", result.Request.ChangedFiles)
+	}
+	if result.Request.Change == nil || result.Request.Change.BaseTipCommit != baseTip {
+		t.Fatalf("change = %#v", result.Request.Change)
+	}
 }
 
 func TestGitHubEventSymlinkIsRejected(t *testing.T) {
 	repo, base, target := fixtureRepository(t)
 	dir := t.TempDir()
 	realPath := filepath.Join(dir, "real.json")
-	writeFile(t, realPath, `{"repository":{"full_name":"acme/service"},"pull_request":{"base":{"sha":"`+base+`","ref":"main"},"head":{"sha":"`+target+`"}}}`)
+	writeFile(t, realPath, `{"repository":{"full_name":"acme/service"},"pull_request":{"number":1,"base":{"sha":"`+base+`","ref":"main"},"head":{"sha":"`+target+`","ref":"feature"}}}`)
 	linkPath := filepath.Join(dir, "event.json")
 	if err := os.Symlink(realPath, linkPath); err != nil {
 		t.Fatal(err)
@@ -153,6 +189,7 @@ func TestGitLabMergeRequestBaseline(t *testing.T) {
 			"CI_MERGE_REQUEST_IID":                "42",
 			"CI_MERGE_REQUEST_DIFF_BASE_SHA":      base,
 			"CI_MERGE_REQUEST_TARGET_BRANCH_NAME": "main",
+			"CI_MERGE_REQUEST_SOURCE_BRANCH_NAME": "feature",
 			"CI_COMMIT_SHA":                       target,
 			"CI_PROJECT_PATH":                     "acme/service",
 		},

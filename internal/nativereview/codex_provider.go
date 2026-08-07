@@ -8,6 +8,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/Fueav/code-quality/quality"
 )
 
 type codexProvider struct {
@@ -39,9 +41,11 @@ func (provider codexProvider) validateReasoningEffort(value string) error {
 
 func (provider codexProvider) buildInvocation(options providerInvocationOptions) reviewInvocation {
 	artifacts := options.Session.Artifacts()
-	args := []string{
-		"exec", "--sandbox", "workspace-write",
-		"--config", "sandbox_workspace_write.network_access=true",
+	args := []string{"exec"}
+	if options.ExecutionProfile == quality.ExecutionProfileProductionCI {
+		args = append(args, "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--disable", "hooks")
+	} else {
+		args = append(args, "--sandbox", "workspace-write", "--config", "sandbox_workspace_write.network_access=true")
 	}
 	if strings.TrimSpace(options.Model) != "" {
 		args = append(args, "--model", options.Model)
@@ -56,7 +60,7 @@ func (provider codexProvider) buildInvocation(options providerInvocationOptions)
 		executable: provider.binary,
 		args:       args,
 		directory:  options.Session.RepositoryDirectory(),
-		stdin:      buildReviewPrompt(options.Session.Request(), options.Goal, false),
+		stdin:      buildReviewPrompt(options.Session.Request(), options.Goal, options.ExecutionProfile == quality.ExecutionProfileProductionCI),
 		paths:      capturePathsFromSession(options.Session),
 	}
 	if options.LeaseFile != nil {

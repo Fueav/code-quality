@@ -166,6 +166,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	code := run([]string{
 		"run-codex", "--repo", repo, "--base", base, "--target", target,
 		"--diff-reason", "test_increment", "--goal", "protect behavior",
+		"--execution-profile", "production-ci",
 		"--output-root", filepath.Join(directory, "sessions"),
 	}, &stdout, &stderr)
 	if code != 0 {
@@ -175,7 +176,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.SchemaVersion != 4 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ProviderInvocations != 1 {
+	if summary.SchemaVersion != 5 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ProviderInvocations != 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	var summaryDocument struct {
@@ -209,7 +210,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 		t.Fatalf("prompt = %q, err = %v", prompt, err)
 	}
 	result := readJSON[quality.NativeReviewResult](t, summary.ResultPath)
-	if result.SchemaVersion != 4 || result.Execution.ProviderInvocations != 1 {
+	if result.SchemaVersion != 5 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
 		t.Fatalf("result = %#v", result)
 	}
 	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json"} {
@@ -270,11 +271,11 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"N
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.SchemaVersion != 4 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ProviderInvocations != 1 {
+	if summary.SchemaVersion != 5 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ProviderInvocations != 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	result := readJSON[quality.NativeReviewResult](t, summary.ResultPath)
-	if result.SchemaVersion != 4 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
+	if result.SchemaVersion != 5 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	count, err := os.ReadFile(countPath)

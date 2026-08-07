@@ -102,7 +102,7 @@ func printHelp(writer io.Writer) {
 	fmt.Fprintln(writer, "quality-review - report-only review of one committed Git increment")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Usage:")
-	fmt.Fprintln(writer, "  quality-review doctor --host <codex|claude-code> --repo <path>")
+	fmt.Fprintln(writer, "  quality-review doctor --host <codex|claude-code> --repo <path> [--execution-profile <personal|production-ci>]")
 	fmt.Fprintln(writer, "  quality-review run-codex [flags]")
 	fmt.Fprintln(writer, "  quality-review run-claude [flags]")
 	fmt.Fprintln(writer, "  quality-review version")
@@ -142,6 +142,7 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	goal := flags.String("goal", "", "optional change intent or extra review concern")
 	model := flags.String("model", config.model, config.modelHelp)
 	reasoningEffort := flags.String("reasoning-effort", "max", config.effortHelp)
+	executionProfile := flags.String("execution-profile", quality.ExecutionProfilePersonal, "execution profile: personal or production-ci")
 	outputRoot := flags.String("output-root", "", "absolute session output root outside the repository (default: private system temp directory)")
 	if err := flags.Parse(args); err != nil {
 		return flagParseExitCode(err)
@@ -151,15 +152,16 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		return 2
 	}
 	transaction, err := runNativeReview(context.Background(), nativereview.TransactionOptions{
-		RepositoryPath:  *repository,
-		Base:            *base,
-		Target:          *target,
-		DiffReason:      *reason,
-		Goal:            *goal,
-		Model:           *model,
-		ReasoningEffort: *reasoningEffort,
-		OutputRoot:      *outputRoot,
-		Provider:        config.provider(),
+		RepositoryPath:   *repository,
+		Base:             *base,
+		Target:           *target,
+		DiffReason:       *reason,
+		Goal:             *goal,
+		Model:            *model,
+		ReasoningEffort:  *reasoningEffort,
+		ExecutionProfile: *executionProfile,
+		OutputRoot:       *outputRoot,
+		Provider:         config.provider(),
 	})
 	if errors.Is(err, nativereview.ErrNativeReviewActive) {
 		fmt.Fprintln(stderr, "quality-review: another native review is active for this user; retry after it finishes or review directly in the current host agent")
@@ -190,15 +192,17 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	base := flags.String("base", "", "base commit")
 	target := flags.String("target", "", "target commit")
 	reason := flags.String("diff-reason", "", "diff selection reason")
+	executionProfile := flags.String("execution-profile", quality.ExecutionProfilePersonal, "execution profile: personal or production-ci")
 	if err := flags.Parse(args); err != nil {
 		return flagParseExitCode(err)
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*host) == "" {
-		fmt.Fprintln(stderr, "usage: quality-review doctor --host <codex|claude-code> --repo <path> [--base <commit> --target <commit>]")
+		fmt.Fprintln(stderr, "usage: quality-review doctor --host <codex|claude-code> --repo <path> [--base <commit> --target <commit>] [--execution-profile <personal|production-ci>]")
 		return 2
 	}
 	report, err := onboarding.Run(context.Background(), onboarding.Options{
 		Host: *host, RepositoryPath: *repository, Base: *base, Target: *target, DiffReason: *reason,
+		ExecutionProfile: *executionProfile,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: doctor: %v\n", err)

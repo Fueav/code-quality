@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Fueav/code-quality/internal/intake"
+	"github.com/Fueav/code-quality/quality"
 )
 
 const (
@@ -43,12 +44,13 @@ type Report struct {
 }
 
 type Options struct {
-	Host           string
-	RepositoryPath string
-	Base           string
-	Target         string
-	DiffReason     string
-	Environment    map[string]string
+	Host             string
+	RepositoryPath   string
+	Base             string
+	Target           string
+	DiffReason       string
+	Environment      map[string]string
+	ExecutionProfile string
 }
 
 type providerContract struct {
@@ -60,7 +62,14 @@ type providerContract struct {
 }
 
 func Run(ctx context.Context, options Options) (Report, error) {
-	contract, err := contractForHost(options.Host)
+	profile := strings.TrimSpace(options.ExecutionProfile)
+	if profile == "" {
+		profile = quality.ExecutionProfilePersonal
+	}
+	if profile != quality.ExecutionProfilePersonal && profile != quality.ExecutionProfileProductionCI {
+		return Report{}, fmt.Errorf("unsupported execution profile %q", profile)
+	}
+	contract, err := contractForHost(options.Host, profile)
 	if err != nil {
 		return Report{}, err
 	}
@@ -130,26 +139,34 @@ func Run(ctx context.Context, options Options) (Report, error) {
 	return report, nil
 }
 
-func contractForHost(host string) (providerContract, error) {
+func contractForHost(host, profile string) (providerContract, error) {
 	switch strings.TrimSpace(host) {
 	case "codex":
-		return providerContract{
+		contract := providerContract{
 			host: "codex", binary: "codex",
 			authArguments:       []string{"login", "status"},
 			capabilityArguments: []string{"exec", "--help"},
 			requiredCapabilities: []string{
 				"--sandbox", "--model", "--json", "--output-last-message",
 			},
-		}, nil
+		}
+		if profile == quality.ExecutionProfileProductionCI {
+			contract.requiredCapabilities = append(contract.requiredCapabilities, "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--disable")
+		}
+		return contract, nil
 	case "claude", "claude-code":
-		return providerContract{
+		contract := providerContract{
 			host: "claude-code", binary: "claude",
 			authArguments:       []string{"auth", "status", "--json"},
 			capabilityArguments: []string{"--help"},
 			requiredCapabilities: []string{
 				"--output-format", "stream-json", "--permission-mode", "auto", "--effort", "--no-session-persistence", "--model",
 			},
-		}, nil
+		}
+		if profile == quality.ExecutionProfileProductionCI {
+			contract.requiredCapabilities = append(contract.requiredCapabilities, "plan", "--safe-mode", "--strict-mcp-config")
+		}
+		return contract, nil
 	default:
 		return providerContract{}, fmt.Errorf("unsupported doctor host %q; use codex or claude-code", host)
 	}

@@ -124,6 +124,10 @@ func (session NativeSession) Request() quality.ReviewRequest {
 	request := session.request
 	request.ChangedFiles = append([]string(nil), request.ChangedFiles...)
 	request.AffectedEntries = append([]string(nil), request.AffectedEntries...)
+	if request.Change != nil {
+		change := *request.Change
+		request.Change = &change
+	}
 	return request
 }
 
@@ -291,6 +295,10 @@ func newNativeArtifacts(layout Layout) NativeArtifacts {
 func copyReviewRequest(request quality.ReviewRequest) quality.ReviewRequest {
 	request.ChangedFiles = append([]string(nil), request.ChangedFiles...)
 	request.AffectedEntries = append([]string(nil), request.AffectedEntries...)
+	if request.Change != nil {
+		change := *request.Change
+		request.Change = &change
+	}
 	return request
 }
 

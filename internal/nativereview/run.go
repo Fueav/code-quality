@@ -14,12 +14,13 @@ import (
 )
 
 type nativeRunOptions struct {
-	Session         reviewsession.NativeSession
-	Goal            string
-	Model           string
-	ReasoningEffort string
-	Provider        Provider
-	LeaseFile       *os.File
+	Session          reviewsession.NativeSession
+	Goal             string
+	Model            string
+	ReasoningEffort  string
+	ExecutionProfile string
+	Provider         Provider
+	LeaseFile        *os.File
 }
 
 func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.NativeOutcome, error) {
@@ -31,11 +32,12 @@ func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.Na
 		return quality.NativeOutcome{}, err
 	}
 	return quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
-		Request:         options.Session.Request(),
-		ReviewGoal:      options.Goal,
-		Host:            options.Provider.Host(),
-		Model:           options.Model,
-		ReasoningEffort: options.ReasoningEffort,
+		Request:          options.Session.Request(),
+		ReviewGoal:       options.Goal,
+		Host:             options.Provider.Host(),
+		ExecutionProfile: options.ExecutionProfile,
+		Model:            options.Model,
+		ReasoningEffort:  options.ReasoningEffort,
 	}, captured.finalMessage, captured.processErr)
 }
 
@@ -70,13 +72,20 @@ func normalizeRunOptions(options *nativeRunOptions) error {
 	if strings.TrimSpace(options.ReasoningEffort) == "" {
 		options.ReasoningEffort = options.Provider.defaultReasoningEffort()
 	}
+	if strings.TrimSpace(options.ExecutionProfile) == "" {
+		options.ExecutionProfile = quality.ExecutionProfilePersonal
+	}
+	if options.ExecutionProfile != quality.ExecutionProfilePersonal && options.ExecutionProfile != quality.ExecutionProfileProductionCI {
+		return fmt.Errorf("unsupported execution profile %q", options.ExecutionProfile)
+	}
 	return options.Provider.validateReasoningEffort(options.ReasoningEffort)
 }
 
 func buildReviewInvocation(options nativeRunOptions) reviewInvocation {
 	return options.Provider.buildInvocation(providerInvocationOptions{
 		Session: options.Session, Goal: options.Goal, Model: options.Model,
-		ReasoningEffort: options.ReasoningEffort, LeaseFile: options.LeaseFile,
+		ReasoningEffort: options.ReasoningEffort, ExecutionProfile: options.ExecutionProfile,
+		LeaseFile: options.LeaseFile,
 	})
 }
 

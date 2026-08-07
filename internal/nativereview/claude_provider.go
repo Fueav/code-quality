@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/Fueav/code-quality/quality"
 )
 
 type claudeProvider struct {
@@ -40,11 +42,13 @@ func (provider claudeProvider) buildInvocation(options providerInvocationOptions
 		"--output-format", "stream-json",
 		"--verbose",
 		"--no-session-persistence",
-		"--permission-mode", "auto",
-		"--model", options.Model,
-		"--effort", options.ReasoningEffort,
-		prompt,
 	}
+	if options.ExecutionProfile == quality.ExecutionProfileProductionCI {
+		args = append(args, "--permission-mode", "plan", "--safe-mode", "--strict-mcp-config")
+	} else {
+		args = append(args, "--permission-mode", "auto")
+	}
+	args = append(args, "--model", options.Model, "--effort", options.ReasoningEffort, prompt)
 	invocation := reviewInvocation{
 		executable: provider.binary,
 		args:       args,

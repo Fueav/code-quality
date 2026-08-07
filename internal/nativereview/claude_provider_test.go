@@ -53,6 +53,27 @@ func TestFullClaudeInvocationPreservesNormalCapabilities(t *testing.T) {
 	}
 }
 
+func TestProductionCIClaudeInvocationUsesReadOnlyPlanAndNoCustomizations(t *testing.T) {
+	session, _ := nativeFixture(t)
+	options := nativeRunOptions{
+		Session: session, Provider: NewClaudeProvider(""),
+		ExecutionProfile: quality.ExecutionProfileProductionCI,
+	}
+	if err := normalizeRunOptions(&options); err != nil {
+		t.Fatal(err)
+	}
+	invocation := buildReviewInvocation(options)
+	joined := strings.Join(invocation.args, "\x00")
+	for _, required := range []string{"--permission-mode\x00plan", "--safe-mode", "--strict-mcp-config"} {
+		if !strings.Contains(joined, required) {
+			t.Errorf("production Claude args are missing %q: %#v", required, invocation.args)
+		}
+	}
+	if strings.Contains(joined, "--permission-mode\x00auto") {
+		t.Fatalf("production Claude args enable auto mode: %#v", invocation.args)
+	}
+}
+
 func TestClaudeTranscriptExtractsFinalResultAndUsage(t *testing.T) {
 	raw := strings.Join([]string{
 		`{"type":"system","subtype":"init","tools":["Read","Grep"],"mcp_servers":[{"name":"github","status":"connected"}]}`,

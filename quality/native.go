@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	NativeResultSchemaVersion = 4
+	NativeResultSchemaVersion = 5
 	EvaluationRubricVersion   = "1.2.0"
 )
 
@@ -32,6 +32,7 @@ type AdapterDrop struct {
 type NativeExecution struct {
 	Host                string        `json:"host"`
 	ReviewMode          string        `json:"review_mode"`
+	ExecutionProfile    string        `json:"execution_profile"`
 	Model               string        `json:"model,omitempty"`
 	ReasoningEffort     string        `json:"reasoning_effort"`
 	ProviderInvocations int           `json:"provider_invocations"`
@@ -60,6 +61,12 @@ func RenderNativeMarkdown(result NativeReviewResult) string {
 	fmt.Fprintf(&output, "- Repository: `%s`\n", result.Request.Repository)
 	fmt.Fprintf(&output, "- Base: `%s`\n", result.Request.BaseCommit)
 	fmt.Fprintf(&output, "- Target: `%s`\n", result.Request.TargetCommit)
+	if result.Request.Change != nil {
+		fmt.Fprintf(&output, "- Change: `%s #%s` (`%s` → `%s`)\n", result.Request.Change.Kind, result.Request.Change.ID, result.Request.Change.HeadRef, result.Request.Change.BaseRef)
+		if result.Request.Change.RunURL != "" {
+			fmt.Fprintf(&output, "- CI run: %s\n", result.Request.Change.RunURL)
+		}
+	}
 	if strings.TrimSpace(result.ReviewGoal) == "" {
 		fmt.Fprintln(&output, "- Goal: not supplied")
 	} else {
@@ -84,6 +91,7 @@ func RenderNativeMarkdown(result NativeReviewResult) string {
 	fmt.Fprintln(&output)
 	fmt.Fprintf(&output, "- Host: `%s`\n", result.Execution.Host)
 	fmt.Fprintf(&output, "- Mode: `%s`\n", result.Execution.ReviewMode)
+	fmt.Fprintf(&output, "- Execution profile: `%s`\n", result.Execution.ExecutionProfile)
 	fmt.Fprintf(&output, "- Provider invocations: %d\n", result.Execution.ProviderInvocations)
 	if len(result.Execution.AdapterDrops) > 0 {
 		fmt.Fprintln(&output, "- Adapter exclusions:")
