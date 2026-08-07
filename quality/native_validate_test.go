@@ -46,12 +46,11 @@ func TestValidateNativeResultAllowsNoGoal(t *testing.T) {
 	}
 }
 
-func TestValidateNativeResultAllowsDocumentLevelManualReview(t *testing.T) {
+func TestValidateNativeResultRejectsBlockWithoutIssues(t *testing.T) {
 	result := validNativeResult()
 	result.Findings = []NativeFinding{}
-	result.Adjudication.Reasons = []string{"inspect frozen native-review.txt"}
-	if problems := ValidateNativeResult(result); len(problems) != 0 {
-		t.Fatalf("document-level MANUAL_REVIEW was rejected: %#v", problems)
+	if problems := ValidateNativeResult(result); len(problems) == 0 {
+		t.Fatal("BLOCK without issues was accepted")
 	}
 }
 
@@ -64,7 +63,7 @@ func validNativeResult() NativeReviewResult {
 		},
 		ReviewGoal: "review",
 		Findings: []NativeFinding{{
-			Title: "wrong value", Body: "The new branch returns the wrong value.", Priority: 1,
+			Title: "wrong value", Priority: 1, Reason: "The new branch returns the wrong value.", Suggestion: "Return the expected value.",
 			CodeLocation: NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
 		}},
 		Execution: NativeExecution{
@@ -73,7 +72,7 @@ func validNativeResult() NativeReviewResult {
 			AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{
-			SemanticResult: ResultManualReview, RolloutMode: "report_only", CIAction: "publish_report",
+			SemanticResult: ResultBlock, RolloutMode: "release_gate", CIAction: "hold_release",
 			Reasons: []string{"one finding"},
 		},
 	}

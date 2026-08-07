@@ -28,6 +28,7 @@ type providerInvocationOptions struct {
 	ReasoningEffort  string
 	ExecutionProfile string
 	LeaseFile        *os.File
+	OutputSchema     []byte
 }
 
 type decodedTranscript struct {

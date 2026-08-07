@@ -9,6 +9,7 @@ const (
 	ResultPass         = "PASS"
 	ResultManualReview = "MANUAL_REVIEW"
 	ResultBlock        = "BLOCK"
+	ResultError        = "ERROR"
 	ResultIncomplete   = "INCOMPLETE"
 )
 

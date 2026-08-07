@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	bundle "github.com/Fueav/code-quality"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
@@ -21,6 +22,7 @@ type nativeRunOptions struct {
 	ExecutionProfile string
 	Provider         Provider
 	LeaseFile        *os.File
+	OutputSchema     []byte
 }
 
 func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.NativeOutcome, error) {
@@ -78,6 +80,11 @@ func normalizeRunOptions(options *nativeRunOptions) error {
 	if options.ExecutionProfile != quality.ExecutionProfilePersonal && options.ExecutionProfile != quality.ExecutionProfileProductionCI {
 		return fmt.Errorf("unsupported execution profile %q", options.ExecutionProfile)
 	}
+	schema, err := bundle.Schema("native-review-output.schema.json")
+	if err != nil {
+		return fmt.Errorf("load native review output schema: %w", err)
+	}
+	options.OutputSchema = schema
 	return options.Provider.validateReasoningEffort(options.ReasoningEffort)
 }
 
@@ -85,7 +92,8 @@ func buildReviewInvocation(options nativeRunOptions) reviewInvocation {
 	return options.Provider.buildInvocation(providerInvocationOptions{
 		Session: options.Session, Goal: options.Goal, Model: options.Model,
 		ReasoningEffort: options.ReasoningEffort, ExecutionProfile: options.ExecutionProfile,
-		LeaseFile: options.LeaseFile,
+		LeaseFile:    options.LeaseFile,
+		OutputSchema: options.OutputSchema,
 	})
 }
 
@@ -96,8 +104,9 @@ func buildReviewPrompt(request quality.ReviewRequest, goal string, reportOnlyBou
 		fmt.Fprintf(&prompt, "User-supplied context: %s\n", strconv.Quote(goal))
 	}
 	if reportOnlyBoundary {
-		prompt.WriteString("Report findings only. Do not modify files, commit, push, deploy, or change external state.\n")
+		prompt.WriteString("Report actionable findings only. Do not modify files, commit, push, deploy, or change external state.\n")
 	}
+	prompt.WriteString("Return only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no actionable defect exists, return an empty findings array.\n")
 	return prompt.String()
 }
 
@@ -108,6 +117,12 @@ func publishNativeOutcome(session reviewsession.NativeSession, outcome quality.N
 	}
 	if err := writeExclusiveFile(artifacts.MarkdownPath(), []byte(outcome.Markdown())); err != nil {
 		return fmt.Errorf("write native review markdown: %w", err)
+	}
+	if err := writeExclusiveJSON(artifacts.SummaryJSONPath(), outcome.Summary()); err != nil {
+		return fmt.Errorf("write native review summary: %w", err)
+	}
+	if err := writeExclusiveFile(artifacts.SummaryMarkdownPath(), []byte(outcome.Markdown())); err != nil {
+		return fmt.Errorf("write native review summary markdown: %w", err)
 	}
 	return nil
 }

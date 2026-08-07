@@ -51,6 +51,7 @@ func (provider codexProvider) buildInvocation(options providerInvocationOptions)
 		args = append(args, "--model", options.Model)
 	}
 	args = append(args,
+		"--output-schema", options.Session.OutputSchemaPath(),
 		"--config", "model_reasoning_effort="+strconv.Quote(options.ReasoningEffort),
 		"--json",
 		"--output-last-message", artifacts.FinalMessagePath(),

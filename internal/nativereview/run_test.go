@@ -30,13 +30,13 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 	want := []string{
 		"exec", "--sandbox", "workspace-write",
 		"--config", "sandbox_workspace_write.network_access=true",
-		"--model", "gpt-5.6-sol", "--config", `model_reasoning_effort="max"`,
+		"--model", "gpt-5.6-sol", "--output-schema", session.OutputSchemaPath(), "--config", `model_reasoning_effort="max"`,
 		"--json", "--output-last-message", session.Artifacts().FinalMessagePath(), "-",
 	}
 	if strings.Join(invocation.args, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("full Codex args = %#v, want %#v", invocation.args, want)
 	}
-	for _, forbidden := range []string{"review", "--ignore-user-config", "--ignore-rules", "--ephemeral", "read-only", "--output-schema"} {
+	for _, forbidden := range []string{"review", "--ignore-user-config", "--ignore-rules", "--ephemeral", "read-only"} {
 		for _, argument := range invocation.args {
 			if argument == forbidden {
 				t.Fatalf("full Codex invocation contains %q: %#v", forbidden, invocation.args)
@@ -44,7 +44,7 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 		}
 	}
 	wantPrompt := fmt.Sprintf(
-		"Review the changes introduced by %s relative to %s for actionable defects.\nUser-supplied context: %q\n",
+		"Review the changes introduced by %s relative to %s for actionable defects.\nUser-supplied context: %q\nReturn only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no actionable defect exists, return an empty findings array.\n",
 		request.TargetCommit, request.BaseCommit, "protect settlement correctness",
 	)
 	if invocation.stdin != wantPrompt {
@@ -204,7 +204,7 @@ func TestEvidenceCaptureDescendantWriterHelper(t *testing.T) {
 
 func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 	session, _ := nativeFixture(t)
-	raw := agentFindingOutput(filepath.Join(session.RepositoryDirectory(), "app.go"), "preserve the result", "The changed branch returns the wrong value.", 1)
+	raw := nativeFindingOutput("app.go", "preserve the result", "The changed branch returns the wrong value.", 1)
 	executable, _ := fakeCodexExecutable(t, raw)
 
 	outcome, err := runNativeSession(context.Background(), nativeRunOptions{Session: session, Provider: NewCodexProvider(executable)})
@@ -212,7 +212,7 @@ func TestRunFreezesRawArtifactsBeforeClassification(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
-	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 0 ||
+	if result.Adjudication.SemanticResult != quality.ResultBlock || len(result.Findings) != 1 ||
 		len(result.Execution.AdapterDrops) != 0 {
 		t.Fatalf("result = %#v", result)
 	}
@@ -475,7 +475,7 @@ func TestNativeReviewPromptOmitsUnsuppliedGoal(t *testing.T) {
 	if options.Goal != "" {
 		t.Fatalf("wrapper invented goal %q", options.Goal)
 	}
-	want := fmt.Sprintf("Review the changes introduced by %s relative to %s for actionable defects.\n", request.TargetCommit, request.BaseCommit)
+	want := fmt.Sprintf("Review the changes introduced by %s relative to %s for actionable defects.\nReturn only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no actionable defect exists, return an empty findings array.\n", request.TargetCommit, request.BaseCommit)
 	if prompt := buildReviewPrompt(options.Session.Request(), options.Goal, false); prompt != want {
 		t.Fatalf("prompt = %q, want %q", prompt, want)
 	}
@@ -566,7 +566,7 @@ func TestAbsentArtifactValidationRejectsLateCreation(t *testing.T) {
 
 func TestZeroFindingsCompletesAfterOneNativeCall(t *testing.T) {
 	session, _ := nativeFixture(t)
-	executable, countPath := fakeCodexExecutable(t, "No actionable defects found.\n")
+	executable, countPath := fakeCodexExecutable(t, `{"findings":[]}`)
 
 	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
 		Session: session, Goal: "review the change", ReasoningEffort: "high", Provider: NewCodexProvider(executable),
@@ -583,7 +583,7 @@ func TestZeroFindingsCompletesAfterOneNativeCall(t *testing.T) {
 	}
 }
 
-func TestWhitespaceOnlyOutputIsIncomplete(t *testing.T) {
+func TestWhitespaceOnlyOutputIsError(t *testing.T) {
 	session, _ := nativeFixture(t)
 	executable, _ := fakeCodexExecutable(t, " \r\n\t\n")
 
@@ -592,16 +592,15 @@ func TestWhitespaceOnlyOutputIsIncomplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
-	if result.Adjudication.SemanticResult != quality.ResultIncomplete || len(result.Findings) != 0 ||
+	if result.Adjudication.SemanticResult != quality.ResultError || len(result.Findings) != 0 ||
 		result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 }
 
-func TestNativeReviewOutputRequiresDocumentLevelManualReview(t *testing.T) {
+func TestStructuredNativeReviewOutputBlocksRelease(t *testing.T) {
 	session, _ := nativeFixture(t)
-	path := filepath.Join(session.RepositoryDirectory(), "app.go")
-	executable, countPath := fakeCodexExecutable(t, nativeFindingOutput(path, "timeout is ignored", "The new call can wait forever.", 1))
+	executable, countPath := fakeCodexExecutable(t, nativeFindingOutput("app.go", "timeout is ignored", "The new call can wait forever.", 1))
 
 	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
 		Session: session, Goal: "review the change", ReasoningEffort: "high", Provider: NewCodexProvider(executable),
@@ -610,7 +609,7 @@ func TestNativeReviewOutputRequiresDocumentLevelManualReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
-	if result.Adjudication.SemanticResult != quality.ResultManualReview || len(result.Findings) != 0 ||
+	if result.Adjudication.SemanticResult != quality.ResultBlock || len(result.Findings) != 1 ||
 		len(result.Execution.AdapterDrops) != 0 || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
@@ -619,7 +618,7 @@ func TestNativeReviewOutputRequiresDocumentLevelManualReview(t *testing.T) {
 	}
 }
 
-func TestReviewOutputLocationDoesNotChangeDocumentClassification(t *testing.T) {
+func TestReviewOutputOutsideChangedFilesFailsClosed(t *testing.T) {
 	session, _ := nativeFixture(t)
 	executable, _ := fakeCodexExecutable(t,
 		nativeFindingOutput("/tmp/outside.go", "wrong result", "The new branch returns the opposite value.", 1))
@@ -631,7 +630,7 @@ func TestReviewOutputLocationDoesNotChangeDocumentClassification(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
-	if result.Adjudication.SemanticResult != quality.ResultManualReview || result.Execution.ProviderInvocations != 1 ||
+	if result.Adjudication.SemanticResult != quality.ResultError || result.Execution.ProviderInvocations != 1 ||
 		len(result.Findings) != 0 || len(result.Execution.AdapterDrops) != 0 {
 		t.Fatalf("document-level result = %#v", result)
 	}
@@ -745,9 +744,5 @@ func readInvocationCount(t *testing.T, path string) string {
 }
 
 func nativeFindingOutput(path, title, body string, priority int) string {
-	return fmt.Sprintf("Review comment:\n\n- [P%d] %s — %s:2-2\n  %s\n", priority, title, path, body)
-}
-
-func agentFindingOutput(path, title, body string, priority int) string {
-	return fmt.Sprintf("## Findings\n\n- [P%d] %s — [app.go:2](%s:2)\n\n  %s\n", priority, title, path, body)
+	return fmt.Sprintf(`{"findings":[{"priority":%d,"title":%q,"code_location":{"path":%q,"start_line":2,"end_line":2},"reason":%q,"suggestion":"Apply the smallest safe fix."}]}`, priority, title, path, body)
 }

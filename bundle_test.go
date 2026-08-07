@@ -50,6 +50,19 @@ func TestNativeResultV5SchemaCarriesPullRequestIdentity(t *testing.T) {
 	}
 }
 
+func TestNativeResultV6SchemaIsAReleaseGate(t *testing.T) {
+	raw, err := Schema("review-result-v6.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{`"schema_version": {"const": 6}`, `"PASS"`, `"BLOCK"`, `"ERROR"`, `"release_gate"`, `"continue_release"`, `"hold_release"`, `"reason"`, `"suggestion"`} {
+		if !strings.Contains(text, required) {
+			t.Errorf("v6 schema is missing %s", required)
+		}
+	}
+}
+
 func TestEmbeddedPolicyMatchesV12Contract(t *testing.T) {
 	raw, err := PolicyManifest()
 	if err != nil {
@@ -116,6 +129,9 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-result-v3.schema.json",
 		"review-result-v4.schema.json",
 		"review-result-v5.schema.json",
+		"review-result-v6.schema.json",
+		"native-review-output.schema.json",
+		"review-summary.schema.json",
 		"native-review-freeze.schema.json",
 		"native-run-metrics.schema.json",
 	} {
@@ -198,7 +214,7 @@ func TestNativeFreezeSchemaFixesArtifactIdentityAndDigest(t *testing.T) {
 }
 
 func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
-	for _, name := range []string{"review-result-v3.schema.json", "review-result-v4.schema.json", "review-result-v5.schema.json"} {
+	for _, name := range []string{"review-result-v3.schema.json", "review-result-v4.schema.json", "review-result-v5.schema.json", "review-result-v6.schema.json"} {
 		raw, err := Schema(name)
 		if err != nil {
 			t.Fatal(err)

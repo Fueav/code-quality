@@ -5,16 +5,13 @@ import (
 	"testing"
 )
 
-func TestRenderNativeMarkdownDirectsDocumentLevelManualReviewToFrozenOutput(t *testing.T) {
+func TestRenderNativeMarkdownShowsBlockingDecisionFirst(t *testing.T) {
 	result := validNativeResult()
-	result.Findings = []NativeFinding{}
-	result.Adjudication.Reasons = []string{"inspect frozen native-review.txt"}
 
 	markdown := RenderNativeMarkdown(result)
-	if !strings.Contains(markdown, "native-review.txt") {
-		t.Fatalf("manual review report does not reference frozen output:\n%s", markdown)
-	}
-	if strings.Contains(markdown, "No actionable finding remained.") {
-		t.Fatalf("manual review report claims there are no findings:\n%s", markdown)
+	for _, want := range []string{"BLOCK", "HOLD", "Blocking issues: 1", "wrong value", "Return the expected value"} {
+		if !strings.Contains(markdown, want) {
+			t.Fatalf("release summary is missing %q:\n%s", want, markdown)
+		}
 	}
 }

@@ -8,13 +8,13 @@ Agent 要求：
 
 - 标签为 `code-quality`，每个系统用户只设 1 个 executor。
 - 使用专用低权限用户，不保存与审查无关的凭据。
-- 同一用户预装 `quality-review v0.5.2` 和一个已登录的 Provider。
+- 同一用户预装 `quality-review v0.5.3` 和一个已登录的 Provider。
 
 ```sh
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.2
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.3/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.3
 
-quality-review version          # 必须是 quality-review v0.5.2
+quality-review version          # 必须是 quality-review v0.5.3
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
@@ -92,7 +92,7 @@ printf 'BASE_SHA=%s\nTARGET_SHA=%s\n' "$base" "$target" > "$REVIEW_ROOT/range.en
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 . "$REVIEW_ROOT/range.env"
-test "$(quality-review version)" = 'quality-review v0.5.2'
+test "$(quality-review version)" = 'quality-review v0.5.3'
 
 case "$CODE_QUALITY_PROVIDER" in
   codex) host=codex; command=run-codex; model=gpt-5.6-sol ;;
@@ -104,12 +104,18 @@ quality-review doctor --host "$host" --repo "$WORKSPACE" \
   --base "$BASE_SHA" --target "$TARGET_SHA" \
   --execution-profile production-ci | tee "$REVIEW_ROOT/doctor.json"
 
+set +e
 quality-review "$command" --repo "$WORKSPACE" \
   --base "$BASE_SHA" --target "$TARGET_SHA" \
   --diff-reason jenkins_github_pull_request \
   --execution-profile production-ci \
   --model "$model" --reasoning-effort high \
   --output-root "$REVIEW_ROOT/sessions" | tee "$REVIEW_ROOT/run.json"
+review_exit=${PIPESTATUS[0]}
+set -e
+summary=$(find "$REVIEW_ROOT/sessions" -path '*/output/review-summary.md' -type f -print -quit)
+if [ -n "$summary" ]; then cat "$summary"; fi
+exit "$review_exit"
 '''
       }
 
@@ -117,13 +123,26 @@ quality-review "$command" --repo "$WORKSPACE" \
         always {
           sh '''#!/usr/bin/env bash
 set -eu
-rm -rf "$WORKSPACE/code-quality-artifacts"
-mkdir -p "$WORKSPACE/code-quality-artifacts"
+artifact_root="$WORKSPACE/code-quality-artifacts"
+rm -rf "$artifact_root"
+mkdir -p "$artifact_root"
 if [ -n "${REVIEW_ROOT:-}" ] && [ -d "$REVIEW_ROOT" ]; then
-  cp -R "$REVIEW_ROOT"/. "$WORKSPACE/code-quality-artifacts/"
+  for name in doctor.json run.json; do
+    if [ -f "$REVIEW_ROOT/$name" ]; then cp "$REVIEW_ROOT/$name" "$artifact_root/$name"; fi
+  done
+  for name in review-summary.md review-summary.json; do
+    candidate=$(find "$REVIEW_ROOT/sessions" -path "*/output/$name" -type f -print -quit 2>/dev/null || true)
+    if [ -n "$candidate" ]; then cp "$candidate" "$artifact_root/$name"; fi
+  done
+  tar -czf "$artifact_root/evidence.tar.gz" -C "$REVIEW_ROOT" .
 fi
+if [ ! -f "$artifact_root/review-summary.md" ]; then
+  printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect doctor.json.' > "$artifact_root/review-summary.md"
+  printf '%s\n' '{"schema_version":1,"result":"ERROR","release":"HOLD","blocking_issues":0,"issues":[]}' > "$artifact_root/review-summary.json"
+fi
+cat "$artifact_root/review-summary.md"
 '''
-          archiveArtifacts artifacts: 'code-quality-artifacts/**/*',
+          archiveArtifacts artifacts: 'code-quality-artifacts/*',
             allowEmptyArchive: true, fingerprint: true
         }
       }
@@ -134,8 +153,9 @@ fi
 
 ## 4. 结果与验收
 
-- `PASS`、`MANUAL_REVIEW`：执行成功并归档报告；发现保持 `report_only`，不自动阻止合并。
-- `BLOCKED`、`INCOMPLETE`：Jenkins stage 失败，Provider 环境或执行需要修复。
-- 首次上线用一个可信同仓 PR 验证：doctor 为 `READY`、Artifacts 含 `doctor.json`、`run.json` 和完整 session；再次推送 PR 时旧构建被取消；fork PR 不运行。
+- `PASS`：没有阻塞问题，可以继续发布流程，Jenkins stage 成功。
+- `BLOCK`：存在必须修复的问题；`ERROR`：扫描不可信或未完成。两者都使 Jenkins stage 失败。
+- 开发者只看 `review-summary.md`；机器读取 `review-summary.json`；完整原始证据统一放在 `evidence.tar.gz`。
+- 首次上线用一个可信同仓 PR 验证：doctor 为 `READY`、简报可读、问题能阻塞 Job；再次推送 PR 时旧构建被取消；fork PR 不运行。
 
 安全边界：Provider 登录用户不得保存其他生产凭据；只在 `sshagent` 块内暴露只读 SCM 凭据；Jenkinsfile 或共享库必须由运维/CODEOWNERS 保护，不能让未信任 PR 修改后直接执行。

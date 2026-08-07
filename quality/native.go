@@ -3,11 +3,10 @@ package quality
 import (
 	"bytes"
 	"fmt"
-	"strings"
 )
 
 const (
-	NativeResultSchemaVersion = 5
+	NativeResultSchemaVersion = 6
 	EvaluationRubricVersion   = "1.2.0"
 )
 
@@ -19,9 +18,10 @@ type NativeCodeLocation struct {
 
 type NativeFinding struct {
 	Title        string             `json:"title"`
-	Body         string             `json:"body"`
 	Priority     int                `json:"priority"`
 	CodeLocation NativeCodeLocation `json:"code_location"`
+	Reason       string             `json:"reason"`
+	Suggestion   string             `json:"suggestion"`
 }
 
 type AdapterDrop struct {
@@ -49,61 +49,72 @@ type NativeReviewResult struct {
 	Adjudication            Adjudication    `json:"adjudication"`
 }
 
+type NativeReleaseSummary struct {
+	SchemaVersion  int                  `json:"schema_version"`
+	Result         string               `json:"result"`
+	Release        string               `json:"release"`
+	BlockingIssues int                  `json:"blocking_issues"`
+	Issues         []NativeSummaryIssue `json:"issues"`
+}
+
+type NativeSummaryIssue struct {
+	Priority   string `json:"priority"`
+	Title      string `json:"title"`
+	Location   string `json:"location"`
+	Reason     string `json:"reason"`
+	Suggestion string `json:"suggestion"`
+}
+
+func SummarizeNativeResult(result NativeReviewResult) NativeReleaseSummary {
+	release := "HOLD"
+	if result.Adjudication.SemanticResult == ResultPass {
+		release = "CONTINUE"
+	}
+	issues := make([]NativeSummaryIssue, 0, len(result.Findings))
+	for _, finding := range result.Findings {
+		issues = append(issues, NativeSummaryIssue{
+			Priority: fmt.Sprintf("P%d", finding.Priority), Title: finding.Title,
+			Location: fmt.Sprintf("%s:%d-%d", finding.CodeLocation.Path, finding.CodeLocation.StartLine, finding.CodeLocation.EndLine),
+			Reason:   finding.Reason, Suggestion: finding.Suggestion,
+		})
+	}
+	return NativeReleaseSummary{
+		SchemaVersion: 1, Result: result.Adjudication.SemanticResult, Release: release,
+		BlockingIssues: len(issues), Issues: issues,
+	}
+}
+
 func RenderNativeMarkdown(result NativeReviewResult) string {
+	summary := SummarizeNativeResult(result)
 	var output bytes.Buffer
-	fmt.Fprintln(&output, "# Code Quality Native Review")
-	fmt.Fprintln(&output)
-	fmt.Fprintf(&output, "**Result:** `%s`  \n", result.Adjudication.SemanticResult)
-	fmt.Fprintln(&output, "**Rollout:** `report_only`")
-	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, "## Scope")
-	fmt.Fprintln(&output)
-	fmt.Fprintf(&output, "- Repository: `%s`\n", result.Request.Repository)
-	fmt.Fprintf(&output, "- Base: `%s`\n", result.Request.BaseCommit)
-	fmt.Fprintf(&output, "- Target: `%s`\n", result.Request.TargetCommit)
-	if result.Request.Change != nil {
-		fmt.Fprintf(&output, "- Change: `%s #%s` (`%s` → `%s`)\n", result.Request.Change.Kind, result.Request.Change.ID, result.Request.Change.HeadRef, result.Request.Change.BaseRef)
-		if result.Request.Change.RunURL != "" {
-			fmt.Fprintf(&output, "- CI run: %s\n", result.Request.Change.RunURL)
-		}
+	icon := "⚠️"
+	decision := "Review failed — do not release"
+	switch summary.Result {
+	case ResultPass:
+		icon, decision = "✅", "No blocking issue — continue the release process"
+	case ResultBlock:
+		icon, decision = "❌", "Blocking issue found — do not release"
 	}
-	if strings.TrimSpace(result.ReviewGoal) == "" {
-		fmt.Fprintln(&output, "- Goal: not supplied")
-	} else {
-		fmt.Fprintf(&output, "- Goal: %s\n", result.ReviewGoal)
-	}
+	fmt.Fprintf(&output, "# %s AI Code Review: %s\n", icon, summary.Result)
 	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, "## Findings")
+	fmt.Fprintf(&output, "Release: `%s`  \n", summary.Release)
+	fmt.Fprintf(&output, "Decision: %s  \n", decision)
+	fmt.Fprintf(&output, "Blocking issues: %d\n", summary.BlockingIssues)
 	fmt.Fprintln(&output)
-	if result.Adjudication.SemanticResult == ResultManualReview && len(result.Findings) == 0 {
-		fmt.Fprintln(&output, "Structured extraction is intentionally omitted. Inspect the frozen `native-review.txt` as the review authority.")
-	} else if len(result.Findings) == 0 {
-		fmt.Fprintln(&output, "No actionable finding remained.")
-	} else {
+	if len(result.Findings) > 0 {
+		fmt.Fprintln(&output, "## Issues to fix")
+		fmt.Fprintln(&output)
 		for _, finding := range result.Findings {
 			fmt.Fprintf(&output, "### [P%d] %s\n\n", finding.Priority, finding.Title)
-			fmt.Fprintf(&output, "%s\n\n", finding.Body)
-			fmt.Fprintf(&output, "- Location: `%s:%d-%d`\n", finding.CodeLocation.Path, finding.CodeLocation.StartLine, finding.CodeLocation.EndLine)
+			fmt.Fprintf(&output, "- **Location:** `%s:%d-%d`\n", finding.CodeLocation.Path, finding.CodeLocation.StartLine, finding.CodeLocation.EndLine)
+			fmt.Fprintf(&output, "- **Reason:** %s\n", finding.Reason)
+			fmt.Fprintf(&output, "- **Suggestion:** %s\n\n", finding.Suggestion)
 		}
 	}
-	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, "## Execution")
-	fmt.Fprintln(&output)
-	fmt.Fprintf(&output, "- Host: `%s`\n", result.Execution.Host)
-	fmt.Fprintf(&output, "- Mode: `%s`\n", result.Execution.ReviewMode)
-	fmt.Fprintf(&output, "- Execution profile: `%s`\n", result.Execution.ExecutionProfile)
-	fmt.Fprintf(&output, "- Provider invocations: %d\n", result.Execution.ProviderInvocations)
-	if len(result.Execution.AdapterDrops) > 0 {
-		fmt.Fprintln(&output, "- Adapter exclusions:")
-		for _, dropped := range result.Execution.AdapterDrops {
-			fmt.Fprintf(&output, "  - Candidate %d: %s\n", dropped.Index, dropped.Reason)
-		}
-	}
-	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, "## Adjudication")
-	fmt.Fprintln(&output)
-	for _, reason := range result.Adjudication.Reasons {
-		fmt.Fprintf(&output, "- %s\n", reason)
+	if summary.Result == ResultError && len(result.Adjudication.Reasons) > 0 {
+		fmt.Fprintln(&output, "## Why the review failed")
+		fmt.Fprintln(&output)
+		fmt.Fprintf(&output, "%s\n", result.Adjudication.Reasons[0])
 	}
 	return output.String()
 }

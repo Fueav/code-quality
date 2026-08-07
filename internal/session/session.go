@@ -36,6 +36,7 @@ type Layout struct {
 	RubricPath          string
 	WorkflowPath        string
 	ModelSchemaPath     string
+	NativeSchemaPath    string
 	ManifestPath        string
 	MetadataPath        string
 	MainReviewPath      string
@@ -87,22 +88,26 @@ type Metadata struct {
 // review. Its layout is private so callers depend on artifact roles rather than
 // session file names.
 type NativeArtifacts struct {
-	finalMessagePath   string
-	jsonlPath          string
-	stderrPath         string
-	freezeManifestPath string
-	metricsPath        string
-	resultPath         string
-	markdownPath       string
+	finalMessagePath    string
+	jsonlPath           string
+	stderrPath          string
+	freezeManifestPath  string
+	metricsPath         string
+	resultPath          string
+	markdownPath        string
+	summaryJSONPath     string
+	summaryMarkdownPath string
 }
 
-func (artifacts NativeArtifacts) FinalMessagePath() string   { return artifacts.finalMessagePath }
-func (artifacts NativeArtifacts) JSONLPath() string          { return artifacts.jsonlPath }
-func (artifacts NativeArtifacts) StderrPath() string         { return artifacts.stderrPath }
-func (artifacts NativeArtifacts) FreezeManifestPath() string { return artifacts.freezeManifestPath }
-func (artifacts NativeArtifacts) MetricsPath() string        { return artifacts.metricsPath }
-func (artifacts NativeArtifacts) ResultPath() string         { return artifacts.resultPath }
-func (artifacts NativeArtifacts) MarkdownPath() string       { return artifacts.markdownPath }
+func (artifacts NativeArtifacts) FinalMessagePath() string    { return artifacts.finalMessagePath }
+func (artifacts NativeArtifacts) JSONLPath() string           { return artifacts.jsonlPath }
+func (artifacts NativeArtifacts) StderrPath() string          { return artifacts.stderrPath }
+func (artifacts NativeArtifacts) FreezeManifestPath() string  { return artifacts.freezeManifestPath }
+func (artifacts NativeArtifacts) MetricsPath() string         { return artifacts.metricsPath }
+func (artifacts NativeArtifacts) ResultPath() string          { return artifacts.resultPath }
+func (artifacts NativeArtifacts) MarkdownPath() string        { return artifacts.markdownPath }
+func (artifacts NativeArtifacts) SummaryJSONPath() string     { return artifacts.summaryJSONPath }
+func (artifacts NativeArtifacts) SummaryMarkdownPath() string { return artifacts.summaryMarkdownPath }
 
 // NativeSession owns the isolated checkout and retained artifact layout for a
 // native provider review. Cleanup removes only its checkout.
@@ -119,6 +124,7 @@ func (session NativeSession) Directory() string           { return session.layou
 func (session NativeSession) RepositoryDirectory() string { return session.layout.RepositoryDir }
 func (session NativeSession) DirtyWorktree() bool         { return session.dirtyWorktree }
 func (session NativeSession) Artifacts() NativeArtifacts  { return session.artifacts }
+func (session NativeSession) OutputSchemaPath() string    { return session.layout.NativeSchemaPath }
 
 func (session NativeSession) Request() quality.ReviewRequest {
 	request := session.request
@@ -203,6 +209,10 @@ func PrepareNative(ctx context.Context, options Options) (NativeSession, error) 
 	if err != nil {
 		return NativeSession{}, err
 	}
+	if err := writeSchema(preparation.layout.NativeSchemaPath, "native-review-output.schema.json"); err != nil {
+		preparation.abort()
+		return NativeSession{}, err
+	}
 	return NativeSession{
 		repositoryRoot: options.RepositoryRoot,
 		layout:         preparation.layout,
@@ -282,13 +292,15 @@ func (preparation *preparation) abort() {
 
 func newNativeArtifacts(layout Layout) NativeArtifacts {
 	return NativeArtifacts{
-		finalMessagePath:   filepath.Join(layout.OutputDir, "native-review.txt"),
-		jsonlPath:          filepath.Join(layout.OutputDir, "native-review.stdout.log"),
-		stderrPath:         filepath.Join(layout.OutputDir, "native-review.stderr.log"),
-		freezeManifestPath: filepath.Join(layout.OutputDir, "native-review-freeze.json"),
-		metricsPath:        filepath.Join(layout.OutputDir, "native-run-metrics.json"),
-		resultPath:         layout.ResultPath,
-		markdownPath:       layout.MarkdownPath,
+		finalMessagePath:    filepath.Join(layout.OutputDir, "native-review.txt"),
+		jsonlPath:           filepath.Join(layout.OutputDir, "native-review.stdout.log"),
+		stderrPath:          filepath.Join(layout.OutputDir, "native-review.stderr.log"),
+		freezeManifestPath:  filepath.Join(layout.OutputDir, "native-review-freeze.json"),
+		metricsPath:         filepath.Join(layout.OutputDir, "native-run-metrics.json"),
+		resultPath:          layout.ResultPath,
+		markdownPath:        layout.MarkdownPath,
+		summaryJSONPath:     filepath.Join(layout.OutputDir, "review-summary.json"),
+		summaryMarkdownPath: filepath.Join(layout.OutputDir, "review-summary.md"),
 	}
 }
 
@@ -321,6 +333,7 @@ func NewLayout(directory string) Layout {
 		RubricPath:          filepath.Join(input, "rubric.md"),
 		WorkflowPath:        filepath.Join(input, "workflow.md"),
 		ModelSchemaPath:     filepath.Join(input, "model-review.schema.json"),
+		NativeSchemaPath:    filepath.Join(input, "native-review-output.schema.json"),
 		ManifestPath:        filepath.Join(directory, "input-manifest.json"),
 		MetadataPath:        filepath.Join(input, "session-metadata.json"),
 		MainReviewPath:      filepath.Join(output, "main-review.json"),

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestReusableCIWorkflowKeepsNativeReviewReportOnlyAndDualProvider(t *testing.T) {
+func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testing.T) {
 	raw, err := os.ReadFile(".github/workflows/code-quality-reusable.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestReusableCIWorkflowKeepsNativeReviewReportOnlyAndDualProvider(t *testing
 		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 		"command -v quality-review",
-		"quality-review v0.5.2",
+		"quality-review v0.5.3",
 		"doctor --host codex",
 		"doctor --host claude-code",
 		"--execution-profile production-ci",
@@ -37,6 +37,10 @@ func TestReusableCIWorkflowKeepsNativeReviewReportOnlyAndDualProvider(t *testing
 		"--output-root \"$QUALITY_REVIEW_OUTPUT_ROOT\"",
 		"continue-on-error: true",
 		"GITHUB_STEP_SUMMARY",
+		"review-summary.md",
+		"review-summary.json",
+		"evidence.tar.gz",
+		"code-quality-artifact",
 		"retention-days:",
 		"Verify checkout remained unchanged",
 		"github.event.pull_request.number",
@@ -89,9 +93,9 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		t.Fatalf("README onboarding order is invalid: personal=%d linux_ci=%d", personal, linuxCI)
 	}
 	for _, required := range []string{
-		"请为当前仓库安装并运行 Fueav code-quality v0.5.2",
-		"bootstrap.sh | sh -s -- v0.5.2 codex",
-		"bootstrap.sh | sh -s -- v0.5.2 claude",
+		"请为当前仓库安装并运行 Fueav code-quality v0.5.3",
+		"bootstrap.sh | sh -s -- v0.5.3 codex",
+		"bootstrap.sh | sh -s -- v0.5.3 claude",
 		"quality-review doctor --host codex",
 		"quality-review doctor --host claude-code",
 		"先提交要审查的改动",
@@ -100,16 +104,18 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		"codex exec",
 		"不接收 Provider API key",
 		".github/workflows/code-quality-reusable.yml",
-		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.2",
+		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.3",
 		"PR 为审查单元",
 		"merge-base",
-		"schema v5",
+		"schema v6",
 		"production-ci",
 		"runner group",
 		"reasoning_effort: low",
-		"report_only",
-		"MANUAL_REVIEW",
-		"INCOMPLETE",
+		"review-summary.md",
+		"review-summary.json",
+		"evidence.tar.gz",
+		"BLOCK",
+		"ERROR",
 		"fork PR",
 		"Dependabot PR",
 		"pull_request_target",

@@ -27,10 +27,11 @@ func TestFullClaudeInvocationPreservesNormalCapabilities(t *testing.T) {
 	invocation := buildReviewInvocation(options)
 	wantPrompt := "Review the changes introduced by " + request.TargetCommit + " relative to " + request.BaseCommit + " for actionable defects.\n" +
 		"User-supplied context: \"protect settlement correctness\"\n" +
-		"Report findings only. Do not modify files, commit, push, deploy, or change external state.\n"
+		"Report actionable findings only. Do not modify files, commit, push, deploy, or change external state.\n" +
+		"Return only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no actionable defect exists, return an empty findings array.\n"
 	want := []string{
 		"-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
-		"--permission-mode", "auto", "--model", "opus", "--effort", "max", wantPrompt,
+		"--permission-mode", "auto", "--model", "opus", "--effort", "max", "--json-schema", string(options.OutputSchema), wantPrompt,
 	}
 	if invocation.executable != "claude" || strings.Join(invocation.args, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("full Claude invocation = %q %#v, want claude %#v", invocation.executable, invocation.args, want)
@@ -40,7 +41,7 @@ func TestFullClaudeInvocationPreservesNormalCapabilities(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"--safe-mode", "--bare", "--disable-slash-commands", "--strict-mcp-config", "--tools",
-		"--setting-sources", "--json-schema", "--max-turns", "--max-budget-usd", "plan", "dontAsk",
+		"--setting-sources", "--max-turns", "--max-budget-usd", "plan", "dontAsk",
 	} {
 		for _, argument := range invocation.args {
 			if argument == forbidden || strings.HasPrefix(argument, forbidden+"=") {
@@ -132,7 +133,7 @@ func TestClaudeRunMaterializesAndFreezesTranscriptResult(t *testing.T) {
 	session, _ := nativeFixture(t)
 	executable := fakeClaudeExecutable(t, strings.Join([]string{
 		`{"type":"system","subtype":"init","tools":["Read","Grep"],"mcp_servers":[{"name":"github","status":"connected"}]}`,
-		`{"type":"result","subtype":"success","is_error":false,"result":"No findings.","usage":{"input_tokens":211,"output_tokens":17}}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"{\"findings\":[]}","usage":{"input_tokens":211,"output_tokens":17}}`,
 	}, "\n")+"\n", 0)
 	outcome, err := runNativeSession(context.Background(), nativeRunOptions{
 		Session: session, Provider: NewClaudeProvider(executable),
@@ -147,7 +148,7 @@ func TestClaudeRunMaterializesAndFreezesTranscriptResult(t *testing.T) {
 	}
 	artifacts := session.Artifacts()
 	final, err := os.ReadFile(artifacts.FinalMessagePath())
-	if err != nil || string(final) != "No findings." {
+	if err != nil || string(final) != `{"findings":[]}` {
 		t.Fatalf("materialized final = %q, error = %v", final, err)
 	}
 	info, err := os.Stat(artifacts.FinalMessagePath())
@@ -188,7 +189,7 @@ func TestClaudeFrozenFinalMustMatchFrozenTranscript(t *testing.T) {
 	}
 }
 
-func TestClaudeProtocolFailureBecomesIncompleteWithoutFallback(t *testing.T) {
+func TestClaudeProtocolFailureBecomesErrorWithoutFallback(t *testing.T) {
 	session, _ := nativeFixture(t)
 	executable := fakeClaudeExecutable(t,
 		`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"auto permission mode unavailable"}`+"\n", 0)
@@ -199,7 +200,7 @@ func TestClaudeProtocolFailureBecomesIncompleteWithoutFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := outcome.Result()
-	if result.Adjudication.SemanticResult != quality.ResultIncomplete || result.Execution.Host != "claude-code" ||
+	if result.Adjudication.SemanticResult != quality.ResultError || result.Execution.Host != "claude-code" ||
 		!strings.Contains(strings.Join(result.Adjudication.Reasons, " "), "Claude result event is not successful") {
 		t.Fatalf("Claude protocol failure = %#v", result)
 	}

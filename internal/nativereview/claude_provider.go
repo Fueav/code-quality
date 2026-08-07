@@ -48,7 +48,7 @@ func (provider claudeProvider) buildInvocation(options providerInvocationOptions
 	} else {
 		args = append(args, "--permission-mode", "auto")
 	}
-	args = append(args, "--model", options.Model, "--effort", options.ReasoningEffort, prompt)
+	args = append(args, "--model", options.Model, "--effort", options.ReasoningEffort, "--json-schema", string(options.OutputSchema), prompt)
 	invocation := reviewInvocation{
 		executable: provider.binary,
 		args:       args,

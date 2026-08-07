@@ -99,7 +99,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func printHelp(writer io.Writer) {
-	fmt.Fprintln(writer, "quality-review - report-only review of one committed Git increment")
+	fmt.Fprintln(writer, "quality-review - AI release-gate review of one committed Git increment")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Usage:")
 	fmt.Fprintln(writer, "  quality-review doctor --host <codex|claude-code> --repo <path> [--execution-profile <personal|production-ci>]")

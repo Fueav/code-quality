@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestClassifyFrozenNativeReviewPreservesThinThreeStateContract(t *testing.T) {
+func TestClassifyFrozenNativeReviewPreservesReleaseGateContract(t *testing.T) {
 	request := ReviewRequest{
 		Repository: "example/repo", TargetBranch: "main",
 		BaseCommit: "base", TargetCommit: "target", DiffSelectionReason: "test",
@@ -18,10 +18,10 @@ func TestClassifyFrozenNativeReviewPreservesThinThreeStateContract(t *testing.T)
 		processErr error
 		want       string
 	}{
-		{name: "exact sentinel", final: "No findings.\n", want: ResultPass},
-		{name: "nonempty native output", final: "- [P1] wrong value\n", want: ResultManualReview},
-		{name: "empty output", final: " \r\n", want: ResultIncomplete},
-		{name: "failed process", final: "No findings.\n", processErr: errors.New("exit 7"), want: ResultIncomplete},
+		{name: "empty findings", final: `{"findings":[]}`, want: ResultPass},
+		{name: "unstructured native output", final: "- [P1] wrong value\n", want: ResultError},
+		{name: "empty output", final: " \r\n", want: ResultError},
+		{name: "failed process", final: `{"findings":[]}`, processErr: errors.New("exit 7"), want: ResultError},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -36,7 +36,7 @@ func TestClassifyFrozenNativeReviewPreservesThinThreeStateContract(t *testing.T)
 				t.Fatalf("result = %#v", result)
 			}
 			if len(result.Findings) != 0 || len(result.Execution.AdapterDrops) != 0 {
-				t.Fatalf("runtime outcome invented structured interpretation: %#v", result)
+				t.Fatalf("runtime outcome invented a finding: %#v", result)
 			}
 			if problems := ValidateNativeResult(result); len(problems) != 0 {
 				t.Fatalf("runtime outcome is invalid: %#v", problems)
@@ -52,7 +52,7 @@ func TestNativeOutcomeKeepsOneValidatedFactForJSONAndMarkdown(t *testing.T) {
 			DiffSelectionReason: "test", ChangedFiles: []string{"app.go"}, AffectedEntries: []string{},
 		},
 		Model: "gpt-5.6-sol", ReasoningEffort: "max",
-	}, []byte("native finding text\n"), nil)
+	}, []byte(`{"findings":[{"priority":1,"title":"Wrong value","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The changed branch returns the wrong value.","suggestion":"Return the expected value."}]}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,11 +60,11 @@ func TestNativeOutcomeKeepsOneValidatedFactForJSONAndMarkdown(t *testing.T) {
 	if err := outcome.EncodeJSON(&encoded); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(encoded.String(), `"semantic_result": "MANUAL_REVIEW"`) {
+	if !strings.Contains(encoded.String(), `"semantic_result": "BLOCK"`) {
 		t.Fatalf("JSON outcome = %s", encoded.String())
 	}
 	markdown := outcome.Markdown()
-	if !strings.Contains(markdown, "`MANUAL_REVIEW`") || !strings.Contains(markdown, "native-review.txt") {
+	if !strings.Contains(markdown, "BLOCK") || !strings.Contains(markdown, "HOLD") {
 		t.Fatalf("Markdown outcome = %s", markdown)
 	}
 

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result", "release", "blocking_issues", "issues"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "result": {"enum": ["PASS", "BLOCK", "ERROR"]},
+    "release": {"enum": ["CONTINUE", "HOLD"]},
+    "blocking_issues": {"type": "integer", "minimum": 0},
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["priority", "title", "location", "reason", "suggestion"],
+        "properties": {
+          "priority": {"enum": ["P0", "P1", "P2", "P3"]},
+          "title": {"type": "string", "minLength": 1, "maxLength": 160},
+          "location": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "suggestion": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"result": {"const": "PASS"}}},
+      "then": {"properties": {"release": {"const": "CONTINUE"}, "blocking_issues": {"const": 0}, "issues": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"result": {"const": "BLOCK"}}},
+      "then": {"properties": {"release": {"const": "HOLD"}, "blocking_issues": {"minimum": 1}, "issues": {"minItems": 1}}}
+    },
+    {
+      "if": {"properties": {"result": {"const": "ERROR"}}},
+      "then": {"properties": {"release": {"const": "HOLD"}, "blocking_issues": {"const": 0}, "issues": {"maxItems": 0}}}
+    }
+  ]
+}

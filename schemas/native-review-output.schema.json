@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["priority", "title", "code_location", "reason", "suggestion"],
+        "properties": {
+          "priority": {"type": "integer", "minimum": 0, "maximum": 3},
+          "title": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\r\\n]+$"},
+          "code_location": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "start_line", "end_line"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "start_line": {"type": "integer", "minimum": 1},
+              "end_line": {"type": "integer", "minimum": 1}
+            }
+          },
+          "reason": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"},
+          "suggestion": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"}
+        }
+      }
+    }
+  }
+}

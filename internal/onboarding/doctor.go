@@ -147,7 +147,7 @@ func contractForHost(host, profile string) (providerContract, error) {
 			authArguments:       []string{"login", "status"},
 			capabilityArguments: []string{"exec", "--help"},
 			requiredCapabilities: []string{
-				"--sandbox", "--model", "--json", "--output-last-message",
+				"--sandbox", "--model", "--json", "--output-last-message", "--output-schema",
 			},
 		}
 		if profile == quality.ExecutionProfileProductionCI {
@@ -160,7 +160,7 @@ func contractForHost(host, profile string) (providerContract, error) {
 			authArguments:       []string{"auth", "status", "--json"},
 			capabilityArguments: []string{"--help"},
 			requiredCapabilities: []string{
-				"--output-format", "stream-json", "--permission-mode", "auto", "--effort", "--no-session-persistence", "--model",
+				"--output-format", "stream-json", "--permission-mode", "auto", "--effort", "--no-session-persistence", "--model", "--json-schema",
 			},
 		}
 		if profile == quality.ExecutionProfileProductionCI {

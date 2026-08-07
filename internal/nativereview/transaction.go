@@ -15,15 +15,9 @@ import (
 )
 
 type NativeRunSummary struct {
-	SchemaVersion       int    `json:"schema_version"`
-	Status              string `json:"status"`
-	SemanticResult      string `json:"semantic_result"`
-	SessionDir          string `json:"session_dir"`
-	ResultPath          string `json:"result_path"`
-	MarkdownPath        string `json:"markdown_path"`
-	FreezePath          string `json:"freeze_path"`
-	MetricsPath         string `json:"metrics_path"`
-	ProviderInvocations int    `json:"provider_invocations"`
+	quality.NativeReleaseSummary
+	SummaryPath string `json:"summary_path"`
+	EvidenceDir string `json:"evidence_dir"`
 }
 
 type TransactionOptions struct {
@@ -142,18 +136,18 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 		return TransactionResult{}, atStage("publish native review", 1, err)
 	}
 
-	status := "COMPLETE"
 	exitCode := 0
-	if outcome.SemanticResult() == quality.ResultIncomplete {
-		status = "INCOMPLETE"
+	switch outcome.SemanticResult() {
+	case quality.ResultBlock:
+		exitCode = 3
+	case quality.ResultError:
 		exitCode = 1
 	}
 	artifacts := session.Artifacts()
 	transaction = TransactionResult{
 		Summary: NativeRunSummary{
-			SchemaVersion: quality.NativeResultSchemaVersion, Status: status, SemanticResult: outcome.SemanticResult(),
-			SessionDir: session.Directory(), ResultPath: artifacts.ResultPath(), MarkdownPath: artifacts.MarkdownPath(),
-			FreezePath: artifacts.FreezeManifestPath(), MetricsPath: artifacts.MetricsPath(), ProviderInvocations: outcome.ProviderInvocations(),
+			NativeReleaseSummary: outcome.Summary(),
+			SummaryPath:          artifacts.SummaryMarkdownPath(), EvidenceDir: session.Directory(),
 		},
 		DirtyWorktree: session.DirtyWorktree(),
 		Warnings:      []string{},

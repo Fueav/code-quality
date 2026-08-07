@@ -150,7 +150,7 @@ for argument in "$@"; do
 done
 test -n "$output"
 cat > "$FAKE_CODEX_PROMPT_PATH"
-printf '%s\n' 'No findings.' > "$output"
+printf '%s\n' '{"findings":[]}' > "$output"
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_tokens":45}}'
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
@@ -176,19 +176,11 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.SchemaVersion != 5 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ProviderInvocations != 1 {
+	if summary.SchemaVersion != 1 || summary.Result != quality.ResultPass || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 {
 		t.Fatalf("summary = %#v", summary)
 	}
-	var summaryDocument struct {
-		MetricsPath string `json:"metrics_path"`
-		FreezePath  string `json:"freeze_path"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &summaryDocument); err != nil {
-		t.Fatal(err)
-	}
-	if summaryDocument.MetricsPath == "" || summaryDocument.FreezePath == "" {
-		t.Fatalf("native summary does not expose retained evidence paths: %#v", summaryDocument)
-	}
+	metricsPath := filepath.Join(summary.EvidenceDir, "output", "native-run-metrics.json")
+	freezePath := filepath.Join(summary.EvidenceDir, "output", "native-review-freeze.json")
 	metrics := readJSON[struct {
 		SchemaVersion    int    `json:"schema_version"`
 		DurationMS       int64  `json:"duration_ms"`
@@ -196,7 +188,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 		OutputTokens     *int64 `json:"output_tokens"`
 		ChangedFileCount int    `json:"changed_file_count"`
 		TrustedDiffBytes int64  `json:"trusted_diff_bytes"`
-	}](t, summaryDocument.MetricsPath)
+	}](t, metricsPath)
 	if metrics.SchemaVersion != 1 || metrics.DurationMS < 0 || metrics.InputTokens == nil || *metrics.InputTokens != 123 ||
 		metrics.OutputTokens == nil || *metrics.OutputTokens != 45 || metrics.ChangedFileCount != 1 || metrics.TrustedDiffBytes < 1 {
 		t.Fatalf("metrics = %#v", metrics)
@@ -209,29 +201,80 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	if err != nil || strings.Contains(string(prompt), "risk directions") || !strings.Contains(string(prompt), "protect behavior") {
 		t.Fatalf("prompt = %q, err = %v", prompt, err)
 	}
-	result := readJSON[quality.NativeReviewResult](t, summary.ResultPath)
-	if result.SchemaVersion != 5 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
+	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
+	if result.SchemaVersion != 6 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
 		t.Fatalf("result = %#v", result)
 	}
 	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json"} {
-		if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", legacy)); !os.IsNotExist(err) {
+		if _, err := os.Lstat(filepath.Join(summary.EvidenceDir, "input", legacy)); !os.IsNotExist(err) {
 			t.Fatalf("native session contains legacy artifact %s: %v", legacy, err)
 		}
 	}
-	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "native-review.schema.json")); !os.IsNotExist(err) {
-		t.Fatalf("native session still contains an unused main-output schema: %v", err)
+	if _, err := os.Stat(filepath.Join(summary.EvidenceDir, "input", "native-review-output.schema.json")); err != nil {
+		t.Fatalf("native session is missing the structured output schema: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "candidate-verifier.schema.json")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(summary.EvidenceDir, "input", "candidate-verifier.schema.json")); !os.IsNotExist(err) {
 		t.Fatalf("native session still contains a verifier schema: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "output", "native-review.txt")); err != nil {
+	if _, err := os.Lstat(filepath.Join(summary.EvidenceDir, "output", "native-review.txt")); err != nil {
 		t.Fatalf("native review text is unavailable: %v", err)
 	}
-	if _, err := os.Lstat(summaryDocument.FreezePath); err != nil {
+	if _, err := os.Lstat(freezePath); err != nil {
 		t.Fatalf("raw freeze manifest is unavailable: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(summary.SessionDir, "input", "repository")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(summary.EvidenceDir, "input", "repository")); !os.IsNotExist(err) {
 		t.Fatalf("isolated checkout was not removed: %v", err)
+	}
+}
+
+func TestRunCodexBlockingFindingReturnsReleaseGateFailureAndSummary(t *testing.T) {
+	forceTopLevelDiscovery(t)
+	repo, base, target := cliReviewFixture(t)
+	directory := t.TempDir()
+	scriptPath := filepath.Join(directory, "codex")
+	script := `#!/bin/sh
+set -eu
+output=''
+previous=''
+for argument in "$@"; do
+  if [ "$previous" = '--output-last-message' ]; then output="$argument"; fi
+  previous="$argument"
+done
+test -n "$output"
+cat >/dev/null
+printf '%s\n' '{"findings":[{"priority":1,"title":"Duplicate charge on retry","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The payment runs before the idempotency claim.","suggestion":"Claim the idempotency key before charging."}]}' > "$output"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_tokens":45}}'
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	previousBinary := codexBinary
+	codexBinary = scriptPath
+	t.Cleanup(func() { codexBinary = previousBinary })
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"run-codex", "--repo", repo, "--base", base, "--target", target,
+		"--diff-reason", "test_increment", "--execution-profile", "production-ci",
+		"--output-root", filepath.Join(directory, "sessions"),
+	}, &stdout, &stderr)
+	if code != 3 {
+		t.Fatalf("exit code = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	var summary nativereview.NativeRunSummary
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Result != quality.ResultBlock || summary.Release != "HOLD" || summary.BlockingIssues != 1 || len(summary.Issues) != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	markdown, err := os.ReadFile(summary.SummaryPath)
+	if err != nil || !strings.Contains(string(markdown), "BLOCK") || !strings.Contains(string(markdown), "Duplicate charge on retry") {
+		t.Fatalf("summary markdown = %q, error = %v", markdown, err)
+	}
+	machine := readJSON[quality.NativeReleaseSummary](t, filepath.Join(summary.EvidenceDir, "output", "review-summary.json"))
+	if machine.Result != quality.ResultBlock || machine.BlockingIssues != 1 {
+		t.Fatalf("machine summary = %#v", machine)
 	}
 }
 
@@ -248,7 +291,7 @@ if [ -f "$FAKE_CLAUDE_COUNT_PATH" ]; then count=$(cat "$FAKE_CLAUDE_COUNT_PATH")
 count=$((count + 1))
 printf '%s\n' "$count" > "$FAKE_CLAUDE_COUNT_PATH"
 printf '%s\n' '{"type":"system","subtype":"init","tools":["Read","Grep"],"mcp_servers":[]}'
-printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"No findings.","usage":{"input_tokens":77,"output_tokens":9}}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"{\"findings\":[]}","usage":{"input_tokens":77,"output_tokens":9}}'
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -271,19 +314,19 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"N
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.SchemaVersion != 5 || summary.Status != "COMPLETE" || summary.SemanticResult != quality.ResultPass || summary.ProviderInvocations != 1 {
+	if summary.SchemaVersion != 1 || summary.Result != quality.ResultPass || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 {
 		t.Fatalf("summary = %#v", summary)
 	}
-	result := readJSON[quality.NativeReviewResult](t, summary.ResultPath)
-	if result.SchemaVersion != 5 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
+	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
+	if result.SchemaVersion != 6 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	count, err := os.ReadFile(countPath)
 	if err != nil || strings.TrimSpace(string(count)) != "1" {
 		t.Fatalf("provider invocation count = %q, err = %v", count, err)
 	}
-	final, err := os.ReadFile(filepath.Join(summary.SessionDir, "output", "native-review.txt"))
-	if err != nil || string(final) != "No findings." {
+	final, err := os.ReadFile(filepath.Join(summary.EvidenceDir, "output", "native-review.txt"))
+	if err != nil || string(final) != `{"findings":[]}` {
 		t.Fatalf("Claude final message = %q, err = %v", final, err)
 	}
 }
@@ -299,7 +342,7 @@ func TestRunClaudeRefusesSharedCloneFallbackBeforeProviderInvocation(t *testing.
 	script := `#!/bin/sh
 set -eu
 printf invoked > "$FAKE_CLAUDE_INVOKED_PATH"
-printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"No findings.","usage":{"input_tokens":1,"output_tokens":1}}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"{\"findings\":[]}","usage":{"input_tokens":1,"output_tokens":1}}'
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)

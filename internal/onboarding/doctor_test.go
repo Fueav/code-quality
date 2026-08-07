@@ -150,12 +150,12 @@ func writeDoctorProvider(t *testing.T, directory, host, logPath string, authenti
 	t.Helper()
 	name := "codex"
 	version := "codex-cli 0.145.0"
-	capabilities := "--sandbox --model --json --output-last-message"
+	capabilities := "--sandbox --model --json --output-last-message --output-schema"
 	authOutput := "logged in"
 	if host == "claude-code" {
 		name = "claude"
 		version = "2.1.220 (Claude Code)"
-		capabilities = "--output-format stream-json --permission-mode auto plan --safe-mode --strict-mcp-config --effort --no-session-persistence --model"
+		capabilities = "--output-format stream-json --permission-mode auto plan --safe-mode --strict-mcp-config --effort --no-session-persistence --model --json-schema"
 		authOutput = `{"loggedIn":true}`
 	}
 	if host == "codex" {

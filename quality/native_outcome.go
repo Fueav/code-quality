@@ -1,8 +1,12 @@
 package quality
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 )
 
@@ -19,7 +23,7 @@ type NativeOutcomeOptions struct {
 }
 
 // NativeOutcome is the validated runtime outcome of one ordinary provider review.
-// Its wire representation is NativeReviewResult schema v5.
+// Its wire representation is NativeReviewResult schema v6.
 type NativeOutcome struct {
 	result NativeReviewResult
 }
@@ -58,9 +62,9 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 			ReasoningEffort: options.ReasoningEffort, ProviderInvocations: 1, AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{
-			SemanticResult: ResultIncomplete,
-			RolloutMode:    "report_only",
-			CIAction:       "publish_report",
+			SemanticResult: ResultError,
+			RolloutMode:    "release_gate",
+			CIAction:       "hold_release",
 			Reasons:        []string{},
 		},
 	}
@@ -69,17 +73,30 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 		result.Adjudication.Reasons = []string{"native review failed: " + processErr.Error()}
 	case strings.TrimSpace(string(finalMessage)) == "":
 		result.Adjudication.Reasons = []string{"native review output is missing or empty"}
-	case isExactNoFindingsDocument(string(finalMessage)):
-		result.Adjudication.SemanticResult = ResultPass
-		result.Adjudication.Reasons = []string{"native review reported no actionable findings"}
 	default:
-		result.Adjudication.SemanticResult = ResultManualReview
-		result.Adjudication.Reasons = []string{
-			"native review produced nonempty output that is not an exact no-findings sentinel; inspect frozen native-review.txt",
+		findings, decodeErr := decodeNativeFindings(finalMessage)
+		if decodeErr != nil {
+			result.Adjudication.Reasons = []string{"native review structured output is invalid: " + decodeErr.Error()}
+			break
+		}
+		result.Findings = findings
+		if len(findings) == 0 {
+			result.Adjudication.SemanticResult = ResultPass
+			result.Adjudication.CIAction = "continue_release"
+			result.Adjudication.Reasons = []string{"no blocking issue was reported"}
+		} else {
+			result.Adjudication.SemanticResult = ResultBlock
+			result.Adjudication.Reasons = []string{fmt.Sprintf("%d blocking issue(s) must be fixed before release", len(findings))}
 		}
 	}
 	if problems := ValidateNativeResult(result); len(problems) > 0 {
-		return NativeOutcome{}, fmt.Errorf("native review outcome is invalid: %s", strings.Join(problems, "; "))
+		result.Findings = []NativeFinding{}
+		result.Adjudication.SemanticResult = ResultError
+		result.Adjudication.CIAction = "hold_release"
+		result.Adjudication.Reasons = []string{"native review structured output failed validation: " + strings.Join(problems, "; ")}
+		if fallbackProblems := ValidateNativeResult(result); len(fallbackProblems) > 0 {
+			return NativeOutcome{}, fmt.Errorf("native review error outcome is invalid: %s", strings.Join(fallbackProblems, "; "))
+		}
 	}
 	return NativeOutcome{result: result}, nil
 }
@@ -102,6 +119,10 @@ func (outcome NativeOutcome) Markdown() string {
 	return RenderNativeMarkdown(outcome.result)
 }
 
+func (outcome NativeOutcome) Summary() NativeReleaseSummary {
+	return SummarizeNativeResult(outcome.result)
+}
+
 func (outcome NativeOutcome) SemanticResult() string {
 	return outcome.result.Adjudication.SemanticResult
 }
@@ -110,13 +131,40 @@ func (outcome NativeOutcome) ProviderInvocations() int {
 	return outcome.result.Execution.ProviderInvocations
 }
 
-func isExactNoFindingsDocument(raw string) bool {
-	switch strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n")) {
-	case "No findings.", "No actionable findings.", "No actionable defects found.":
-		return true
-	default:
-		return false
+type nativeFindingEnvelope struct {
+	Findings []NativeFinding `json:"findings"`
+}
+
+func decodeNativeFindings(raw []byte) ([]NativeFinding, error) {
+	var shape map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &shape); err != nil {
+		return nil, err
 	}
+	encodedFindings, exists := shape["findings"]
+	if !exists || len(shape) != 1 || bytes.Equal(bytes.TrimSpace(encodedFindings), []byte("null")) {
+		return nil, errors.New("root must contain only a non-null findings array")
+	}
+	envelope, err := DecodeStrict[nativeFindingEnvelope](bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	if envelope.Findings == nil {
+		envelope.Findings = []NativeFinding{}
+	}
+	sort.SliceStable(envelope.Findings, func(i, j int) bool {
+		left, right := envelope.Findings[i], envelope.Findings[j]
+		if left.Priority != right.Priority {
+			return left.Priority < right.Priority
+		}
+		if left.CodeLocation.Path != right.CodeLocation.Path {
+			return left.CodeLocation.Path < right.CodeLocation.Path
+		}
+		if left.CodeLocation.StartLine != right.CodeLocation.StartLine {
+			return left.CodeLocation.StartLine < right.CodeLocation.StartLine
+		}
+		return left.Title < right.Title
+	})
+	return envelope.Findings, nil
 }
 
 func cloneNativeReviewResult(result NativeReviewResult) NativeReviewResult {

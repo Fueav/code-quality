@@ -23,8 +23,12 @@ func ValidateNativeResult(result NativeReviewResult) []string {
 	}
 	for index, finding := range result.Findings {
 		prefix := fmt.Sprintf("findings[%d]", index)
-		if strings.TrimSpace(finding.Title) == "" || strings.TrimSpace(finding.Body) == "" {
-			problems = append(problems, prefix+" title and body are required")
+		if strings.TrimSpace(finding.Title) == "" || strings.TrimSpace(finding.Reason) == "" || strings.TrimSpace(finding.Suggestion) == "" {
+			problems = append(problems, prefix+" title, reason, and suggestion are required")
+		}
+		if len(finding.Title) > 160 || len(finding.Reason) > 1000 || len(finding.Suggestion) > 1000 ||
+			strings.ContainsAny(finding.Title+finding.Reason+finding.Suggestion, "\r\n") {
+			problems = append(problems, prefix+" text must be concise single-line content")
 		}
 		if finding.Priority < 0 || finding.Priority > 3 {
 			problems = append(problems, prefix+" priority is outside 0-3")
@@ -53,18 +57,34 @@ func ValidateNativeResult(result NativeReviewResult) []string {
 			problems = append(problems, fmt.Sprintf("execution.adapter_drops[%d] is invalid", index))
 		}
 	}
-	if result.Adjudication.RolloutMode != "report_only" || result.Adjudication.CIAction != "publish_report" {
-		problems = append(problems, "adjudication must remain report_only and publish_report")
+	if result.Adjudication.RolloutMode != "release_gate" {
+		problems = append(problems, "adjudication rollout_mode must be release_gate")
 	}
 	if len(result.Adjudication.Reasons) == 0 || containsBlank(result.Adjudication.Reasons) {
 		problems = append(problems, "adjudication reasons are required")
 	}
 	switch result.Adjudication.SemanticResult {
-	case ResultPass, ResultIncomplete:
+	case ResultPass:
 		if len(result.Findings) != 0 {
 			problems = append(problems, result.Adjudication.SemanticResult+" result cannot contain findings")
 		}
-	case ResultManualReview:
+		if result.Adjudication.CIAction != "continue_release" {
+			problems = append(problems, "PASS must continue_release")
+		}
+	case ResultBlock:
+		if len(result.Findings) == 0 {
+			problems = append(problems, "BLOCK must contain at least one finding")
+		}
+		if result.Adjudication.CIAction != "hold_release" {
+			problems = append(problems, "BLOCK must hold_release")
+		}
+	case ResultError:
+		if len(result.Findings) != 0 {
+			problems = append(problems, "ERROR result cannot contain findings")
+		}
+		if result.Adjudication.CIAction != "hold_release" {
+			problems = append(problems, "ERROR must hold_release")
+		}
 	default:
 		problems = append(problems, "native adjudication semantic_result is invalid")
 	}

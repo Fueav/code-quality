@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Fueav/code-quality/quality"
 )
 
 func TestNativeReviewTransactionAcquiresLeaseBeforeDiscovery(t *testing.T) {
@@ -139,10 +141,15 @@ func TestNativeReviewTransactionPublishesAndCleansBeforeLeaseRelease(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !lease.closed || transaction.ExitCode != 0 || transaction.Summary.ProviderInvocations != 1 {
+	if !lease.closed || transaction.ExitCode != 0 || transaction.Summary.Result != quality.ResultPass {
 		t.Fatalf("transaction = %#v, lease = %#v", transaction, lease)
 	}
-	for _, path := range []string{transaction.Summary.ResultPath, transaction.Summary.MarkdownPath, transaction.Summary.FreezePath, transaction.Summary.MetricsPath} {
+	for _, path := range []string{
+		filepath.Join(transaction.Summary.EvidenceDir, "output", "review-result.json"),
+		filepath.Join(transaction.Summary.EvidenceDir, "output", "review-result.md"),
+		filepath.Join(transaction.Summary.EvidenceDir, "output", "native-review-freeze.json"),
+		filepath.Join(transaction.Summary.EvidenceDir, "output", "native-run-metrics.json"),
+	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("retained transaction artifact %q: %v", path, err)
 		}
@@ -191,10 +198,10 @@ func TestNativeReviewTransactionPublishesIncompleteProcessFailure(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if transaction.ExitCode != 1 || transaction.Summary.Status != "INCOMPLETE" || transaction.Summary.SemanticResult != "INCOMPLETE" || transaction.Summary.ProviderInvocations != 1 {
+	if transaction.ExitCode != 1 || transaction.Summary.Result != quality.ResultError || transaction.Summary.Release != "HOLD" {
 		t.Fatalf("transaction = %#v", transaction)
 	}
-	if _, err := os.Stat(transaction.Summary.ResultPath); err != nil {
+	if _, err := os.Stat(filepath.Join(transaction.Summary.EvidenceDir, "output", "review-result.json")); err != nil {
 		t.Fatalf("incomplete result was not published: %v", err)
 	}
 }
@@ -256,7 +263,7 @@ for argument in "$@"; do
 done
 test -n "$output"
 cat >/dev/null
-printf '%s\n' 'No findings.' > "$output"
+printf '%s\n' '{"findings":[]}' > "$output"
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":3}}'
 `
 	if precreateResult {
@@ -281,7 +288,7 @@ for argument in "$@"; do
 done
 test -n "$output"
 cat >/dev/null
-printf '%s\n' 'No findings.' > "$output"
+printf '%s\n' '{"findings":[]}' > "$output"
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":3}}'
 exit 7
 `

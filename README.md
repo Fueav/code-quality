@@ -1,6 +1,6 @@
 # code-quality (`quality-review`)
 
-用 Codex 或 Claude Code 的完整原生 Agent 审查一个**已提交的 Git 增量**，冻结原始证据并给出 `PASS / MANUAL_REVIEW / INCOMPLETE`。工具固定为 `report_only`：只给建议，不修改代码、Git、CI 或远端状态。
+用 Codex 或 Claude Code 的完整原生 Agent 审查一个**已提交的 Git 增量**，用 `PASS / BLOCK / ERROR` 直接回答是否可以继续发布流程。工具只读代码，不修改代码、Git、CI 或远端状态。
 
 ## 个人开发者：一句话安装并审查
 
@@ -8,16 +8,16 @@
 
 在需要审查的仓库中，把下面整句话交给 Codex 或 Claude Code：
 
-> 请为当前仓库安装并运行 Fueav code-quality v0.5.2；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.2/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只报告审查，用中文汇报结论和证据路径，不修改代码、Git、CI、远端或部署状态。
+> 请为当前仓库安装并运行 Fueav code-quality v0.5.3；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.3/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只读审查，只展示简明结论和必须修复的问题，不修改代码、Git、CI、远端或部署状态。
 
 Agent 会根据当前宿主执行下面一个固定版本入口：
 
 ```sh
 # Codex
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/bootstrap.sh | sh -s -- v0.5.2 codex
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.3/bootstrap.sh | sh -s -- v0.5.3 codex
 
 # Claude Code
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/bootstrap.sh | sh -s -- v0.5.2 claude
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.3/bootstrap.sh | sh -s -- v0.5.3 claude
 ```
 
 bootstrap 会同时安装 CLI 和对应插件，并输出 `QUALITY_REVIEW_BIN=<绝对路径>` 及下一条 doctor 命令。首次运行使用这个绝对路径，不依赖当前 shell 是否已包含 `~/.local/bin`；bootstrap 不会修改 shell profile。
@@ -43,20 +43,20 @@ quality-review run-claude --repo . --goal "这次改动的意图或额外关注�
 CLI 安装器会判断平台、校验 SHA-256，并安装到 `~/.local/bin`（可用 `INSTALL_DIR` 覆盖）：
 
 ```sh
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/install.sh | sh -s -- v0.5.2
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.3/install.sh | sh -s -- v0.5.3
 ```
 
 Codex plugin：
 
 ```sh
-codex plugin marketplace add Fueav/code-quality --ref v0.5.2
+codex plugin marketplace add Fueav/code-quality --ref v0.5.3
 codex plugin add code-quality@fueav-code-quality
 ```
 
 Claude Code plugin 使用 HTTPS 和固定 Tag，不要求 GitHub SSH：
 
 ```sh
-claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.2
+claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.3
 claude plugin install code-quality@fueav-code-quality --scope user
 ```
 
@@ -64,11 +64,11 @@ claude plugin install code-quality@fueav-code-quality --scope user
 
 ### 你会得到什么
 
-- `PASS`：原生审查精确返回无发现哨兵。
-- `MANUAL_REVIEW`：原生审查返回了需要人阅读的内容；这不等于审查失败。
-- `INCOMPLETE`：Provider 进程、证据冻结或报告发布不完整，应修复执行问题后重跑。
+- `PASS`：没有阻塞问题，可以继续发布流程。
+- `BLOCK`：存在必须解决的问题，暂停发布。
+- `ERROR`：扫描不可信或未完成，暂停发布并修复环境后重跑。
 
-每次运行都会保留 `native-review.txt`、stdout JSONL、stderr、`native-review-freeze.json`、`native-run-metrics.json` 和最终报告。JSON 摘要中的 `session_dir` 是完整证据目录。
+人类只看 `review-summary.md`，机器读取 `review-summary.json`。CLI stdout 同样只返回结果、发布建议、问题数量、问题列表及简报/证据路径；原始 Provider 输出、日志、指标和冻结哈希保留在 `evidence_dir`，不占据主视野。
 
 原生审查默认在仓库外的系统临时区创建一次运行独占、权限为 `0700` 的证据根目录。CLI 不会主动删除报告；长期归档时可传宿主允许写入、仓库外的绝对 `--output-root`。相对路径或经 symlink 解析回仓库内的路径会在创建 session 前被拒绝。
 
@@ -76,19 +76,19 @@ claude plugin install code-quality@fueav-code-quality --scope user
 
 本节的 `jobs: uses:` 配置只适用于 GitHub Actions。使用 Jenkins 的团队请直接阅读 [Jenkins 生产 CI 接入](docs/jenkins-production-ci.md)。
 
-这个入口面向一台受控的 self-hosted Linux runner。运行 GitHub Actions Runner 的同一个系统用户必须已经安装 `quality-review v0.5.2`，并安装、登录 Codex 或 Claude Code；workflow 不接收 Provider API key，不安装任何 CLI，也不创建临时登录。`quality-review run-codex` 会直接复用该用户的登录态，原生启动一次 `codex exec`；选择 Claude 时同理启动 `claude`。
+这个入口面向一台受控的 self-hosted Linux runner。运行 GitHub Actions Runner 的同一个系统用户必须已经安装 `quality-review v0.5.3`，并安装、登录 Codex 或 Claude Code；workflow 不接收 Provider API key，不安装任何 CLI，也不创建临时登录。`quality-review run-codex` 会直接复用该用户的登录态，原生启动一次 `codex exec`；选择 Claude 时同理启动 `claude`。
 
-CI 不需要安装 Codex 或 Claude Code 插件。reusable workflow 只验证预装的 `quality-review` 版本，然后执行 `doctor → 原生审查 → 上传证据`。生产路径以 PR 为审查单元，而不是按每个 commit 单独审查：套件从 GitHub PR 事件读取 base tip 与 head，计算真实 `merge-base → head` 范围，并把 PR 编号、分支、base tip 和 Actions run URL 冻结到 schema v5 结果中。一次只调用一个 Provider，默认 `reasoning_effort: low`；它不会写 PR 评论，也不会把模型发现直接变成合并门禁。
+CI 不需要安装 Codex 或 Claude Code 插件。reusable workflow 只验证预装的 `quality-review` 版本，然后执行 `doctor → 原生审查 → 发布简报与证据`。生产路径以 PR 为审查单元：套件从 GitHub PR 事件读取 base tip 与 head，计算真实 `merge-base → head` 范围，并把 PR 身份冻结到 schema v6 结果中。一次只调用一个 Provider，默认 `reasoning_effort: low`；它不会写 PR 评论，但有效问题会返回 `BLOCK` 并使 required check 失败。
 
 ### 1. 准备 Linux runner
 
 创建名为 `code-quality` 的 runner group，只授权给接入的可信私有仓库；给组内 Linux runner 增加 `self-hosted`、`linux`、`code-quality` 标签。先切换到实际运行 Actions Runner 服务的系统用户，安装套件并确保安装目录属于该服务的 `PATH`：
 
 ```sh
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.2/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.2
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.3/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.3
 command -v quality-review
-quality-review version  # 必须精确输出 quality-review v0.5.2
+quality-review version  # 必须精确输出 quality-review v0.5.3
 ```
 
 再验证所选 Provider：
@@ -128,7 +128,7 @@ jobs:
       !github.event.pull_request.draft &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.2
+    uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.3
     with:
       provider: claude
       model: sonnet
@@ -136,23 +136,23 @@ jobs:
       artifact_retention_days: 14
 ```
 
-示例固定引用包含已纠正 runner 契约的 `v0.5.2`，不要改为 `main`。改用 Codex 时只需把 `provider` 改为 `codex`、`model` 改为 `gpt-5.6-sol`；两种 Provider 都不传 secrets。job 会被调度到 `code-quality` runner group 内、带对应标签的 self-hosted Linux runner。
+示例固定引用 `v0.5.3`，不要改为 `main`。改用 Codex 时只需把 `provider` 改为 `codex`、`model` 改为 `gpt-5.6-sol`；两种 Provider 都不传 secrets。job 会被调度到 `code-quality` runner group 内、带对应标签的 self-hosted Linux runner。
 
 caller 不传 `base_sha` 或 `target_sha`。reusable workflow 只接受 `pull_request` 事件，完整拉取历史、精确检出 PR head，再由套件计算 merge-base；目标分支在 PR 创建后继续前进，也不会把目标分支自己的新增提交混进本次审查。每次 PR 更新都会取消同一 Provider 的旧 run，避免浪费额度。
 
-### 3. 把“执行健康”设为 required check
+### 3. 把 AI 审查设为 required check
 
-CI 的门禁含义是“审查是否完整执行”，不是“模型是否报告了问题”：
+CI 直接给出能否继续发布流程的结论：
 
 | 结果 | CI 结论 | 含义 |
 | --- | --- | --- |
 | doctor `READY` | 继续 | CLI、身份、Git 范围与已提交差异可用 |
 | doctor `BLOCKED` | 失败 | 不调用模型；先按 doctor 给出的下一步修复 |
-| `PASS` | 成功 | 完整执行，原生审查返回无发现哨兵 |
-| `MANUAL_REVIEW` | 成功 | 完整执行且有内容需要人读；保持 report-only |
-| `INCOMPLETE` 或配置错误 | 失败 | Provider、证据或输入不完整，应重跑或修复配置 |
+| `PASS` | 成功 | 没有阻塞问题，可以继续发布流程 |
+| `BLOCK` | 失败 | 存在必须修复的问题，暂停发布 |
+| `ERROR` 或配置错误 | 失败 | 扫描不可信或未完成，应修复后重跑 |
 
-无论成功还是失败，job summary 都会给出摘要，并上传 doctor 输出、运行摘要和完整 session artifact。将 `review / <provider> report-only review` 设为 required check 后，`MANUAL_REVIEW` 不会阻塞合并，`BLOCKED / INCOMPLETE` 会阻塞。
+无论成功还是失败，job summary 都直接渲染 `review-summary.md`。Artifact 只在顶层暴露简报、doctor/run 摘要和一个 `evidence.tar.gz`。将 `review / <provider> release-gate review` 设为 required check 后，`BLOCK`、`ERROR` 和 doctor `BLOCKED` 都会阻塞。
 
 ### 4. 安全边界
 
@@ -171,7 +171,7 @@ Jenkins 使用独立的 [生产接入说明](docs/jenkins-production-ci.md)。Gi
 
 ```sh
 claude auth status --json
-test "$(quality-review version)" = 'quality-review v0.5.2'
+test "$(quality-review version)" = 'quality-review v0.5.3'
 
 quality-review doctor --host claude-code --repo "$WORKSPACE" \
   --base "$BASE_SHA" --target "$TARGET_SHA" --execution-profile production-ci
@@ -185,9 +185,9 @@ Codex runner 先以 job 的系统用户运行 `codex login status` 与 `codex ex
 
 ## 运行语义
 
-CLI 会固定并隔离 committed base-to-target，然后只启动一次顶层原生 Provider。个人路径默认使用 Codex `gpt-5.6-sol / max` 或 Claude Code `opus / max`，并保留宿主正常配置与能力；Linux CI 为控制成本，默认使用 Codex `gpt-5.6-sol / low` 或 Claude Code `sonnet / low`，并由 `production-ci` profile 限制为只读、无自定义扩展的审查。包装层不注入自研 rubric、输出 schema、复审或重试。
+CLI 会固定并隔离 committed base-to-target，然后只启动一次顶层原生 Provider。个人路径默认使用 Codex `gpt-5.6-sol / max` 或 Claude Code `opus / max`，并保留宿主正常配置与能力；Linux CI 为控制成本，默认使用 Codex `gpt-5.6-sol / low` 或 Claude Code `sonnet / low`，并由 `production-ci` profile 限制为只读、无自定义扩展的审查。包装层只增加简明 findings JSON Schema，不增加自研 rubric、复审或重试。
 
-精确无发现哨兵返回 `PASS`；其他非空原生输出返回 `MANUAL_REVIEW` 并以冻结原文为准；进程或证据失败返回 `INCOMPLETE`。同一系统用户同时只允许一个原生审查。
+结构化 findings 为空返回 `PASS`；一个或多个有效问题返回 `BLOCK`；格式、Provider 或证据失败返回 `ERROR`。同一系统用户同时只允许一个原生审查。
 
 ## 维护者发布
 

@@ -24,7 +24,7 @@ on:
         type: number
 jobs:
   review:
-    name: ${{ inputs.provider }} report-only review
+    name: ${{ inputs.provider }} release-gate review
     if: >-
       github.event_name == 'pull_request' &&
       github.event.repository.private == true &&
@@ -73,11 +73,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify quality-review v0.5.2
+      - name: Verify quality-review v0.5.3
         run: |
           set -eu
           review_bin=$(command -v quality-review)
-          test "$("$review_bin" version)" = 'quality-review v0.5.2'
+          test "$("$review_bin" version)" = 'quality-review v0.5.3'
           printf 'QUALITY_REVIEW_BIN=%s\n' "$review_bin" >> "$GITHUB_ENV"
           printf 'QUALITY_REVIEW_OUTPUT_ROOT=%s\n' "$RUNNER_TEMP/code-quality" >> "$GITHUB_ENV"
 
@@ -101,7 +101,7 @@ jobs:
             --execution-profile production-ci |
             tee "$RUNNER_TEMP/quality-review-doctor-claude.json"
 
-      - name: Run Codex report-only review
+      - name: Run Codex release-gate review
         id: codex_review
         if: inputs.provider == 'codex'
         continue-on-error: true
@@ -118,7 +118,7 @@ jobs:
             --output-root "$QUALITY_REVIEW_OUTPUT_ROOT" |
             tee "$RUNNER_TEMP/quality-review-run-codex.json"
 
-      - name: Run Claude report-only review
+      - name: Run Claude release-gate review
         id: claude_review
         if: inputs.provider == 'claude'
         continue-on-error: true
@@ -138,37 +138,44 @@ jobs:
 
       - name: Publish job summary
         if: always()
-        env:
-          PROVIDER: ${{ inputs.provider }}
         run: |
           set -eu
           output_root="${QUALITY_REVIEW_OUTPUT_ROOT:-$RUNNER_TEMP/code-quality}"
-          summary_file=''
-          for candidate in \
-            "$RUNNER_TEMP/quality-review-run-codex.json" \
-            "$RUNNER_TEMP/quality-review-run-claude.json"; do
-            if [ -s "$candidate" ]; then summary_file="$candidate"; break; fi
+          review_summary=$(find "$output_root" -path '*/output/review-summary.md' -type f -print -quit 2>/dev/null || true)
+          if [ -n "$review_summary" ]; then
+            cat "$review_summary" >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo '# ⚠️ AI Code Review: ERROR'
+              echo
+              echo 'Release: `HOLD`'
+              echo
+              echo 'The review did not run. Inspect doctor.json.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Package concise result and evidence
+        if: always()
+        run: |
+          set -eu
+          output_root="${QUALITY_REVIEW_OUTPUT_ROOT:-$RUNNER_TEMP/code-quality}"
+          artifact_root="$RUNNER_TEMP/code-quality-artifact"
+          rm -rf "$artifact_root"
+          mkdir -p "$artifact_root"
+          for candidate in "$RUNNER_TEMP"/quality-review-doctor-*.json "$RUNNER_TEMP"/quality-review-run-*.json; do
+            if [ -f "$candidate" ]; then cp "$candidate" "$artifact_root/"; fi
           done
-          {
-            echo '## code-quality'
-            echo
-            echo "- Provider: \`$PROVIDER\`"
-            if [ -n "$summary_file" ]; then
-              echo "- Status: \`$(jq -r '.status' "$summary_file")\`"
-              echo "- Semantic result: \`$(jq -r '.semantic_result' "$summary_file")\`"
-              echo "- Provider invocations: \`$(jq -r '.provider_invocations' "$summary_file")\`"
-            else
-              echo '- Status: `NOT_RUN`'
-              echo '- Inspect the doctor artifact for the blocking reason.'
-            fi
-            native_review=$(find "$output_root" -path '*/output/native-review.txt' -type f -print -quit 2>/dev/null || true)
-            if [ -n "$native_review" ]; then
-              echo
-              echo '### Frozen native review'
-              echo
-              sed -n '1,240p' "$native_review" | sed 's/^/> /'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          for name in review-summary.md review-summary.json; do
+            candidate=$(find "$output_root" -path "*/output/$name" -type f -print -quit 2>/dev/null || true)
+            if [ -n "$candidate" ]; then cp "$candidate" "$artifact_root/$name"; fi
+          done
+          if [ ! -f "$artifact_root/review-summary.md" ]; then
+            printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect doctor.json.' > "$artifact_root/review-summary.md"
+            printf '%s\n' '{"schema_version":1,"result":"ERROR","release":"HOLD","blocking_issues":0,"issues":[]}' > "$artifact_root/review-summary.json"
+          fi
+          if [ -d "$output_root" ]; then
+            tar -czf "$artifact_root/evidence.tar.gz" -C "$output_root" .
+          fi
 
       - name: Upload frozen review evidence
         if: always()
@@ -176,9 +183,7 @@ jobs:
         with:
           name: code-quality-pr-${{ github.event.pull_request.number }}-${{ inputs.provider }}-${{ github.event.pull_request.head.sha }}
           path: |
-            ${{ runner.temp }}/quality-review
-            ${{ runner.temp }}/quality-review-doctor-*.json
-            ${{ runner.temp }}/quality-review-run-*.json
+            ${{ runner.temp }}/code-quality-artifact
           if-no-files-found: warn
           retention-days: ${{ inputs.artifact_retention_days }}
 
