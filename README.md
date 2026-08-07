@@ -74,6 +74,8 @@ claude plugin install code-quality@fueav-code-quality --scope user
 
 ## Linux CI：复用自托管 Runner 的原生登录态
 
+本节的 `jobs: uses:` 配置只适用于 GitHub Actions。使用 Jenkins 的团队请直接阅读 [Jenkins 生产 CI 接入](docs/jenkins-production-ci.md)。
+
 这个入口面向一台受控的 self-hosted Linux runner。运行 GitHub Actions Runner 的同一个系统用户必须已经安装 `quality-review v0.5.2`，并安装、登录 Codex 或 Claude Code；workflow 不接收 Provider API key，不安装任何 CLI，也不创建临时登录。`quality-review run-codex` 会直接复用该用户的登录态，原生启动一次 `codex exec`；选择 Claude 时同理启动 `claude`。
 
 CI 不需要安装 Codex 或 Claude Code 插件。reusable workflow 只验证预装的 `quality-review` 版本，然后执行 `doctor → 原生审查 → 上传证据`。生产路径以 PR 为审查单元，而不是按每个 commit 单独审查：套件从 GitHub PR 事件读取 base tip 与 head，计算真实 `merge-base → head` 范围，并把 PR 编号、分支、base tip 和 Actions run URL 冻结到 schema v5 结果中。一次只调用一个 Provider，默认 `reasoning_effort: low`；它不会写 PR 评论，也不会把模型发现直接变成合并门禁。
@@ -163,9 +165,9 @@ CI 的门禁含义是“审查是否完整执行”，不是“模型是否报�
 
 ### 非 GitHub CI
 
-GitLab CI、Jenkins 或其他 runner 使用相同契约：在实际运行 job 的 Linux 系统用户下预装固定版本 `quality-review`，并预先安装、登录一个 Provider；job 完整拉取 Git 历史，显式传入 base/target SHA，并把证据目录作为 `always` artifact 上传。
+Jenkins 使用独立的 [生产接入说明](docs/jenkins-production-ci.md)。GitLab CI 或其他 runner 使用相同契约：在实际运行 job 的 Linux 系统用户下预装固定版本 `quality-review`，并预先安装、登录一个 Provider；job 完整拉取 Git 历史，显式传入 base/target SHA，并把证据目录作为 `always` artifact 上传。
 
-先把四个变量映射清楚：`WORKSPACE` 是 checkout 的绝对路径；`CI_TMP_DIR` 是 checkout 之外的绝对临时目录（可由 `mktemp -d` 创建）；`BASE_SHA` 和 `TARGET_SHA` 是完整 commit SHA。GitLab MR 通常分别使用 `CI_MERGE_REQUEST_DIFF_BASE_SHA` 与 `CI_COMMIT_SHA`；Jenkins 应在完整 fetch 后用目标分支和 `GIT_COMMIT` 计算 merge-base。然后运行，例如 Claude Code：
+先把四个变量映射清楚：`WORKSPACE` 是 checkout 的绝对路径；`CI_TMP_DIR` 是 checkout 之外的绝对临时目录（可由 `mktemp -d` 创建）；`BASE_SHA` 和 `TARGET_SHA` 是完整 commit SHA。GitLab MR 通常分别使用 `CI_MERGE_REQUEST_DIFF_BASE_SHA` 与 `CI_COMMIT_SHA`。然后运行，例如 Claude Code：
 
 ```sh
 claude auth status --json
