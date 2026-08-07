@@ -1,34 +1,46 @@
-# Jenkins 生产 CI 接入
+# Jenkins 生产 CI 接入（v0.5.3）
 
 适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。
 
+运维只需完成四件事：准备一个专用 Agent、以 Agent 服务用户安装并登录 Provider、创建 Multibranch Pipeline、把下面的 Jenkinsfile 合入受保护分支。
+
 ## 1. 准备 Agent
 
-Agent 要求：
+先确认实际运行 Jenkins Agent 的 Linux 系统用户，并始终以这个用户执行安装和登录。Agent 要求：
 
 - 标签为 `code-quality`，每个系统用户只设 1 个 executor。
 - 使用专用低权限用户，不保存与审查无关的凭据。
+- 已安装 `bash`、`git`、`curl` 和 `tar`，能够访问 GitHub 与所选 Provider。
 - 同一用户预装 `quality-review v0.5.3` 和一个已登录的 Provider。
 
 ```sh
+command -v bash git curl tar
+
 curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.3/install.sh |
   INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.3
 
+command -v quality-review
 quality-review version          # 必须是 quality-review v0.5.3
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
 
-不安装交互式插件，不设置 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`。
+确保 Jenkins Agent 服务的 `PATH` 包含 `$HOME/.local/bin`。不安装交互式插件，不设置 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`，也不要把登录目录复制进 Workspace。
 
 ## 2. 配置 Jenkins
 
-- 安装 Pipeline、Multibranch Pipeline、GitHub Branch Source 和 SSH Agent 插件。
-- 只发现源仓库内部 PR，关闭 fork PR 构建。
-- SCM 使用只读 SSH 凭据，下面示例的 Credentials ID 为 `github-readonly`。
-- PR Discovery 优先选择 `The current pull request revision`。
-- 将 Jenkins PR 状态配置为仓库 required check。
-- 此审查 stage 必须在编译、测试等产生文件的步骤之前运行。
+固定配置如下：
+
+| 配置 | 值 |
+| --- | --- |
+| Jenkins 插件 | Pipeline、Multibranch Pipeline、GitHub Branch Source、SSH Agent |
+| Agent label | `code-quality` |
+| SCM 凭据 | 只读 SSH；示例 Credentials ID 为 `github-readonly` |
+| PR Discovery | `The current pull request revision`；只发现同仓 PR，关闭 fork PR |
+| Provider | `codex` 或 `claude`，一次只选一个 |
+| Required check | 将该 Multibranch Job 的实际 GitHub status context 设为 required check |
+
+此审查 stage 必须在编译、测试等会产生文件的步骤之前运行。
 
 ## 3. Jenkinsfile
 
@@ -156,6 +168,28 @@ cat "$artifact_root/review-summary.md"
 - `PASS`：没有阻塞问题，可以继续发布流程，Jenkins stage 成功。
 - `BLOCK`：存在必须修复的问题；`ERROR`：扫描不可信或未完成。两者都使 Jenkins stage 失败。
 - 开发者只看 `review-summary.md`；机器读取 `review-summary.json`；完整原始证据统一放在 `evidence.tar.gz`。
-- 首次上线用一个可信同仓 PR 验证：doctor 为 `READY`、简报可读、问题能阻塞 Job；再次推送 PR 时旧构建被取消；fork PR 不运行。
+
+Jenkins 控制台和 Artifact 中的主结论类似：
+
+```text
+# ✅ AI Code Review: PASS
+Release: CONTINUE
+Blocking issues: 0
+```
+
+首次上线必须用一个可信同仓 PR 验证：
+
+1. `doctor.json` 的状态为 `READY`。
+2. 控制台能直接看到 `PASS`、`BLOCK` 或 `ERROR`；`BLOCK/ERROR` 会让 Job 失败。
+3. Artifact 的 `code-quality-artifacts/` 目录包含 `doctor.json`、`run.json`、`review-summary.md`、`review-summary.json` 和 `evidence.tar.gz`。
+4. 再次推送同一 PR 时旧构建被取消；fork PR 不运行。
+
+## 5. 常见故障与升级
+
+- `quality-review` 找不到：把 `$HOME/.local/bin` 加入 Jenkins Agent 服务的 `PATH`，然后重启 Agent。
+- `doctor` 返回 `BLOCKED`：以 Agent 服务用户重新执行 `codex login` 或 `claude auth login`，再运行对应的 status 命令。
+- 版本不匹配：重新运行第 1 节的固定版本安装命令，并同步修改 Jenkinsfile 中的版本断言。
+- Workspace 不干净：确认审查 stage 位于构建步骤之前，并清理该 Job 自己生成的文件；不要删除业务仓库内容。
+- 升级新版本时先在一条可信 PR 验证，再将 required check 应用于全部受保护分支。
 
 安全边界：Provider 登录用户不得保存其他生产凭据；只在 `sshagent` 块内暴露只读 SCM 凭据；Jenkinsfile 或共享库必须由运维/CODEOWNERS 保护，不能让未信任 PR 修改后直接执行。
