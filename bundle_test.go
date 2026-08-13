@@ -63,6 +63,32 @@ func TestNativeResultV6SchemaIsAReleaseGate(t *testing.T) {
 	}
 }
 
+func TestNativeResultV7SchemaIsPriorityAware(t *testing.T) {
+	raw, err := Schema("review-result-v7.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{`"schema_version": {"const": 7}`, `"PASS"`, `"BLOCK"`, `"priority": {"enum": [0, 1]}`, `"priority": {"enum": [2, 3]}`} {
+		if !strings.Contains(text, required) {
+			t.Errorf("v7 schema is missing %s", required)
+		}
+	}
+}
+
+func TestReviewSummarySchemaV2SeparatesBlockingAndAdvisoryCounts(t *testing.T) {
+	raw, err := Schema("review-summary.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{`"schema_version": {"const": 2}`, `"blocking_issues"`, `"advisory_issues"`, `"priority": {"enum": ["P0", "P1"]}`, `"priority": {"enum": ["P2", "P3"]}`} {
+		if !strings.Contains(text, required) {
+			t.Errorf("summary schema is missing %s", required)
+		}
+	}
+}
+
 func TestEmbeddedPolicyMatchesV12Contract(t *testing.T) {
 	raw, err := PolicyManifest()
 	if err != nil {
@@ -130,6 +156,7 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-result-v4.schema.json",
 		"review-result-v5.schema.json",
 		"review-result-v6.schema.json",
+		"review-result-v7.schema.json",
 		"native-review-output.schema.json",
 		"review-summary.schema.json",
 		"native-review-freeze.schema.json",
@@ -214,7 +241,7 @@ func TestNativeFreezeSchemaFixesArtifactIdentityAndDigest(t *testing.T) {
 }
 
 func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
-	for _, name := range []string{"review-result-v3.schema.json", "review-result-v4.schema.json", "review-result-v5.schema.json", "review-result-v6.schema.json"} {
+	for _, name := range []string{"review-result-v3.schema.json", "review-result-v4.schema.json", "review-result-v5.schema.json", "review-result-v6.schema.json", "review-result-v7.schema.json"} {
 		raw, err := Schema(name)
 		if err != nil {
 			t.Fatal(err)

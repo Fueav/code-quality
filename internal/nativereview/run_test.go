@@ -44,7 +44,7 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 		}
 	}
 	wantPrompt := fmt.Sprintf(
-		"Review the changes introduced by %s relative to %s for actionable defects.\nUser-supplied context: %q\nReturn only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no actionable defect exists, return an empty findings array.\n",
+		"Review the changes introduced by %s relative to %s for concrete defects introduced or worsened by this change.\nUser-supplied context: %q\nUse the priority definitions embedded in the configured JSON Schema. Exclude pure style, naming, preference, ordinary maintainability, and scale speculation without evidence.\nReturn only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no concrete defect exists, return an empty findings array.\n",
 		request.TargetCommit, request.BaseCommit, "protect settlement correctness",
 	)
 	if invocation.stdin != wantPrompt {
@@ -475,7 +475,7 @@ func TestNativeReviewPromptOmitsUnsuppliedGoal(t *testing.T) {
 	if options.Goal != "" {
 		t.Fatalf("wrapper invented goal %q", options.Goal)
 	}
-	want := fmt.Sprintf("Review the changes introduced by %s relative to %s for actionable defects.\nReturn only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no actionable defect exists, return an empty findings array.\n", request.TargetCommit, request.BaseCommit)
+	want := fmt.Sprintf("Review the changes introduced by %s relative to %s for concrete defects introduced or worsened by this change.\nUse the priority definitions embedded in the configured JSON Schema. Exclude pure style, naming, preference, ordinary maintainability, and scale speculation without evidence.\nReturn only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no concrete defect exists, return an empty findings array.\n", request.TargetCommit, request.BaseCommit)
 	if prompt := buildReviewPrompt(options.Session.Request(), options.Goal, false); prompt != want {
 		t.Fatalf("prompt = %q, want %q", prompt, want)
 	}

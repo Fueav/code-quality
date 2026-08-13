@@ -10,7 +10,7 @@
         "additionalProperties": false,
         "required": ["priority", "title", "code_location", "reason", "suggestion"],
         "properties": {
-          "priority": {"type": "integer", "minimum": 0, "maximum": 3},
+          "priority": {"type": "integer", "minimum": 0, "maximum": 3, "description": "Assign only concrete defects introduced or worsened by this change. P0: an emergency, catastrophic defect with immediate broad impact. P1: a reachable defect or approved-contract violation with material correctness, data, security, reliability, or compatibility impact; P0 and P1 block release. P2: a real but conditional, contained, recoverable, or non-urgent defect; advisory only. P3: a low-impact real defect or optional improvement; advisory only. Do not report pure style, naming, preference, ordinary maintainability, or scale speculation without evidence."},
           "title": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\r\\n]+$"},
           "code_location": {
             "type": "object",

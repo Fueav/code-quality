@@ -13,8 +13,19 @@ func TestValidateNativeResultEnforcesChangedFileAndSemanticContract(t *testing.T
 	}
 	result = validNativeResult()
 	result.Adjudication.SemanticResult = ResultPass
+	result.Adjudication.CIAction = "continue_release"
 	if problems := ValidateNativeResult(result); len(problems) == 0 {
-		t.Fatal("PASS result with findings was accepted")
+		t.Fatal("PASS result with a P1 finding was accepted")
+	}
+}
+
+func TestValidateNativeResultAllowsPassWithAdvisories(t *testing.T) {
+	result := validNativeResult()
+	result.Findings[0].Priority = 2
+	result.Adjudication.SemanticResult = ResultPass
+	result.Adjudication.CIAction = "continue_release"
+	if problems := ValidateNativeResult(result); len(problems) != 0 {
+		t.Fatalf("PASS with a P2 advisory problems = %#v", problems)
 	}
 }
 
@@ -51,6 +62,14 @@ func TestValidateNativeResultRejectsBlockWithoutIssues(t *testing.T) {
 	result.Findings = []NativeFinding{}
 	if problems := ValidateNativeResult(result); len(problems) == 0 {
 		t.Fatal("BLOCK without issues was accepted")
+	}
+}
+
+func TestValidateNativeResultRejectsBlockWithAdvisoriesOnly(t *testing.T) {
+	result := validNativeResult()
+	result.Findings[0].Priority = 3
+	if problems := ValidateNativeResult(result); len(problems) == 0 {
+		t.Fatal("BLOCK with only a P3 advisory was accepted")
 	}
 }
 

@@ -1,4 +1,4 @@
-# Jenkins 生产 CI 接入（v0.5.3）
+# Jenkins 生产 CI 接入（v0.5.4）
 
 适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。
 
@@ -11,16 +11,16 @@
 - 标签为 `code-quality`，每个系统用户只设 1 个 executor。
 - 使用专用低权限用户，不保存与审查无关的凭据。
 - 已安装 `bash`、`git`、`curl` 和 `tar`，能够访问 GitHub 与所选 Provider。
-- 同一用户预装 `quality-review v0.5.3` 和一个已登录的 Provider。
+- 同一用户预装 `quality-review v0.5.4` 和一个已登录的 Provider。
 
 ```sh
 command -v bash git curl tar
 
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.3/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.3
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.4/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.4
 
 command -v quality-review
-quality-review version          # 必须是 quality-review v0.5.3
+quality-review version          # 必须是 quality-review v0.5.4
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
@@ -104,7 +104,7 @@ printf 'BASE_SHA=%s\nTARGET_SHA=%s\n' "$base" "$target" > "$REVIEW_ROOT/range.en
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 . "$REVIEW_ROOT/range.env"
-test "$(quality-review version)" = 'quality-review v0.5.3'
+test "$(quality-review version)" = 'quality-review v0.5.4'
 
 case "$CODE_QUALITY_PROVIDER" in
   codex) host=codex; command=run-codex; model=gpt-5.6-sol ;;
@@ -150,7 +150,7 @@ if [ -n "${REVIEW_ROOT:-}" ] && [ -d "$REVIEW_ROOT" ]; then
 fi
 if [ ! -f "$artifact_root/review-summary.md" ]; then
   printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect doctor.json.' > "$artifact_root/review-summary.md"
-  printf '%s\n' '{"schema_version":1,"result":"ERROR","release":"HOLD","blocking_issues":0,"issues":[]}' > "$artifact_root/review-summary.json"
+  printf '%s\n' '{"schema_version":2,"result":"ERROR","release":"HOLD","blocking_issues":0,"advisory_issues":0,"issues":[]}' > "$artifact_root/review-summary.json"
 fi
 cat "$artifact_root/review-summary.md"
 '''
@@ -165,8 +165,8 @@ cat "$artifact_root/review-summary.md"
 
 ## 4. 结果与验收
 
-- `PASS`：没有阻塞问题，可以继续发布流程，Jenkins stage 成功。
-- `BLOCK`：存在必须修复的问题；`ERROR`：扫描不可信或未完成。两者都使 Jenkins stage 失败。
+- `PASS`：没有 P0/P1 阻塞问题，可以继续发布流程；P2/P3 advisory 仍会展示，Jenkins stage 成功。
+- `BLOCK`：存在至少一个 P0/P1 必须修复的问题；`ERROR`：扫描不可信或未完成。两者都使 Jenkins stage 失败。
 - 开发者只看 `review-summary.md`；机器读取 `review-summary.json`；完整原始证据统一放在 `evidence.tar.gz`。
 
 Jenkins 控制台和 Artifact 中的主结论类似：
@@ -175,6 +175,7 @@ Jenkins 控制台和 Artifact 中的主结论类似：
 # ✅ AI Code Review: PASS
 Release: CONTINUE
 Blocking issues: 0
+Advisory issues: 0
 ```
 
 首次上线必须用一个可信同仓 PR 验证：

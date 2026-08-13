@@ -99,14 +99,14 @@ func buildReviewInvocation(options nativeRunOptions) reviewInvocation {
 
 func buildReviewPrompt(request quality.ReviewRequest, goal string, reportOnlyBoundary bool) string {
 	var prompt strings.Builder
-	fmt.Fprintf(&prompt, "Review the changes introduced by %s relative to %s for actionable defects.\n", request.TargetCommit, request.BaseCommit)
+	fmt.Fprintf(&prompt, "Review the changes introduced by %s relative to %s for concrete defects introduced or worsened by this change.\n", request.TargetCommit, request.BaseCommit)
 	if goal != "" {
 		fmt.Fprintf(&prompt, "User-supplied context: %s\n", strconv.Quote(goal))
 	}
 	if reportOnlyBoundary {
 		prompt.WriteString("Report actionable findings only. Do not modify files, commit, push, deploy, or change external state.\n")
 	}
-	prompt.WriteString("Return only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no actionable defect exists, return an empty findings array.\n")
+	prompt.WriteString("Use the priority definitions embedded in the configured JSON Schema. Exclude pure style, naming, preference, ordinary maintainability, and scale speculation without evidence.\nReturn only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no concrete defect exists, return an empty findings array.\n")
 	return prompt.String()
 }
 

@@ -23,7 +23,7 @@ type NativeOutcomeOptions struct {
 }
 
 // NativeOutcome is the validated runtime outcome of one ordinary provider review.
-// Its wire representation is NativeReviewResult schema v6.
+// Its wire representation is NativeReviewResult schema v7.
 type NativeOutcome struct {
 	result NativeReviewResult
 }
@@ -80,13 +80,18 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 			break
 		}
 		result.Findings = findings
-		if len(findings) == 0 {
+		blockingFindings := nativeBlockingFindingCount(findings)
+		if blockingFindings == 0 {
 			result.Adjudication.SemanticResult = ResultPass
 			result.Adjudication.CIAction = "continue_release"
-			result.Adjudication.Reasons = []string{"no blocking issue was reported"}
+			if len(findings) == 0 {
+				result.Adjudication.Reasons = []string{"no P0/P1 blocking issue was reported"}
+			} else {
+				result.Adjudication.Reasons = []string{fmt.Sprintf("no P0/P1 blocking issue was reported; %d advisory issue(s) were retained", len(findings))}
+			}
 		} else {
 			result.Adjudication.SemanticResult = ResultBlock
-			result.Adjudication.Reasons = []string{fmt.Sprintf("%d blocking issue(s) must be fixed before release", len(findings))}
+			result.Adjudication.Reasons = []string{fmt.Sprintf("%d P0/P1 blocking issue(s) must be fixed before release", blockingFindings)}
 		}
 	}
 	if problems := ValidateNativeResult(result); len(problems) > 0 {
@@ -101,7 +106,7 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 	return NativeOutcome{result: result}, nil
 }
 
-// Result returns a detached copy of the schema-v5 wire representation.
+// Result returns a detached copy of the schema-v7 wire representation.
 func (outcome NativeOutcome) Result() NativeReviewResult {
 	return cloneNativeReviewResult(outcome.result)
 }

@@ -65,15 +65,15 @@ func ValidateNativeResult(result NativeReviewResult) []string {
 	}
 	switch result.Adjudication.SemanticResult {
 	case ResultPass:
-		if len(result.Findings) != 0 {
-			problems = append(problems, result.Adjudication.SemanticResult+" result cannot contain findings")
+		if nativeBlockingFindingCount(result.Findings) != 0 {
+			problems = append(problems, "PASS result cannot contain P0/P1 findings")
 		}
 		if result.Adjudication.CIAction != "continue_release" {
 			problems = append(problems, "PASS must continue_release")
 		}
 	case ResultBlock:
-		if len(result.Findings) == 0 {
-			problems = append(problems, "BLOCK must contain at least one finding")
+		if nativeBlockingFindingCount(result.Findings) == 0 {
+			problems = append(problems, "BLOCK must contain at least one P0/P1 finding")
 		}
 		if result.Adjudication.CIAction != "hold_release" {
 			problems = append(problems, "BLOCK must hold_release")

@@ -1,6 +1,6 @@
 {
   "name": "code-quality",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "调用当前宿主的完整原生代码审查能力，冻结原始输出，再发布只报告的确定性分类；V1.2 仅用于离线评测。",
   "author": {
     "name": "Fueav",

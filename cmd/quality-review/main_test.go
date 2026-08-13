@@ -176,7 +176,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.SchemaVersion != 1 || summary.Result != quality.ResultPass || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 {
+	if summary.SchemaVersion != 2 || summary.Result != quality.ResultPass || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 || summary.AdvisoryIssues != 0 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	metricsPath := filepath.Join(summary.EvidenceDir, "output", "native-run-metrics.json")
@@ -202,7 +202,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 		t.Fatalf("prompt = %q, err = %v", prompt, err)
 	}
 	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
-	if result.SchemaVersion != 6 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
+	if result.SchemaVersion != 7 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
 		t.Fatalf("result = %#v", result)
 	}
 	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json"} {
@@ -265,7 +265,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.Result != quality.ResultBlock || summary.Release != "HOLD" || summary.BlockingIssues != 1 || len(summary.Issues) != 1 {
+	if summary.SchemaVersion != 2 || summary.Result != quality.ResultBlock || summary.Release != "HOLD" || summary.BlockingIssues != 1 || summary.AdvisoryIssues != 0 || len(summary.Issues) != 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	markdown, err := os.ReadFile(summary.SummaryPath)
@@ -273,7 +273,58 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 		t.Fatalf("summary markdown = %q, error = %v", markdown, err)
 	}
 	machine := readJSON[quality.NativeReleaseSummary](t, filepath.Join(summary.EvidenceDir, "output", "review-summary.json"))
-	if machine.Result != quality.ResultBlock || machine.BlockingIssues != 1 {
+	if machine.Result != quality.ResultBlock || machine.BlockingIssues != 1 || machine.AdvisoryIssues != 0 {
+		t.Fatalf("machine summary = %#v", machine)
+	}
+}
+
+func TestRunCodexAdvisoryFindingContinuesReleaseAndPreservesSummary(t *testing.T) {
+	forceTopLevelDiscovery(t)
+	repo, base, target := cliReviewFixture(t)
+	directory := t.TempDir()
+	scriptPath := filepath.Join(directory, "codex")
+	script := `#!/bin/sh
+set -eu
+output=''
+previous=''
+for argument in "$@"; do
+  if [ "$previous" = '--output-last-message' ]; then output="$argument"; fi
+  previous="$argument"
+done
+test -n "$output"
+cat >/dev/null
+printf '%s\n' '{"findings":[{"priority":2,"title":"Conditional cleanup backlog","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The bounded cleanup can lag only under sustained maximum throughput.","suggestion":"Track the backlog and raise cleanup capacity in a follow-up."}]}' > "$output"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_tokens":45}}'
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	previousBinary := codexBinary
+	codexBinary = scriptPath
+	t.Cleanup(func() { codexBinary = previousBinary })
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"run-codex", "--repo", repo, "--base", base, "--target", target,
+		"--diff-reason", "test_increment", "--execution-profile", "production-ci",
+		"--output-root", filepath.Join(directory, "sessions"),
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	var summary nativereview.NativeRunSummary
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.SchemaVersion != 2 || summary.Result != quality.ResultPass || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 || summary.AdvisoryIssues != 1 || len(summary.Issues) != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	markdown, err := os.ReadFile(summary.SummaryPath)
+	if err != nil || !strings.Contains(string(markdown), "PASS") || !strings.Contains(string(markdown), "## Advisories") || !strings.Contains(string(markdown), "Conditional cleanup backlog") {
+		t.Fatalf("summary markdown = %q, error = %v", markdown, err)
+	}
+	machine := readJSON[quality.NativeReleaseSummary](t, filepath.Join(summary.EvidenceDir, "output", "review-summary.json"))
+	if machine.Result != quality.ResultPass || machine.Release != "CONTINUE" || machine.BlockingIssues != 0 || machine.AdvisoryIssues != 1 || len(machine.Issues) != 1 {
 		t.Fatalf("machine summary = %#v", machine)
 	}
 }
@@ -314,11 +365,11 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"{
 	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.SchemaVersion != 1 || summary.Result != quality.ResultPass || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 {
+	if summary.SchemaVersion != 2 || summary.Result != quality.ResultPass || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 || summary.AdvisoryIssues != 0 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
-	if result.SchemaVersion != 6 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
+	if result.SchemaVersion != 7 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	count, err := os.ReadFile(countPath)

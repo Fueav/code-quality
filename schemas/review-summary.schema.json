@@ -2,12 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "result", "release", "blocking_issues", "issues"],
+  "required": ["schema_version", "result", "release", "blocking_issues", "advisory_issues", "issues"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "result": {"enum": ["PASS", "BLOCK", "ERROR"]},
     "release": {"enum": ["CONTINUE", "HOLD"]},
     "blocking_issues": {"type": "integer", "minimum": 0},
+    "advisory_issues": {"type": "integer", "minimum": 0},
     "issues": {
       "type": "array",
       "items": {
@@ -27,15 +28,34 @@
   "allOf": [
     {
       "if": {"properties": {"result": {"const": "PASS"}}},
-      "then": {"properties": {"release": {"const": "CONTINUE"}, "blocking_issues": {"const": 0}, "issues": {"maxItems": 0}}}
+      "then": {
+        "properties": {
+          "release": {"const": "CONTINUE"},
+          "blocking_issues": {"const": 0},
+          "issues": {"items": {"type": "object", "properties": {"priority": {"enum": ["P2", "P3"]}}}}
+        }
+      }
     },
     {
       "if": {"properties": {"result": {"const": "BLOCK"}}},
-      "then": {"properties": {"release": {"const": "HOLD"}, "blocking_issues": {"minimum": 1}, "issues": {"minItems": 1}}}
+      "then": {
+        "properties": {
+          "release": {"const": "HOLD"},
+          "blocking_issues": {"minimum": 1},
+          "issues": {"minItems": 1, "contains": {"type": "object", "required": ["priority"], "properties": {"priority": {"enum": ["P0", "P1"]}}}, "minContains": 1}
+        }
+      }
     },
     {
       "if": {"properties": {"result": {"const": "ERROR"}}},
-      "then": {"properties": {"release": {"const": "HOLD"}, "blocking_issues": {"const": 0}, "issues": {"maxItems": 0}}}
+      "then": {
+        "properties": {
+          "release": {"const": "HOLD"},
+          "blocking_issues": {"const": 0},
+          "advisory_issues": {"const": 0},
+          "issues": {"maxItems": 0}
+        }
+      }
     }
   ]
 }
