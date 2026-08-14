@@ -47,6 +47,12 @@ def adjudication(finding_id: str, **overrides: object) -> dict[str, object]:
 
 
 class RestrictedAdjudicationTests(unittest.TestCase):
+    def test_native_block_exit_is_a_completed_product_result(self) -> None:
+        self.assertTrue(MODULE.native_call_completed(0, False))
+        self.assertTrue(MODULE.native_call_completed(3, False))
+        self.assertFalse(MODULE.native_call_completed(1, False))
+        self.assertFalse(MODULE.native_call_completed(3, True))
+
     def test_block_requires_every_formula_term_and_valid_evidence(self) -> None:
         value = adjudication("finding-v1:sha256:" + "a" * 64)
         self.assertEqual(MODULE.computed_disposition(value), "BLOCK")

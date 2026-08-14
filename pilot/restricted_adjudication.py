@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import datetime as dt
 import hashlib
 import json
@@ -22,10 +21,10 @@ import time
 from typing import Any
 
 
-PROFILE = "restricted_adjudication_blind_eval_v1"
+PROFILE = "restricted_adjudication_blind_eval_v2"
 MODEL = "gpt-5.6-sol"
 REASONING_EFFORT = "max"
-MAX_WORKERS = 2
+MAX_WORKERS = 1
 CALL_TIMEOUT_SECONDS = 1200
 SPEC_PATH = pathlib.Path("2026-08-14-restricted-adjudication-blind-evaluation-spec.md")
 POLICY_PATH = pathlib.Path("pilot/restricted-adjudication-policy.md")
@@ -126,6 +125,14 @@ def model_process(
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             stdout, stderr = process.communicate()
+    except KeyboardInterrupt:
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+        raise
     duration_ms = round((time.monotonic() - started) * 1000)
     return {
         "returncode": process.returncode,
@@ -344,6 +351,11 @@ def native_result_summary(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def native_call_completed(returncode: int, timed_out: bool) -> bool:
+    """The product uses 0 for PASS and 3 for a valid BLOCK result."""
+    return not timed_out and returncode in {0, 3}
+
+
 def run_sample(workspace: pathlib.Path, sample: dict[str, Any]) -> dict[str, Any]:
     sample_id = str(sample["sample_id"])
     evidence = workspace / "evidence" / sample_id
@@ -401,7 +413,7 @@ def run_sample(workspace: pathlib.Path, sample: dict[str, Any]) -> dict[str, Any
                 "started_from_clean_checkout": True,
             },
         )
-        if native_run["returncode"] != 0 or native_run["timed_out"]:
+        if not native_call_completed(native_run["returncode"], native_run["timed_out"]):
             raise ValueError("native review call did not complete")
         native_result_path = find_single(native_output, "review-result.json")
         native_final_path = find_single(native_output, "native-review.txt")
@@ -793,19 +805,16 @@ def batch(args: argparse.Namespace) -> None:
     if not isinstance(samples, list) or len(samples) != manifest.get("sample_count"):
         raise ValueError("runtime sample set is invalid")
     results: list[dict[str, Any]] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        future_by_id = {
-            executor.submit(run_sample, workspace, sample): str(sample["sample_id"])
-            for sample in samples
-        }
-        for future in concurrent.futures.as_completed(future_by_id):
-            sample_id = future_by_id[future]
-            try:
-                result = future.result()
-            except Exception as error:
-                result = {"sample_id": sample_id, "status": "INCOMPLETE", "error": str(error)}
-            results.append(result)
-            print(json.dumps(result, sort_keys=True), flush=True)
+    for sample in samples:
+        sample_id = str(sample["sample_id"])
+        try:
+            result = run_sample(workspace, sample)
+        except Exception as error:
+            result = {"sample_id": sample_id, "status": "INCOMPLETE", "error": str(error)}
+        results.append(result)
+        print(json.dumps(result, sort_keys=True), flush=True)
+        if result.get("status") != "COMPLETE":
+            break
     write_json(
         workspace / "batch-summary.json",
         {

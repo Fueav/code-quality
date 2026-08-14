@@ -1,6 +1,6 @@
 # Restricted Adjudication Blind Evaluation
 
-Status: owner-authorized isolated experiment contract
+Status: owner-authorized isolated experiment contract, protocol v2
 
 Source baseline: `v0.5.6@1e8ae39455d050ccf7a851523d958e3e91fae6db`
 
@@ -58,8 +58,8 @@ This is a reused historical benchmark, not an untouched confirmatory population.
 - native lane: the exact `quality-review run-codex` implementation built from the frozen source;
 - adjudication lane: `codex exec` with the same `gpt-5.6-sol` model and `max` reasoning;
 - adjudication sandbox: read-only, ephemeral, ignored user config and rules, disabled hooks;
-- maximum parallel samples: 2;
-- native discovery calls remain serialized by the shipped OS-account lease; only one prior sample's adjudication may overlap the next native call;
+- maximum parallel samples: 1;
+- native discovery and adjudication are serial so the shipped OS-account lease and first-failure stop are unambiguous;
 - maximum calls: 60 total, 30 native plus at most 30 adjudication;
 - timeout: 1,200 seconds per call;
 - no retry, resume, or same-sample replacement;
@@ -102,6 +102,12 @@ The treatment is preferred in this pilot only if:
 4. every execution and blind-evidence integrity check passes.
 
 A directional improvement that misses the statistical gate is reported as promising but inconclusive. A tie, regression, integrity failure, or loss of severe-change retention keeps the current behavior.
+
+## Aborted protocol v1
+
+Protocol v1 froze successfully and began execution, but its experiment runner incorrectly treated every nonzero `quality-review run-codex` exit as an execution failure. The shipped product intentionally returns exit code `3` for a valid `BLOCK` result. The first native call completed, returned `BLOCK`, and froze its result; the runner mislabeled it `INCOMPLETE`. A second native call had started from the pre-submitted worker queue and was operator-terminated while stopping the invalid batch. No adjudication call or label scoring occurred.
+
+Protocol v1 evidence remains immutable operational evidence and is excluded from every v2 denominator. Protocol v2 keeps the policy, output schema, model, reasoning, 30-sample population, and scoring gates unchanged. It changes only the runner's accepted native completion codes to `0` and `3`, reduces execution to one serial sample, stops after the first real incomplete sample, and guarantees child-process termination on operator interrupt. Re-execution is disclosed as an exploratory protocol restart, not an untouched confirmatory replay.
 
 ## PR 16 case study
 
