@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "profile": "restricted_adjudication_frozen_case_v1",
+  "source": {
+    "pull_request": "https://github.com/moss-site/agent_marketplace/pull/16",
+    "native_report": "https://github.com/moss-site/agent_marketplace/pull/16#issuecomment-5292448482",
+    "base": "de83c595dc75271cf81080a10c6a4389b1ca3404",
+    "target": "cbbd7cc76041333fb0b25df06661d671d88db7c8",
+    "frozen_findings_sha256": "b0126f63d0c12dda257481d73cf14c3eca6f84942ad08e6f807ec5257e16e10d"
+  },
+  "native": {
+    "finding_count": 1,
+    "priority": 1,
+    "predicts_block": true
+  },
+  "adjudication": {
+    "validity": "CONTRADICTED",
+    "severity": "S2",
+    "trigger_confidence": "T1",
+    "evidence_level": "E1",
+    "introduced_or_worsened_by_change": false,
+    "trigger_condition_is_concrete": false,
+    "causal_chain_is_complete": false,
+    "finding_is_not_style_preference": true,
+    "evidence_refs_valid": true,
+    "computed_disposition": "REJECT",
+    "effective_priority": null,
+    "predicts_block": false
+  },
+  "execution": {
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "max",
+    "calls": 1,
+    "duration_ms": 447700,
+    "input_tokens": 1281807,
+    "output_tokens": 14698,
+    "developer_instructions_sha256": "9c1c6890f671b13658935f27bcfbc7585636ad76d8598eb80aa9343445ff3182",
+    "effective_result_sha256": "105a2e8704e0d766cbdce382fc0c9d63cbc447f32e4f59c8e9eddd2c88544f37"
+  },
+  "assessment": {
+    "case_result": "SUPPORTS_RESTRICTED_ADJUDICATION",
+    "statistical_claim": "NOT_ESTABLISHED",
+    "operator_note": "REJECT versus MANUAL_REVIEW is debatable, but S2/T1/E1 independently prevents BLOCK under the frozen production-floor rule."
+  }
+}
