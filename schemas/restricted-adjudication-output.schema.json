@@ -1,0 +1,82 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["adjudications"],
+  "properties": {
+    "adjudications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "finding_id",
+          "validity",
+          "severity",
+          "trigger_confidence",
+          "evidence_level",
+          "introduced_or_worsened_by_change",
+          "trigger_condition_is_concrete",
+          "causal_chain_is_complete",
+          "finding_is_not_style_preference",
+          "recommended_disposition",
+          "evidence_refs",
+          "uncertainties",
+          "reason"
+        ],
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "pattern": "^finding-v1:sha256:[0-9a-f]{64}$"
+          },
+          "validity": {
+            "type": "string",
+            "enum": ["SUPPORTED", "CONTRADICTED", "INSUFFICIENT"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["S1", "S2", "S3"]
+          },
+          "trigger_confidence": {
+            "type": "string",
+            "enum": ["T1", "T2", "T3"]
+          },
+          "evidence_level": {
+            "type": "string",
+            "enum": ["E1", "E2", "E3"]
+          },
+          "introduced_or_worsened_by_change": {"type": "boolean"},
+          "trigger_condition_is_concrete": {"type": "boolean"},
+          "causal_chain_is_complete": {"type": "boolean"},
+          "finding_is_not_style_preference": {"type": "boolean"},
+          "recommended_disposition": {
+            "type": "string",
+            "enum": ["BLOCK", "MANUAL_REVIEW", "ADVISORY", "REJECT"]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "start_line", "end_line", "support"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "start_line": {"type": "integer", "minimum": 1},
+                "end_line": {"type": "integer", "minimum": 1},
+                "support": {"type": "string", "minLength": 1, "maxLength": 500}
+              }
+            }
+          },
+          "uncertainties": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1, "maxLength": 500}
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1500
+          }
+        }
+      }
+    }
+  }
+}
