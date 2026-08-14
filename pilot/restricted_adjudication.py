@@ -634,6 +634,7 @@ def initialize(args: argparse.Namespace) -> None:
     output = args.output.resolve()
     if output.exists():
         raise ValueError("--output must not already exist")
+    output.parent.mkdir(parents=True, exist_ok=True)
     if git(source, "status", "--porcelain=v1", "--untracked-files=all"):
         raise ValueError("experiment initialization requires a clean committed source checkout")
     source_commit = git(source, "rev-parse", "HEAD^{commit}")
