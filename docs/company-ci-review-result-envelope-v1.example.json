@@ -3,8 +3,8 @@
   "result_source": "EXECUTED",
   "lifecycle_status": "CURRENT",
   "review_result": {
-    "review_key": "review-v1:sha256:cd105602a33d9e11700d34fa8dcb7cfa44d8b658cdb605213e1481f0933abbb1",
-    "contract_digest": "contract-v1:sha256:c8f30c02fadd7f4c6ba02b80062a691627f64c194443bca66b286566c1f95a85",
+    "review_key": "review-v1:sha256:ffd4529f66192360ba438f0718a6da16cbbd15e3a912836dd46901d00ff1ab2c",
+    "contract_digest": "contract-v1:sha256:8987fd3bc5224c00b46450e1c78580f6eccf86cb73fc21728d3b89d8526076e7",
     "review_scope": "FULL",
     "base_ref": "production",
     "head_ref": "deploy",
@@ -15,14 +15,14 @@
     "current_head": "2222222222222222222222222222222222222222",
     "delta_changed_files": [],
     "contract": {
-      "tool_version": "0.5.5",
+      "tool_version": "0.5.6",
       "result_schema_version": 8,
       "provider_output_schema": "sha256:47bc3df29c976c0f042a2aa49bd5216f0cf50f49f62e840a5c904383d30125e2",
       "prompt_contract_version": "2",
       "evaluation_rubric_version": "1.2.0",
       "provider_host": "codex",
       "model": "gpt-5.6-sol",
-      "reasoning_effort": "low",
+      "reasoning_effort": "max",
       "execution_profile": "production-ci"
     },
     "schema_version": 8,
@@ -45,7 +45,7 @@
       "review_mode": "native_review",
       "execution_profile": "production-ci",
       "model": "gpt-5.6-sol",
-      "reasoning_effort": "low",
+      "reasoning_effort": "max",
       "provider_invocations": 1,
       "adapter_drops": []
     },

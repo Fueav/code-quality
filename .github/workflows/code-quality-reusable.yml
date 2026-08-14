@@ -15,7 +15,7 @@ on:
       reasoning_effort:
         description: Provider reasoning effort
         required: false
-        default: low
+        default: max
         type: string
       artifact_retention_days:
         description: Number of days to retain frozen review evidence
@@ -73,68 +73,83 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify quality-review v0.5.5
+      - name: Verify quality-review v0.5.6
         run: |
           set -eu
           review_bin=$(command -v quality-review)
-          test "$("$review_bin" version)" = 'quality-review v0.5.5'
+          test "$("$review_bin" version)" = 'quality-review v0.5.6'
           printf 'QUALITY_REVIEW_BIN=%s\n' "$review_bin" >> "$GITHUB_ENV"
           printf 'QUALITY_REVIEW_OUTPUT_ROOT=%s\n' "$RUNNER_TEMP/code-quality" >> "$GITHUB_ENV"
 
-      - name: Doctor Codex
-        id: codex_doctor
-        if: inputs.provider == 'codex'
-        run: |
-          set -euo pipefail
-          "$QUALITY_REVIEW_BIN" doctor --host codex --repo "$GITHUB_WORKSPACE" \
-            --execution-profile production-ci |
-            tee "$RUNNER_TEMP/quality-review-doctor-codex.json"
-
-      - name: Doctor Claude Code
-        id: claude_doctor
-        if: inputs.provider == 'claude'
+      - name: Resolve one review contract
         env:
-          DISABLE_AUTOUPDATER: "1"
-        run: |
-          set -euo pipefail
-          "$QUALITY_REVIEW_BIN" doctor --host claude-code --repo "$GITHUB_WORKSPACE" \
-            --execution-profile production-ci |
-            tee "$RUNNER_TEMP/quality-review-doctor-claude.json"
-
-      - name: Run Codex release-gate review
-        id: codex_review
-        if: inputs.provider == 'codex'
-        continue-on-error: true
-        env:
-          MODEL: ${{ inputs.model }}
+          PROVIDER: ${{ inputs.provider }}
+          MODEL_INPUT: ${{ inputs.model }}
           REASONING_EFFORT: ${{ inputs.reasoning_effort }}
         run: |
-          set -euo pipefail
-          model="$MODEL"
-          if [ -z "$model" ]; then model='gpt-5.6-sol'; fi
-          "$QUALITY_REVIEW_BIN" run-codex --repo "$GITHUB_WORKSPACE" \
-            --execution-profile production-ci \
-            --model "$model" --reasoning-effort "$REASONING_EFFORT" \
-            --output-root "$QUALITY_REVIEW_OUTPUT_ROOT" |
-            tee "$RUNNER_TEMP/quality-review-run-codex.json"
+          set -eu
+          case "$PROVIDER" in
+            codex)
+              host=codex
+              command=run-codex
+              default_model=gpt-5.6-sol
+              ;;
+            claude)
+              host=claude-code
+              command=run-claude
+              default_model=sonnet
+              ;;
+            *) exit 2 ;;
+          esac
+          model="$MODEL_INPUT"
+          if [ -z "$model" ]; then model="$default_model"; fi
+          {
+            printf 'QUALITY_REVIEW_HOST=%s\n' "$host"
+            printf 'QUALITY_REVIEW_COMMAND=%s\n' "$command"
+            printf 'QUALITY_REVIEW_MODEL=%s\n' "$model"
+            printf 'QUALITY_REVIEW_REASONING_EFFORT=%s\n' "$REASONING_EFFORT"
+            printf 'QUALITY_REVIEW_EXECUTION_PROFILE=production-ci\n'
+            printf 'DISABLE_AUTOUPDATER=1\n'
+          } >> "$GITHUB_ENV"
 
-      - name: Run Claude release-gate review
-        id: claude_review
-        if: inputs.provider == 'claude'
+      - name: Plan frozen review
+        id: review_plan
         continue-on-error: true
-        env:
-          MODEL: ${{ inputs.model }}
-          REASONING_EFFORT: ${{ inputs.reasoning_effort }}
-          DISABLE_AUTOUPDATER: "1"
         run: |
           set -euo pipefail
-          model="$MODEL"
-          if [ -z "$model" ]; then model='sonnet'; fi
-          "$QUALITY_REVIEW_BIN" run-claude --repo "$GITHUB_WORKSPACE" \
-            --execution-profile production-ci \
-            --model "$model" --reasoning-effort "$REASONING_EFFORT" \
+          "$QUALITY_REVIEW_BIN" plan --host "$QUALITY_REVIEW_HOST" --repo "$GITHUB_WORKSPACE" \
+            --review-scope full --diff-reason github_pull_request \
+            --model "$QUALITY_REVIEW_MODEL" \
+            --reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT" \
+            --execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE" |
+            tee "$RUNNER_TEMP/quality-review-plan.json"
+
+      - name: Doctor frozen review
+        id: review_doctor
+        if: steps.review_plan.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          "$QUALITY_REVIEW_BIN" doctor --host "$QUALITY_REVIEW_HOST" --repo "$GITHUB_WORKSPACE" \
+            --review-scope full --diff-reason github_pull_request \
+            --model "$QUALITY_REVIEW_MODEL" \
+            --reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT" \
+            --execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE" |
+            tee "$RUNNER_TEMP/quality-review-doctor.json"
+
+      - name: Run release-gate review
+        id: review_run
+        if: steps.review_doctor.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          "$QUALITY_REVIEW_BIN" "$QUALITY_REVIEW_COMMAND" --repo "$GITHUB_WORKSPACE" \
+            --review-scope full --diff-reason github_pull_request \
+            --model "$QUALITY_REVIEW_MODEL" \
+            --reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT" \
+            --execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE" \
             --output-root "$QUALITY_REVIEW_OUTPUT_ROOT" |
-            tee "$RUNNER_TEMP/quality-review-run-claude.json"
+            tee "$RUNNER_TEMP/quality-review-run.json"
 
       - name: Publish job summary
         if: always()
@@ -150,7 +165,7 @@ jobs:
               echo
               echo 'Release: `HOLD`'
               echo
-              echo 'The review did not run. Inspect doctor.json.'
+              echo 'The review did not run. Inspect plan/doctor/run evidence.'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -164,7 +179,7 @@ jobs:
           artifact_root="$RUNNER_TEMP/code-quality-artifact"
           rm -rf "$artifact_root"
           mkdir -p "$artifact_root"
-          for candidate in "$RUNNER_TEMP"/quality-review-doctor-*.json "$RUNNER_TEMP"/quality-review-run-*.json; do
+          for candidate in "$RUNNER_TEMP"/quality-review-plan.json "$RUNNER_TEMP"/quality-review-doctor.json "$RUNNER_TEMP"/quality-review-run.json; do
             if [ -f "$candidate" ]; then cp "$candidate" "$artifact_root/"; fi
           done
           for name in review-summary.md review-summary.json; do
@@ -172,7 +187,7 @@ jobs:
             if [ -n "$candidate" ]; then cp "$candidate" "$artifact_root/$name"; fi
           done
           if [ ! -f "$artifact_root/review-summary.md" ]; then
-            printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect doctor.json.' > "$artifact_root/review-summary.md"
+            printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect plan/doctor/run evidence.' > "$artifact_root/review-summary.md"
             printf '%s\n' "{\"schema_version\":3,\"result\":\"ERROR\",\"release\":\"HOLD\",\"review_scope\":\"FULL\",\"review_key\":\"review-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"current_head\":\"$CURRENT_HEAD\",\"blocking_issues\":0,\"advisory_issues\":0,\"resolved_previous_findings\":0,\"unresolved_previous_findings\":0,\"new_findings\":0,\"issues\":[]}" > "$artifact_root/review-summary.json"
           fi
           if [ -d "$output_root" ]; then
@@ -196,21 +211,11 @@ jobs:
       - name: Enforce execution health
         if: always()
         env:
-          PROVIDER: ${{ inputs.provider }}
-          CODEX_DOCTOR_OUTCOME: ${{ steps.codex_doctor.outcome }}
-          CODEX_REVIEW_OUTCOME: ${{ steps.codex_review.outcome }}
-          CLAUDE_DOCTOR_OUTCOME: ${{ steps.claude_doctor.outcome }}
-          CLAUDE_REVIEW_OUTCOME: ${{ steps.claude_review.outcome }}
+          PLAN_OUTCOME: ${{ steps.review_plan.outcome }}
+          DOCTOR_OUTCOME: ${{ steps.review_doctor.outcome }}
+          RUN_OUTCOME: ${{ steps.review_run.outcome }}
         run: |
           set -eu
-          case "$PROVIDER" in
-            codex)
-              test "$CODEX_DOCTOR_OUTCOME" = success
-              test "$CODEX_REVIEW_OUTCOME" = success
-              ;;
-            claude)
-              test "$CLAUDE_DOCTOR_OUTCOME" = success
-              test "$CLAUDE_REVIEW_OUTCOME" = success
-              ;;
-            *) exit 2 ;;
-          esac
+          test "$PLAN_OUTCOME" = success
+          test "$DOCTOR_OUTCOME" = success
+          test "$RUN_OUTCOME" = success

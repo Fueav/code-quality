@@ -38,7 +38,7 @@ func TestReviewIdentityIsDeterministicAndBindsNormalizedInputs(t *testing.T) {
 			value.Request.ChangedFiles = append(value.Request.ChangedFiles, "pkg/other.go")
 		},
 		"review goal":      func(value *ReviewIdentityInput) { value.ReviewGoal = "a different intent" },
-		"tool version":     func(value *ReviewIdentityInput) { value.Contract.ToolVersion = "0.5.6" },
+		"tool version":     func(value *ReviewIdentityInput) { value.Contract.ToolVersion = "9.9.9" },
 		"provider":         func(value *ReviewIdentityInput) { value.Contract.ProviderHost = "claude-code" },
 		"model":            func(value *ReviewIdentityInput) { value.Contract.Model = "different-model" },
 		"reasoning effort": func(value *ReviewIdentityInput) { value.Contract.ReasoningEffort = "high" },

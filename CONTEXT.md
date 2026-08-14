@@ -1,6 +1,6 @@
-# code-quality v0.5.5 domain context
+# code-quality v0.5.6 domain context
 
-This file defines the project-specific language used by the v0.5.5 review-scope implementation. The approved behavior remains authoritative in `2026-08-14-code-quality-review-scope-and-identity-spec.md`.
+This file defines the project-specific language used by the v0.5.5 review-scope implementation plus the v0.5.6 integration-contract correction. The approved behavior remains authoritative in `2026-08-14-code-quality-review-scope-and-identity-spec.md` and `2026-08-14-code-quality-v0.5.6-integration-contract-spec.md`.
 
 ## Core concepts
 

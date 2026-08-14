@@ -149,6 +149,11 @@ func TestCompanyCIEnvelopeKeepsLifecycleOutsideImmutableResult(t *testing.T) {
 	if envelope.SchemaVersion != 1 || envelope.ResultSource != "EXECUTED" || envelope.LifecycleStatus != "CURRENT" {
 		t.Fatalf("company CI envelope fixture drifted: %#v", envelope)
 	}
+	if envelope.ReviewResult.Contract.ToolVersion != quality.SkillVersion ||
+		envelope.ReviewResult.Contract.ReasoningEffort != "max" ||
+		envelope.ReviewResult.Execution.ReasoningEffort != "max" {
+		t.Fatalf("company CI fixture does not use the current max-effort contract: %#v", envelope.ReviewResult.Contract)
+	}
 	if problems := quality.ValidateNativeResult(envelope.ReviewResult); len(problems) > 0 {
 		t.Fatalf("embedded immutable review result is invalid: %#v", problems)
 	}

@@ -15,7 +15,7 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 	for _, required := range []string{
 		"workflow_call:",
 		"reasoning_effort:",
-		"default: low",
+		"default: max",
 		"group: code-quality",
 		"labels: [self-hosted, linux, code-quality]",
 		"github.event_name == 'pull_request'",
@@ -28,10 +28,12 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 		"command -v quality-review",
-		"quality-review v0.5.5",
-		"doctor --host codex",
-		"doctor --host claude-code",
-		"--execution-profile production-ci",
+		"quality-review v0.5.6",
+		"plan --host \"$QUALITY_REVIEW_HOST\"",
+		"doctor --host \"$QUALITY_REVIEW_HOST\"",
+		"--execution-profile \"$QUALITY_REVIEW_EXECUTION_PROFILE\"",
+		"--model \"$QUALITY_REVIEW_MODEL\"",
+		"--reasoning-effort \"$QUALITY_REVIEW_REASONING_EFFORT\"",
 		"run-codex",
 		"run-claude",
 		"--output-root \"$QUALITY_REVIEW_OUTPUT_ROOT\"",
@@ -50,6 +52,15 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 		if !strings.Contains(workflow, required) {
 			t.Errorf("reusable CI workflow is missing %q", required)
 		}
+	}
+	if count := strings.Count(workflow, `--model "$QUALITY_REVIEW_MODEL"`); count != 3 {
+		t.Errorf("reusable CI must pass one resolved model to plan/doctor/run, got %d occurrences", count)
+	}
+	if count := strings.Count(workflow, `--reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT"`); count != 3 {
+		t.Errorf("reusable CI must pass one resolved reasoning effort to plan/doctor/run, got %d occurrences", count)
+	}
+	if count := strings.Count(workflow, `--execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE"`); count != 3 {
+		t.Errorf("reusable CI must pass one execution profile to plan/doctor/run, got %d occurrences", count)
 	}
 	for _, forbidden := range []string{
 		"pull_request_target",
@@ -75,6 +86,7 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 		"actions/checkout@v",
 		"actions/setup-node@v",
 		"actions/upload-artifact@v",
+		"default: low",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("reusable CI workflow must not contain %q", forbidden)
@@ -94,9 +106,9 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		t.Fatalf("README onboarding order is invalid: personal=%d linux_ci=%d", personal, linuxCI)
 	}
 	for _, required := range []string{
-		"请为当前仓库安装并运行 Fueav code-quality v0.5.5",
-		"bootstrap.sh | sh -s -- v0.5.5 codex",
-		"bootstrap.sh | sh -s -- v0.5.5 claude",
+		"请为当前仓库安装并运行 Fueav code-quality v0.5.6",
+		"bootstrap.sh | sh -s -- v0.5.6 codex",
+		"bootstrap.sh | sh -s -- v0.5.6 claude",
 		"quality-review doctor --host codex",
 		"quality-review doctor --host claude-code",
 		"先提交要审查的改动",
@@ -105,7 +117,7 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		"codex exec",
 		"不接收 Provider API key",
 		".github/workflows/code-quality-reusable.yml",
-		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.5",
+		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.6",
 		"PR 为审查单元",
 		"merge-base",
 		"schema v8",
@@ -118,7 +130,7 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		"P2/P3-only",
 		"production-ci",
 		"runner group",
-		"reasoning_effort: low",
+		"reasoning_effort: max",
 		"review-summary.md",
 		"review-summary.json",
 		"evidence.tar.gz",
@@ -137,5 +149,58 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		if strings.Contains(readme, forbidden) {
 			t.Errorf("README must not contain obsolete CI contract %q", forbidden)
 		}
+	}
+}
+
+func TestJenkinsUsesOneMaxEffortContractForPlanDoctorAndRun(t *testing.T) {
+	raw, err := os.ReadFile("docs/jenkins-production-ci.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(raw)
+	for _, required := range []string{
+		"Jenkins 生产 CI 接入（v0.5.6）",
+		"effort=max",
+		"review_args=(",
+		"quality-review plan --host \"$host\" \"${review_args[@]}\"",
+		"quality-review doctor --host \"$host\" \"${review_args[@]}\"",
+		"quality-review \"$command\" \"${review_args[@]}\"",
+		"plan.json",
+	} {
+		if !strings.Contains(document, required) {
+			t.Errorf("Jenkins contract is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"--reasoning-effort high", "quality-review v0.5.5"} {
+		if strings.Contains(document, forbidden) {
+			t.Errorf("Jenkins contract retains %q", forbidden)
+		}
+	}
+}
+
+func TestCompanyCIVersionsExternalRunnerPolicyOutsideCLIResults(t *testing.T) {
+	raw, err := os.ReadFile("docs/company-ci-review-result-envelope.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(raw)
+	for _, required := range []string{
+		"runner_policy_version",
+		"(review_key, runner_policy_version)",
+		"强制 FULL",
+		"本地代码读取",
+		"ERROR/HOLD",
+		"不得写入原始 schema-v8 结果或 envelope-v1",
+	} {
+		if !strings.Contains(document, required) {
+			t.Errorf("company CI runner-policy contract is missing %q", required)
+		}
+	}
+	schema, err := os.ReadFile("schemas/review-result-envelope-v1.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(schema), "runner_policy_version") {
+		t.Fatal("runner policy leaked into the immutable envelope-v1 schema")
 	}
 }

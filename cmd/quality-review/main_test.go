@@ -15,6 +15,7 @@ import (
 
 	evalrunner "github.com/Fueav/code-quality/internal/eval"
 	"github.com/Fueav/code-quality/internal/nativereview"
+	"github.com/Fueav/code-quality/internal/onboarding"
 	"github.com/Fueav/code-quality/internal/reviewplan"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
@@ -118,7 +119,7 @@ func TestRunCodexRejectsActiveDiscoveryBeforeAnotherRepository(t *testing.T) {
 	}
 }
 
-func TestPlanAndRunCodexShareTheSameReviewKey(t *testing.T) {
+func TestPlanDoctorAndRunCodexShareTheSameReviewKey(t *testing.T) {
 	forceTopLevelDiscovery(t)
 	repo, base, target := cliReviewFixture(t)
 	for _, branch := range []struct{ name, commit string }{{"production", base}, {"deploy", target}} {
@@ -148,6 +149,11 @@ func TestPlanAndRunCodexShareTheSameReviewKey(t *testing.T) {
 	scriptPath := filepath.Join(directory, "codex")
 	script := `#!/bin/sh
 set -eu
+case "$*" in
+  '--version') printf '%s\n' 'codex-cli test'; exit 0 ;;
+  'exec --help') printf '%s\n' '--sandbox --model --json --output-last-message --output-schema read-only --ephemeral --ignore-user-config --ignore-rules --disable'; exit 0 ;;
+  'login status') printf '%s\n' 'logged in'; exit 0 ;;
+esac
 output=''
 previous=''
 for argument in "$@"; do
@@ -160,6 +166,18 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_token
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var doctorStdout, doctorStderr bytes.Buffer
+	if code := run(append([]string{"doctor", "--host", "codex"}, common...), &doctorStdout, &doctorStderr); code != 0 {
+		t.Fatalf("doctor exit code = %d, stderr = %s", code, doctorStderr.String())
+	}
+	var doctor onboarding.Report
+	if err := json.Unmarshal(doctorStdout.Bytes(), &doctor); err != nil {
+		t.Fatal(err)
+	}
+	if doctor.ReviewKey != plan.ReviewKey || doctor.ContractDigest != plan.ContractDigest {
+		t.Fatalf("plan/doctor identity = %q/%q vs %q/%q", plan.ReviewKey, plan.ContractDigest, doctor.ReviewKey, doctor.ContractDigest)
 	}
 	previousBinary := codexBinary
 	codexBinary = scriptPath
@@ -176,7 +194,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_token
 	}
 	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
 	if result.ReviewKey != plan.ReviewKey || result.ContractDigest != plan.ContractDigest {
-		t.Fatalf("plan/run identity = %q/%q vs %q/%q", plan.ReviewKey, plan.ContractDigest, result.ReviewKey, result.ContractDigest)
+		t.Fatalf("plan/doctor/run identity = %q/%q vs %q/%q", plan.ReviewKey, plan.ContractDigest, result.ReviewKey, result.ContractDigest)
 	}
 }
 

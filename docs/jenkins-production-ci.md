@@ -1,4 +1,4 @@
-# Jenkins 生产 CI 接入（v0.5.5）
+# Jenkins 生产 CI 接入（v0.5.6）
 
 适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。
 
@@ -11,16 +11,16 @@
 - 标签为 `code-quality`，每个系统用户只设 1 个 executor。
 - 使用专用低权限用户，不保存与审查无关的凭据。
 - 已安装 `bash`、`git`、`curl` 和 `tar`，能够访问 GitHub 与所选 Provider。
-- 同一用户预装 `quality-review v0.5.5` 和一个已登录的 Provider。
+- 同一用户预装 `quality-review v0.5.6` 和一个已登录的 Provider。
 
 ```sh
 command -v bash git curl tar
 
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.5/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.5
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.6/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.6
 
 command -v quality-review
-quality-review version          # 必须是 quality-review v0.5.5
+quality-review version          # 必须是 quality-review v0.5.6
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
@@ -104,7 +104,7 @@ printf 'BASE_REF=%s\nHEAD_REF=%s\n' "$base_ref" "$head_ref" > "$REVIEW_ROOT/rang
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 . "$REVIEW_ROOT/range.env"
-test "$(quality-review version)" = 'quality-review v0.5.5'
+test "$(quality-review version)" = 'quality-review v0.5.6'
 
 case "$CODE_QUALITY_PROVIDER" in
   codex) host=codex; command=run-codex; model=gpt-5.6-sol ;;
@@ -112,16 +112,22 @@ case "$CODE_QUALITY_PROVIDER" in
   *) exit 2 ;;
 esac
 
-quality-review doctor --host "$host" --repo "$WORKSPACE" \
-  --base-ref "$BASE_REF" --head-ref "$HEAD_REF" \
-  --execution-profile production-ci | tee "$REVIEW_ROOT/doctor.json"
+effort=max
+profile=production-ci
+review_args=(
+  --repo "$WORKSPACE"
+  --base-ref "$BASE_REF" --head-ref "$HEAD_REF"
+  --diff-reason jenkins_github_pull_request
+  --review-scope full
+  --model "$model" --reasoning-effort "$effort"
+  --execution-profile "$profile"
+)
+
+quality-review plan --host "$host" "${review_args[@]}" | tee "$REVIEW_ROOT/plan.json"
+quality-review doctor --host "$host" "${review_args[@]}" | tee "$REVIEW_ROOT/doctor.json"
 
 set +e
-quality-review "$command" --repo "$WORKSPACE" \
-  --base-ref "$BASE_REF" --head-ref "$HEAD_REF" \
-  --diff-reason jenkins_github_pull_request \
-  --execution-profile production-ci \
-  --model "$model" --reasoning-effort high \
+quality-review "$command" "${review_args[@]}" \
   --output-root "$REVIEW_ROOT/sessions" | tee "$REVIEW_ROOT/run.json"
 review_exit=${PIPESTATUS[0]}
 set -e
@@ -139,7 +145,7 @@ artifact_root="$WORKSPACE/code-quality-artifacts"
 rm -rf "$artifact_root"
 mkdir -p "$artifact_root"
 if [ -n "${REVIEW_ROOT:-}" ] && [ -d "$REVIEW_ROOT" ]; then
-  for name in doctor.json run.json; do
+  for name in plan.json doctor.json run.json; do
     if [ -f "$REVIEW_ROOT/$name" ]; then cp "$REVIEW_ROOT/$name" "$artifact_root/$name"; fi
   done
   for name in review-summary.md review-summary.json; do
@@ -149,7 +155,7 @@ if [ -n "${REVIEW_ROOT:-}" ] && [ -d "$REVIEW_ROOT" ]; then
   tar -czf "$artifact_root/evidence.tar.gz" -C "$REVIEW_ROOT" .
 fi
 if [ ! -f "$artifact_root/review-summary.md" ]; then
-  printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect doctor.json.' > "$artifact_root/review-summary.md"
+  printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect plan/doctor/run evidence.' > "$artifact_root/review-summary.md"
   printf '%s\n' '{"schema_version":3,"result":"ERROR","release":"HOLD","review_scope":"FULL","review_key":"review-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000","current_head":"UNAVAILABLE","blocking_issues":0,"advisory_issues":0,"resolved_previous_findings":0,"unresolved_previous_findings":0,"new_findings":0,"issues":[]}' > "$artifact_root/review-summary.json"
 fi
 cat "$artifact_root/review-summary.md"
@@ -180,9 +186,9 @@ Advisory issues: 0
 
 首次上线必须用一个可信同仓 PR 验证：
 
-1. `doctor.json` 的状态为 `READY`。
+1. `plan.json` 和 `doctor.json` 的状态均为 `READY`，且合同摘要一致。
 2. 控制台能直接看到 `PASS`、`BLOCK` 或 `ERROR`；`BLOCK/ERROR` 会让 Job 失败。
-3. Artifact 的 `code-quality-artifacts/` 目录包含 `doctor.json`、`run.json`、`review-summary.md`、`review-summary.json` 和 `evidence.tar.gz`。
+3. Artifact 的 `code-quality-artifacts/` 目录包含 `plan.json`、`doctor.json`、`run.json`、`review-summary.md`、`review-summary.json` 和 `evidence.tar.gz`。
 4. 再次推送同一 PR 时旧构建被取消；fork PR 不运行。
 
 ## 5. 常见故障与升级
@@ -193,6 +199,6 @@ Advisory issues: 0
 - Workspace 不干净：确认审查 stage 位于构建步骤之前，并清理该 Job 自己生成的文件；不要删除业务仓库内容。
 - 升级新版本时先在一条可信 PR 验证，再将 required check 应用于全部受保护分支。
 
-需要跨构建复用 `review_key`、执行 INCREMENTAL 或防止旧构建覆盖新 push 时，在 Jenkins Shared Library 中实现 [公司 CI 结果 envelope 合同](company-ci-review-result-envelope.md)；不要把缓存、`REUSED / SUPERSEDED` 或修复循环写进 CLI。
+需要跨构建复用 `review_key`、执行 INCREMENTAL 或防止旧构建覆盖新 push 时，在 Jenkins Shared Library 中实现 [公司 CI 结果 envelope 合同](company-ci-review-result-envelope.md)；不要把缓存、`REUSED / SUPERSEDED` 或修复循环写进 CLI。公司侧固定 `reasoning-effort=max`，并将同一组 `review_args` 原样传给 plan、doctor 和 run。
 
-安全边界：Provider 登录用户不得保存其他生产凭据；只在 `sshagent` 块内暴露只读 SCM 凭据；Jenkinsfile 或共享库必须由运维/CODEOWNERS 保护，不能让未信任 PR 修改后直接执行。
+安全边界：Provider 登录用户不得保存其他生产凭据；只在 `sshagent` 块内暴露只读 SCM 凭据；Jenkinsfile 或共享库必须由运维/CODEOWNERS 保护，不能让未信任 PR 修改后直接执行。外围额外限制必须绑定独立 `runner_policy_version`，policy 变化时强制 FULL。
