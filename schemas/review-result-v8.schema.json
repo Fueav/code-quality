@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "review_key", "contract_digest", "review_scope", "base_ref", "head_ref", "base_tip_commit", "merge_base",
+    "parent_review_key", "previous_head", "current_head", "delta_changed_files", "contract",
+    "schema_version", "evaluation_rubric_version", "request", "findings", "previous_blocking_findings",
+    "previous_finding_resolutions", "new_findings", "execution", "adjudication"
+  ],
+  "properties": {
+    "review_key": {"type": "string", "pattern": "^review-v1:sha256:[0-9a-f]{64}$"},
+    "contract_digest": {"type": "string", "pattern": "^contract-v1:sha256:[0-9a-f]{64}$"},
+    "review_scope": {"enum": ["FULL", "INCREMENTAL"]},
+    "base_ref": {"type": "string", "minLength": 1},
+    "head_ref": {"type": "string", "minLength": 1},
+    "base_tip_commit": {"type": "string", "minLength": 1},
+    "merge_base": {"type": "string", "minLength": 1},
+    "parent_review_key": {"type": ["string", "null"], "pattern": "^review-v1:sha256:[0-9a-f]{64}$"},
+    "previous_head": {"type": ["string", "null"], "minLength": 1},
+    "current_head": {"type": "string", "minLength": 1},
+    "delta_changed_files": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "contract": {"$ref": "#/$defs/contract"},
+    "schema_version": {"const": 8},
+    "evaluation_rubric_version": {"type": "string", "minLength": 1},
+    "request": {"$ref": "#/$defs/request"},
+    "review_goal": {"type": "string", "minLength": 1},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "previous_blocking_findings": {"type": "array", "items": {"$ref": "#/$defs/blocking_finding"}},
+    "previous_finding_resolutions": {"type": "array", "items": {"$ref": "#/$defs/resolution"}},
+    "new_findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "execution": {"$ref": "#/$defs/execution"},
+    "adjudication": {"$ref": "#/$defs/adjudication"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"review_scope": {"const": "FULL"}}},
+      "then": {
+        "properties": {
+          "parent_review_key": {"type": "null"},
+          "previous_head": {"type": "null"},
+          "delta_changed_files": {"maxItems": 0},
+          "previous_blocking_findings": {"maxItems": 0},
+          "previous_finding_resolutions": {"maxItems": 0}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"review_scope": {"const": "INCREMENTAL"}}},
+      "then": {
+        "properties": {
+          "parent_review_key": {"type": "string"},
+          "previous_head": {"type": "string"},
+          "delta_changed_files": {"minItems": 1}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"adjudication": {"properties": {"semantic_result": {"const": "PASS"}}}}},
+      "then": {
+        "properties": {
+          "findings": {"items": {"type": "object", "properties": {"priority": {"enum": [2, 3]}}}},
+          "adjudication": {"properties": {"ci_action": {"const": "continue_release"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"adjudication": {"properties": {"semantic_result": {"const": "BLOCK"}}}}},
+      "then": {
+        "properties": {
+          "findings": {"minItems": 1, "contains": {"type": "object", "required": ["priority"], "properties": {"priority": {"enum": [0, 1]}}}, "minContains": 1},
+          "adjudication": {"properties": {"ci_action": {"const": "hold_release"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"adjudication": {"properties": {"semantic_result": {"const": "ERROR"}}}}},
+      "then": {
+        "properties": {
+          "findings": {"maxItems": 0},
+          "previous_finding_resolutions": {"maxItems": 0},
+          "new_findings": {"maxItems": 0},
+          "adjudication": {"properties": {"ci_action": {"const": "hold_release"}}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool_version", "result_schema_version", "provider_output_schema", "prompt_contract_version", "evaluation_rubric_version", "provider_host", "model", "reasoning_effort", "execution_profile"],
+      "properties": {
+        "tool_version": {"type": "string", "minLength": 1},
+        "result_schema_version": {"const": 8},
+        "provider_output_schema": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "prompt_contract_version": {"type": "string", "minLength": 1},
+        "evaluation_rubric_version": {"type": "string", "minLength": 1},
+        "provider_host": {"enum": ["codex", "claude-code"]},
+        "model": {"type": "string", "minLength": 1},
+        "reasoning_effort": {"type": "string", "minLength": 1},
+        "execution_profile": {"enum": ["personal", "production-ci"]}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "target_branch", "base_commit", "target_commit", "diff_selection_reason", "changed_files", "affected_entries"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "target_branch": {"type": "string", "minLength": 1},
+        "base_commit": {"type": "string", "minLength": 1},
+        "target_commit": {"type": "string", "minLength": 1},
+        "diff_selection_reason": {"type": "string", "minLength": 1},
+        "changed_files": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "affected_entries": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "change": {"$ref": "#/$defs/change"}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "priority", "code_location", "reason", "suggestion"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^finding-v1:sha256:[0-9a-f]{64}$"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\r\\n]+$"},
+        "priority": {"type": "integer", "minimum": 0, "maximum": 3},
+        "code_location": {"$ref": "#/$defs/location"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"},
+        "suggestion": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"}
+      }
+    },
+    "blocking_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "priority", "code_location", "reason", "suggestion"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^finding-v1:sha256:[0-9a-f]{64}$"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 160},
+        "priority": {"enum": [0, 1]},
+        "code_location": {"$ref": "#/$defs/location"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "suggestion": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "status", "reason", "current_finding"],
+      "properties": {
+        "finding_id": {"type": "string", "pattern": "^finding-v1:sha256:[0-9a-f]{64}$"},
+        "status": {"enum": ["RESOLVED", "UNRESOLVED"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "current_finding": {"oneOf": [{"$ref": "#/$defs/blocking_finding"}, {"type": "null"}]}
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "start_line", "end_line"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "review_mode", "execution_profile", "model", "reasoning_effort", "provider_invocations", "adapter_drops"],
+      "properties": {
+        "host": {"enum": ["codex", "claude-code"]},
+        "review_mode": {"const": "native_review"},
+        "execution_profile": {"enum": ["personal", "production-ci"]},
+        "model": {"type": "string"},
+        "reasoning_effort": {"type": "string", "minLength": 1},
+        "provider_invocations": {"const": 1},
+        "adapter_drops": {"type": "array", "maxItems": 0}
+      }
+    },
+    "adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_result", "rollout_mode", "ci_action", "reasons"],
+      "properties": {
+        "semantic_result": {"enum": ["PASS", "BLOCK", "ERROR"]},
+        "rollout_mode": {"const": "release_gate"},
+        "ci_action": {"enum": ["continue_release", "hold_release"]},
+        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1}
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "base_ref", "head_ref", "base_tip_commit"],
+      "properties": {
+        "kind": {"enum": ["pull_request", "merge_request"]},
+        "id": {"type": "string", "minLength": 1},
+        "base_ref": {"type": "string", "minLength": 1},
+        "head_ref": {"type": "string", "minLength": 1},
+        "base_tip_commit": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "minLength": 1},
+        "run_url": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@ package reviewplan
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,6 +88,67 @@ func TestIncrementalPlanUsesPreviousHeadDeltaAndPreviousP0P1Only(t *testing.T) {
 	}
 }
 
+func TestIncrementalPlanCanChainFromPreviousIncrementalResult(t *testing.T) {
+	repo := reviewPlanRepository(t)
+	fullContract := reviewPlanContract()
+	incrementalContract := fullContract
+	incrementalContract.ProviderOutputSchema = "sha256:" + strings.Repeat("4", 64)
+	previousFullPath := writePreviousReviewResult(t, repo, fullContract)
+
+	runReviewPlanGit(t, repo.Path, "switch", "deploy")
+	writeReviewPlanFile(t, filepath.Join(repo.Path, "first-delta.go"), "package firstdelta\n")
+	runReviewPlanGit(t, repo.Path, "add", "first-delta.go")
+	runReviewPlanGit(t, repo.Path, "commit", "-m", "first incremental fix")
+	firstDecision, err := Build(context.Background(), Input{
+		RepositoryPath: repo.Path, BaseRef: "production", HeadRef: "deploy",
+		ReviewScope: quality.ReviewScopeIncremental, PreviousResultPath: previousFullPath,
+		ReviewGoal: "protect behavior", Contract: incrementalContract, ParentContract: fullContract,
+		Environment: map[string]string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousBlockers := firstDecision.PreviousBlockingFindings()
+	if firstDecision.Status != StatusReady || len(previousBlockers) != 1 {
+		t.Fatalf("first incremental decision = %#v", firstDecision)
+	}
+	providerResult := map[string]any{
+		"previous_finding_resolutions": []any{map[string]any{
+			"finding_id": previousBlockers[0].ID, "status": quality.ResolutionResolved,
+			"reason": "The first delta removes the broken path.", "current_finding": nil,
+		}},
+		"new_findings": []any{},
+	}
+	providerJSON := mustMarshalReviewPlan(t, providerResult)
+	firstOutcome, err := quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
+		Request: firstDecision.Request, ProviderRequest: firstDecision.ProviderRequest,
+		Identity: firstDecision.ReviewIdentity, PreviousBlockingFindings: previousBlockers,
+		ReviewGoal: "protect behavior",
+	}, providerJSON, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousIncrementalPath := writeReviewPlanOutcome(t, firstOutcome)
+
+	writeReviewPlanFile(t, filepath.Join(repo.Path, "second-delta.go"), "package seconddelta\n")
+	runReviewPlanGit(t, repo.Path, "add", "second-delta.go")
+	runReviewPlanGit(t, repo.Path, "commit", "-m", "second incremental fix")
+	secondDecision, err := Build(context.Background(), Input{
+		RepositoryPath: repo.Path, BaseRef: "production", HeadRef: "deploy",
+		ReviewScope: quality.ReviewScopeIncremental, PreviousResultPath: previousIncrementalPath,
+		ReviewGoal: "protect behavior", Contract: incrementalContract, ParentContract: fullContract,
+		Environment: map[string]string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondDecision.Status != StatusReady || secondDecision.PreviousHead == nil ||
+		*secondDecision.PreviousHead != firstDecision.CurrentHead ||
+		strings.Join(secondDecision.DeltaChangedFiles, ",") != "second-delta.go" {
+		t.Fatalf("second incremental decision = %#v", secondDecision)
+	}
+}
+
 func TestIncrementalPlanReturnsFullRequiredBeforeProviderWork(t *testing.T) {
 	cases := map[string]struct {
 		addDelta bool
@@ -124,6 +186,27 @@ func TestIncrementalPlanReturnsFullRequiredBeforeProviderWork(t *testing.T) {
 	}
 }
 
+func TestIncrementalPlanRejectsPreviousErrorResult(t *testing.T) {
+	repo := reviewPlanRepository(t)
+	previousPath := writePreviousErrorResult(t, repo, reviewPlanContract())
+	runReviewPlanGit(t, repo.Path, "switch", "deploy")
+	writeReviewPlanFile(t, filepath.Join(repo.Path, "delta.go"), "package delta\n")
+	runReviewPlanGit(t, repo.Path, "add", "delta.go")
+	runReviewPlanGit(t, repo.Path, "commit", "-m", "incremental change")
+
+	decision, err := Build(context.Background(), Input{
+		RepositoryPath: repo.Path, BaseRef: "production", HeadRef: "deploy",
+		ReviewScope: quality.ReviewScopeIncremental, PreviousResultPath: previousPath,
+		ReviewGoal: "protect behavior", Contract: reviewPlanContract(), Environment: map[string]string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != StatusFullRequired || !strings.Contains(strings.Join(decision.FullRequiredReasons, ","), "previous_result_not_reviewable") || decision.ProviderInvocations != 0 {
+		t.Fatalf("decision = %#v", decision)
+	}
+}
+
 func TestLegacyExactCommitRangeIsFullOnly(t *testing.T) {
 	repo := reviewPlanRepository(t)
 	_, err := Build(context.Background(), Input{
@@ -133,6 +216,86 @@ func TestLegacyExactCommitRangeIsFullOnly(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "legacy --base/--target") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestIncrementalBaseAdvanceAndRebaseRequireFull(t *testing.T) {
+	tests := map[string]struct {
+		mutate func(*testing.T, reviewPlanRepo)
+		want   string
+	}{
+		"base advance": {
+			mutate: func(t *testing.T, repo reviewPlanRepo) {
+				runReviewPlanGit(t, repo.Path, "switch", "production")
+				writeReviewPlanFile(t, filepath.Join(repo.Path, "base-advance.txt"), "advanced\n")
+				runReviewPlanGit(t, repo.Path, "add", "base-advance.txt")
+				runReviewPlanGit(t, repo.Path, "commit", "-m", "advance production again")
+			},
+			want: "base_tip_changed",
+		},
+		"rebase": {
+			mutate: func(t *testing.T, repo reviewPlanRepo) {
+				runReviewPlanGit(t, repo.Path, "switch", "-C", "deploy", "production")
+				writeReviewPlanFile(t, filepath.Join(repo.Path, "rebased.txt"), "replacement\n")
+				runReviewPlanGit(t, repo.Path, "add", "rebased.txt")
+				runReviewPlanGit(t, repo.Path, "commit", "-m", "replace deploy history")
+			},
+			want: "previous_head_not_ancestor",
+		},
+	}
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			repo := reviewPlanRepository(t)
+			previousPath := writePreviousReviewResult(t, repo, reviewPlanContract())
+			testCase.mutate(t, repo)
+			decision, err := Build(context.Background(), Input{
+				RepositoryPath: repo.Path, BaseRef: "production", HeadRef: "deploy",
+				ReviewScope: quality.ReviewScopeIncremental, PreviousResultPath: previousPath,
+				ReviewGoal: "protect behavior", Contract: reviewPlanContract(), Environment: map[string]string{},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Status != StatusFullRequired || !strings.Contains(strings.Join(decision.FullRequiredReasons, ","), testCase.want) || decision.ProviderInvocations != 0 {
+				t.Fatalf("decision = %#v", decision)
+			}
+		})
+	}
+}
+
+func TestIncrementalRefIdentityChangeRequiresFull(t *testing.T) {
+	tests := map[string]struct {
+		baseRef string
+		headRef string
+		alias   string
+		from    string
+		want    string
+	}{
+		"base ref": {baseRef: "release", headRef: "deploy", alias: "release", from: "production", want: "base_ref_changed"},
+		"head ref": {baseRef: "production", headRef: "delivery", alias: "delivery", from: "deploy", want: "head_ref_changed"},
+	}
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			repo := reviewPlanRepository(t)
+			previousPath := writePreviousReviewResult(t, repo, reviewPlanContract())
+			runReviewPlanGit(t, repo.Path, "switch", "deploy")
+			writeReviewPlanFile(t, filepath.Join(repo.Path, "delta.go"), "package delta\n")
+			runReviewPlanGit(t, repo.Path, "add", "delta.go")
+			runReviewPlanGit(t, repo.Path, "commit", "-m", "incremental change")
+			runReviewPlanGit(t, repo.Path, "branch", testCase.alias, testCase.from)
+
+			decision, err := Build(context.Background(), Input{
+				RepositoryPath: repo.Path, BaseRef: testCase.baseRef, HeadRef: testCase.headRef,
+				ReviewScope: quality.ReviewScopeIncremental, PreviousResultPath: previousPath,
+				ReviewGoal: "protect behavior", Contract: reviewPlanContract(), Environment: map[string]string{},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Status != StatusFullRequired || !strings.Contains(strings.Join(decision.FullRequiredReasons, ","), testCase.want) {
+				t.Fatalf("decision = %#v", decision)
+			}
+		})
 	}
 }
 
@@ -201,11 +364,40 @@ func writePreviousReviewResult(t *testing.T, repo reviewPlanRepo, contract quali
 		Reason:       "A contained behavior is wrong.", Suggestion: "Correct the contained behavior.",
 	})) + `]}`
 	outcome, err := quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
-		Request: request, ProviderRequest: request, Identity: identity,
+		Request: request, ProviderRequest: request, Identity: identity, ReviewGoal: "protect behavior",
 	}, []byte(raw), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return writeReviewPlanOutcome(t, outcome)
+}
+
+func writePreviousErrorResult(t *testing.T, repo reviewPlanRepo, contract quality.NativeReviewContract) string {
+	t.Helper()
+	request := quality.ReviewRequest{
+		Repository: filepath.Base(repo.Path), TargetBranch: "production",
+		BaseCommit: repo.Common, TargetCommit: repo.Deploy, DiffSelectionReason: "explicit_ref_range",
+		ChangedFiles: []string{"deploy.txt"}, AffectedEntries: []string{},
+	}
+	identity, err := quality.BuildReviewIdentity(quality.ReviewIdentityInput{
+		Contract: contract, Request: request, ReviewGoal: "protect behavior", ReviewScope: quality.ReviewScopeFull,
+		BaseRef: "production", HeadRef: "deploy", BaseTipCommit: repo.Production, MergeBase: repo.Common, CurrentHead: repo.Deploy,
+		DeltaChangedFiles: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
+		Request: request, ProviderRequest: request, Identity: identity, ReviewGoal: "protect behavior",
+	}, nil, errors.New("provider failed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return writeReviewPlanOutcome(t, outcome)
+}
+
+func writeReviewPlanOutcome(t *testing.T, outcome quality.NativeOutcome) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "previous-result.json")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {

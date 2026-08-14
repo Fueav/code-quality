@@ -1,6 +1,9 @@
 package quality
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateNativeResultEnforcesChangedFileAndSemanticContract(t *testing.T) {
 	result := validNativeResult()
@@ -22,6 +25,12 @@ func TestValidateNativeResultEnforcesChangedFileAndSemanticContract(t *testing.T
 func TestValidateNativeResultAllowsPassWithAdvisories(t *testing.T) {
 	result := validNativeResult()
 	result.Findings[0].Priority = 2
+	identified, err := IdentifyNativeFinding(result.Findings[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.Findings[0] = identified
+	result.NewFindings[0] = identified
 	result.Adjudication.SemanticResult = ResultPass
 	result.Adjudication.CIAction = "continue_release"
 	if problems := ValidateNativeResult(result); len(problems) != 0 {
@@ -40,6 +49,8 @@ func TestValidateNativeResultEnforcesSingleProviderInvocation(t *testing.T) {
 func TestValidateNativeResultSupportsBothNativeProvidersOnly(t *testing.T) {
 	result := validNativeResult()
 	result.Execution.Host = "claude-code"
+	result.Contract.ProviderHost = "claude-code"
+	rebuildNativeResultIdentity(t, &result)
 	if problems := ValidateNativeResult(result); len(problems) != 0 {
 		t.Fatalf("Claude Code native result problems = %#v", problems)
 	}
@@ -52,6 +63,7 @@ func TestValidateNativeResultSupportsBothNativeProvidersOnly(t *testing.T) {
 func TestValidateNativeResultAllowsNoGoal(t *testing.T) {
 	result := validNativeResult()
 	result.ReviewGoal = ""
+	rebuildNativeResultIdentity(t, &result)
 	if problems := ValidateNativeResult(result); len(problems) != 0 {
 		t.Fatalf("optional goal was treated as required: %#v", problems)
 	}
@@ -73,21 +85,60 @@ func TestValidateNativeResultRejectsBlockWithAdvisoriesOnly(t *testing.T) {
 	}
 }
 
-func validNativeResult() NativeReviewResult {
-	return NativeReviewResult{
-		SchemaVersion: NativeResultSchemaVersion, EvaluationRubricVersion: EvaluationRubricVersion,
-		Request: ReviewRequest{
-			Repository: "example/repo", TargetBranch: "main", BaseCommit: "base", TargetCommit: "target",
-			DiffSelectionReason: "test", ChangedFiles: []string{"app.go"}, AffectedEntries: []string{},
+func TestValidateNativeResultRejectsTamperedIdentity(t *testing.T) {
+	for name, mutate := range map[string]func(*NativeReviewResult){
+		"review key": func(result *NativeReviewResult) { result.ReviewKey = "review-v1:sha256:" + strings.Repeat("f", 64) },
+		"contract digest": func(result *NativeReviewResult) {
+			result.ContractDigest = "contract-v1:sha256:" + strings.Repeat("f", 64)
 		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := validNativeResult()
+			mutate(&result)
+			if problems := ValidateNativeResult(result); len(problems) == 0 {
+				t.Fatal("tampered identity was accepted")
+			}
+		})
+	}
+}
+
+func validNativeResult() NativeReviewResult {
+	request := ReviewRequest{
+		Repository: "example/repo", TargetBranch: "main", BaseCommit: "base", TargetCommit: "target",
+		DiffSelectionReason: "test", ChangedFiles: []string{"app.go"}, AffectedEntries: []string{},
+	}
+	contract := NativeReviewContract{
+		ToolVersion: SkillVersion, ResultSchemaVersion: NativeResultSchemaVersion,
+		ProviderOutputSchema:  SHA256Digest([]byte("test-provider-schema")),
+		PromptContractVersion: "2", EvaluationRubricVersion: EvaluationRubricVersion,
+		ProviderHost: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high",
+		ExecutionProfile: ExecutionProfilePersonal,
+	}
+	identity, err := BuildReviewIdentity(ReviewIdentityInput{
+		Contract: contract, Request: request, ReviewGoal: "review", ReviewScope: ReviewScopeFull,
+		BaseRef: "main", HeadRef: "feature", BaseTipCommit: "base", MergeBase: "base", CurrentHead: "target",
+		DeltaChangedFiles: []string{},
+	})
+	if err != nil {
+		panic(err)
+	}
+	finding, err := IdentifyNativeFinding(NativeFinding{
+		Title: "wrong value", Priority: 1, Reason: "The new branch returns the wrong value.", Suggestion: "Return the expected value.",
+		CodeLocation: NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return NativeReviewResult{
+		ReviewIdentity: identity,
+		SchemaVersion:  NativeResultSchemaVersion, EvaluationRubricVersion: EvaluationRubricVersion,
+		Request:    request,
 		ReviewGoal: "review",
-		Findings: []NativeFinding{{
-			Title: "wrong value", Priority: 1, Reason: "The new branch returns the wrong value.", Suggestion: "Return the expected value.",
-			CodeLocation: NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
-		}},
+		Findings:   []NativeFinding{finding}, PreviousBlockingFindings: []NativeFinding{},
+		PreviousFindingResolutions: []PreviousFindingResolution{}, NewFindings: []NativeFinding{finding},
 		Execution: NativeExecution{
 			Host: "codex", ReviewMode: "native_review", ExecutionProfile: ExecutionProfilePersonal,
-			ReasoningEffort: "high", ProviderInvocations: 1,
+			Model: "gpt-5.6-sol", ReasoningEffort: "high", ProviderInvocations: 1,
 			AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{
@@ -95,4 +146,13 @@ func validNativeResult() NativeReviewResult {
 			Reasons: []string{"one finding"},
 		},
 	}
+}
+
+func rebuildNativeResultIdentity(t *testing.T, result *NativeReviewResult) {
+	t.Helper()
+	identity, err := RecomputeReviewIdentity(*result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.ReviewIdentity = identity
 }

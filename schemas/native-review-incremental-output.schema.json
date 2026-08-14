@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["previous_finding_resolutions", "new_findings"],
+  "properties": {
+    "previous_finding_resolutions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "status", "reason", "current_finding"],
+        "properties": {
+          "finding_id": {"type": "string", "pattern": "^finding-v1:sha256:[0-9a-f]{64}$"},
+          "status": {"type": "string", "enum": ["RESOLVED", "UNRESOLVED"]},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"},
+          "current_finding": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["priority", "title", "code_location", "reason", "suggestion"],
+            "properties": {
+              "priority": {"type": "integer", "minimum": 0, "maximum": 1},
+              "title": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\r\\n]+$"},
+              "code_location": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "start_line", "end_line"],
+                "properties": {
+                  "path": {"type": "string", "minLength": 1},
+                  "start_line": {"type": "integer", "minimum": 1},
+                  "end_line": {"type": "integer", "minimum": 1}
+                }
+              },
+              "reason": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"},
+              "suggestion": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"}
+            }
+          }
+        }
+      }
+    },
+    "new_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["priority", "title", "code_location", "reason", "suggestion"],
+        "properties": {
+          "priority": {"type": "integer", "minimum": 0, "maximum": 3, "description": "Assign only concrete defects introduced or worsened by the incremental delta. P0 and P1 block release; P2 and P3 are advisory. Exclude pure style, naming, preference, ordinary maintainability, and unsupported scale speculation."},
+          "title": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\r\\n]+$"},
+          "code_location": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "start_line", "end_line"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "start_line": {"type": "integer", "minimum": 1},
+              "end_line": {"type": "integer", "minimum": 1}
+            }
+          },
+          "reason": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"},
+          "suggestion": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\r\\n]+$"}
+        }
+      }
+    }
+  }
+}

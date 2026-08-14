@@ -63,6 +63,11 @@ func TestNativeOutcomeKeepsOneValidatedFactForJSONAndMarkdown(t *testing.T) {
 	if !strings.Contains(encoded.String(), `"semantic_result": "BLOCK"`) {
 		t.Fatalf("JSON outcome = %s", encoded.String())
 	}
+	for _, forbidden := range []string{`"affected_entries": null`, `"delta_changed_files": null`, `"previous_blocking_findings": null`, `"previous_finding_resolutions": null`, `"new_findings": null`} {
+		if strings.Contains(encoded.String(), forbidden) {
+			t.Fatalf("JSON outcome contains a null required array %s: %s", forbidden, encoded.String())
+		}
+	}
 	markdown := outcome.Markdown()
 	if !strings.Contains(markdown, "BLOCK") || !strings.Contains(markdown, "HOLD") {
 		t.Fatalf("Markdown outcome = %s", markdown)

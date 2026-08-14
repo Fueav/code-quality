@@ -2,6 +2,7 @@ package nativereview
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -206,6 +207,114 @@ func TestNativeReviewTransactionPublishesIncompleteProcessFailure(t *testing.T) 
 	}
 }
 
+func TestIncrementalFullRequiredDoesNotInvokeProvider(t *testing.T) {
+	repository, base, target := transactionRepository(t)
+	runTransactionGit(t, repository, "branch", "production", base)
+	runTransactionGit(t, repository, "branch", "deploy", target)
+	providerPath := transactionCodex(t, false)
+	first, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, BaseRef: "production", HeadRef: "deploy", ReviewScope: quality.ReviewScopeFull,
+		Goal: "protect behavior", OutputRoot: filepath.Join(t.TempDir(), "first"), Provider: NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousResult := filepath.Join(first.Summary.EvidenceDir, "output", "review-result.json")
+	if err := os.Remove(providerPath); err != nil {
+		t.Fatal(err)
+	}
+	secondOutput := filepath.Join(t.TempDir(), "second")
+	second, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, BaseRef: "production", HeadRef: "deploy", ReviewScope: quality.ReviewScopeIncremental,
+		PreviousResultPath: previousResult, Goal: "protect behavior", OutputRoot: secondOutput,
+		Provider:     NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ExitCode != 4 || second.Plan.Status != "FULL_REQUIRED" || second.Plan.ProviderInvocations != 0 || !strings.Contains(strings.Join(second.Plan.FullRequiredReasons, ","), "delta_empty") {
+		t.Fatalf("transaction = %#v", second)
+	}
+	if _, err := os.Lstat(secondOutput); !os.IsNotExist(err) {
+		t.Fatalf("FULL_REQUIRED created a provider session: %v", err)
+	}
+}
+
+func TestIncrementalTransactionUsesDeltaSchemaAndResolvesParentBlocker(t *testing.T) {
+	repository, base, previousHead := transactionRepository(t)
+	runTransactionGit(t, repository, "branch", "production", base)
+	runTransactionGit(t, repository, "branch", "deploy", previousHead)
+	providerPath := transactionFlexibleCodex(t)
+	responsePath := filepath.Join(t.TempDir(), "response.json")
+	promptPath := filepath.Join(t.TempDir(), "prompt.txt")
+	t.Setenv("FAKE_NATIVE_RESPONSE", responsePath)
+	t.Setenv("FAKE_NATIVE_PROMPT", promptPath)
+	fullResponse := `{"findings":[{"priority":1,"title":"Old blocker","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The changed path returns the wrong value.","suggestion":"Correct the changed path."}]}`
+	if err := os.WriteFile(responsePath, []byte(fullResponse), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, BaseRef: "production", HeadRef: "deploy", ReviewScope: quality.ReviewScopeFull,
+		Goal: "protect behavior", OutputRoot: filepath.Join(t.TempDir(), "full"), Provider: NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ExitCode != 3 {
+		t.Fatalf("first transaction = %#v", first)
+	}
+	previousResultPath := filepath.Join(first.Summary.EvidenceDir, "output", "review-result.json")
+	previousResult := readTransactionResult(t, previousResultPath)
+	if len(previousResult.Findings) != 1 {
+		t.Fatalf("previous result = %#v", previousResult)
+	}
+
+	runTransactionGit(t, repository, "switch", "deploy")
+	if err := os.WriteFile(filepath.Join(repository, "app.go"), []byte("package app\nfunc Run() bool { return true }\nfunc Fixed() bool { return true }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runTransactionGit(t, repository, "add", "app.go")
+	runTransactionGit(t, repository, "commit", "-qm", "resolve blocker")
+	currentHead := strings.TrimSpace(runTransactionGit(t, repository, "rev-parse", "HEAD"))
+	incrementalResponse := fmt.Sprintf(`{"previous_finding_resolutions":[{"finding_id":%q,"status":"RESOLVED","reason":"The causal path was removed.","current_finding":null}],"new_findings":[]}`, previousResult.Findings[0].ID)
+	if err := os.WriteFile(responsePath, []byte(incrementalResponse), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, BaseRef: "production", HeadRef: "deploy", ReviewScope: quality.ReviewScopeIncremental,
+		PreviousResultPath: previousResultPath, Goal: "protect behavior",
+		OutputRoot: filepath.Join(t.TempDir(), "incremental"), Provider: NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ExitCode != 0 || second.Plan.ReviewScope != quality.ReviewScopeIncremental || second.Plan.ProviderRequest.BaseCommit != previousHead || second.Plan.CurrentHead != currentHead {
+		t.Fatalf("second transaction = %#v", second)
+	}
+	result := readTransactionResult(t, filepath.Join(second.Summary.EvidenceDir, "output", "review-result.json"))
+	if result.Adjudication.SemanticResult != quality.ResultPass || result.ParentReviewKey == nil || *result.ParentReviewKey != previousResult.ReviewKey || result.PreviousHead == nil || *result.PreviousHead != previousHead || len(result.PreviousFindingResolutions) != 1 || result.PreviousFindingResolutions[0].Status != quality.ResolutionResolved || len(result.Findings) != 0 {
+		t.Fatalf("incremental result = %#v", result)
+	}
+	prompt, err := os.ReadFile(promptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(prompt), previousHead+".."+currentHead) || !strings.Contains(string(prompt), previousResult.Findings[0].ID) {
+		t.Fatalf("incremental prompt = %s", prompt)
+	}
+	schema, err := os.ReadFile(filepath.Join(second.Summary.EvidenceDir, "input", "native-review-output.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Contract.ProviderOutputSchema != quality.SHA256Digest(schema) || !strings.Contains(string(schema), `"previous_finding_resolutions"`) {
+		t.Fatalf("incremental schema contract = %q / %s", result.Contract.ProviderOutputSchema, schema)
+	}
+}
+
 type recordingLease struct {
 	acquired bool
 	closed   bool
@@ -296,4 +405,39 @@ exit 7
 		t.Fatal(err)
 	}
 	return path
+}
+
+func transactionFlexibleCodex(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "codex")
+	script := `#!/bin/sh
+set -eu
+output=''
+previous=''
+for argument in "$@"; do
+  if [ "$previous" = '--output-last-message' ]; then output="$argument"; fi
+  previous="$argument"
+done
+test -n "$output"
+cat > "$FAKE_NATIVE_PROMPT"
+cp "$FAKE_NATIVE_RESPONSE" "$output"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":20,"output_tokens":4}}'
+`
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func readTransactionResult(t *testing.T, path string) quality.NativeReviewResult {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result quality.NativeReviewResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	return result
 }

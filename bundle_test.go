@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -76,16 +77,87 @@ func TestNativeResultV7SchemaIsPriorityAware(t *testing.T) {
 	}
 }
 
-func TestReviewSummarySchemaV2SeparatesBlockingAndAdvisoryCounts(t *testing.T) {
+func TestNativeResultV8SchemaCarriesScopeIdentityAndLineage(t *testing.T) {
+	raw, err := Schema("review-result-v8.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{`"schema_version": {"const": 8}`, `"review_key"`, `"contract_digest"`, `"review_scope"`, `"INCREMENTAL"`, `"previous_finding_resolutions"`, `"new_findings"`} {
+		if !strings.Contains(text, required) {
+			t.Errorf("v8 schema is missing %s", required)
+		}
+	}
+}
+
+func TestReviewSummarySchemaV3CarriesIdentityAndIncrementalCounts(t *testing.T) {
 	raw, err := Schema("review-summary.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	for _, required := range []string{`"schema_version": {"const": 2}`, `"blocking_issues"`, `"advisory_issues"`, `"priority": {"enum": ["P0", "P1"]}`, `"priority": {"enum": ["P2", "P3"]}`} {
+	for _, required := range []string{`"schema_version": {"const": 3}`, `"review_scope"`, `"review_key"`, `"current_head"`, `"resolved_previous_findings"`, `"unresolved_previous_findings"`, `"new_findings"`, `"blocking_issues"`, `"advisory_issues"`} {
 		if !strings.Contains(text, required) {
 			t.Errorf("summary schema is missing %s", required)
 		}
+	}
+}
+
+func TestIncrementalProviderSchemaUsesStructuredOutputSubset(t *testing.T) {
+	raw, err := Schema("native-review-incremental-output.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, unsupported := range []string{`"$schema"`, `"$ref"`, `"allOf"`, `"oneOf"`} {
+		if strings.Contains(text, unsupported) {
+			t.Fatalf("incremental provider schema contains unsupported construct %s", unsupported)
+		}
+	}
+	for _, required := range []string{`"previous_finding_resolutions"`, `"new_findings"`, `"RESOLVED"`, `"UNRESOLVED"`, `"current_finding"`} {
+		if !strings.Contains(text, required) {
+			t.Errorf("incremental provider schema is missing %s", required)
+		}
+	}
+}
+
+func TestCompanyCIEnvelopeKeepsLifecycleOutsideImmutableResult(t *testing.T) {
+	raw, err := Schema("review-result-envelope-v1.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(raw)
+	for _, required := range []string{`"schema_version": {"const": 1}`, `"EXECUTED"`, `"REUSED"`, `"CURRENT"`, `"SUPERSEDED"`, `"$ref": "review-result-v8.schema.json"`} {
+		if !strings.Contains(schema, required) {
+			t.Errorf("company CI envelope schema is missing %s", required)
+		}
+	}
+
+	fixture, err := os.ReadFile("docs/company-ci-review-result-envelope-v1.example.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		SchemaVersion   int                        `json:"schema_version"`
+		ResultSource    string                     `json:"result_source"`
+		LifecycleStatus string                     `json:"lifecycle_status"`
+		ReviewResult    quality.NativeReviewResult `json:"review_result"`
+	}
+	if err := json.Unmarshal(fixture, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.SchemaVersion != 1 || envelope.ResultSource != "EXECUTED" || envelope.LifecycleStatus != "CURRENT" {
+		t.Fatalf("company CI envelope fixture drifted: %#v", envelope)
+	}
+	if problems := quality.ValidateNativeResult(envelope.ReviewResult); len(problems) > 0 {
+		t.Fatalf("embedded immutable review result is invalid: %#v", problems)
+	}
+	resultJSON, err := json.Marshal(envelope.ReviewResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(resultJSON), "result_source") || strings.Contains(string(resultJSON), "lifecycle_status") {
+		t.Fatal("raw CLI result contains company CI lifecycle fields")
 	}
 }
 
@@ -157,7 +229,10 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-result-v5.schema.json",
 		"review-result-v6.schema.json",
 		"review-result-v7.schema.json",
+		"review-result-v8.schema.json",
+		"review-result-envelope-v1.schema.json",
 		"native-review-output.schema.json",
+		"native-review-incremental-output.schema.json",
 		"review-summary.schema.json",
 		"native-review-freeze.schema.json",
 		"native-run-metrics.schema.json",
@@ -241,7 +316,7 @@ func TestNativeFreezeSchemaFixesArtifactIdentityAndDigest(t *testing.T) {
 }
 
 func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
-	for _, name := range []string{"review-result-v3.schema.json", "review-result-v4.schema.json", "review-result-v5.schema.json", "review-result-v6.schema.json", "review-result-v7.schema.json"} {
+	for _, name := range []string{"review-result-v3.schema.json", "review-result-v4.schema.json", "review-result-v5.schema.json", "review-result-v6.schema.json", "review-result-v7.schema.json", "review-result-v8.schema.json"} {
 		raw, err := Schema(name)
 		if err != nil {
 			t.Fatal(err)

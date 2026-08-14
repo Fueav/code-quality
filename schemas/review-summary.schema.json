@@ -2,13 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "result", "release", "blocking_issues", "advisory_issues", "issues"],
+  "required": ["schema_version", "result", "release", "review_scope", "review_key", "current_head", "blocking_issues", "advisory_issues", "resolved_previous_findings", "unresolved_previous_findings", "new_findings", "issues"],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "result": {"enum": ["PASS", "BLOCK", "ERROR"]},
     "release": {"enum": ["CONTINUE", "HOLD"]},
+    "review_scope": {"enum": ["FULL", "INCREMENTAL"]},
+    "review_key": {"type": "string", "pattern": "^review-v1:sha256:[0-9a-f]{64}$"},
+    "current_head": {"type": "string", "minLength": 1},
     "blocking_issues": {"type": "integer", "minimum": 0},
     "advisory_issues": {"type": "integer", "minimum": 0},
+    "resolved_previous_findings": {"type": "integer", "minimum": 0},
+    "unresolved_previous_findings": {"type": "integer", "minimum": 0},
+    "new_findings": {"type": "integer", "minimum": 0},
     "issues": {
       "type": "array",
       "items": {
@@ -53,6 +59,9 @@
           "release": {"const": "HOLD"},
           "blocking_issues": {"const": 0},
           "advisory_issues": {"const": 0},
+          "resolved_previous_findings": {"const": 0},
+          "unresolved_previous_findings": {"const": 0},
+          "new_findings": {"const": 0},
           "issues": {"maxItems": 0}
         }
       }

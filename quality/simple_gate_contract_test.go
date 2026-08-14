@@ -77,7 +77,7 @@ func TestStructuredNativeAdvisoriesContinueRelease(t *testing.T) {
 		t.Fatalf("result = %#v, want PASS with two advisories", result)
 	}
 	summary := outcome.Summary()
-	if summary.SchemaVersion != 2 || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 || summary.AdvisoryIssues != 2 || len(summary.Issues) != 2 {
+	if summary.SchemaVersion != 3 || summary.Release != "CONTINUE" || summary.BlockingIssues != 0 || summary.AdvisoryIssues != 2 || len(summary.Issues) != 2 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	for _, want := range []string{"PASS", "CONTINUE", "Blocking issues: 0", "Advisory issues: 2", "## Advisories"} {

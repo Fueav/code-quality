@@ -68,11 +68,12 @@ type Prepared struct {
 }
 
 type Options struct {
-	RepositoryRoot string
-	OutputRoot     string
-	Host           string
-	Request        quality.ReviewRequest
-	DirtyWorktree  bool
+	RepositoryRoot   string
+	OutputRoot       string
+	Host             string
+	Request          quality.ReviewRequest
+	DirtyWorktree    bool
+	NativeSchemaName string
 }
 
 type Metadata struct {
@@ -128,8 +129,8 @@ func (session NativeSession) OutputSchemaPath() string    { return session.layou
 
 func (session NativeSession) Request() quality.ReviewRequest {
 	request := session.request
-	request.ChangedFiles = append([]string(nil), request.ChangedFiles...)
-	request.AffectedEntries = append([]string(nil), request.AffectedEntries...)
+	request.ChangedFiles = append([]string{}, request.ChangedFiles...)
+	request.AffectedEntries = append([]string{}, request.AffectedEntries...)
 	if request.Change != nil {
 		change := *request.Change
 		request.Change = &change
@@ -209,7 +210,15 @@ func PrepareNative(ctx context.Context, options Options) (NativeSession, error) 
 	if err != nil {
 		return NativeSession{}, err
 	}
-	if err := writeSchema(preparation.layout.NativeSchemaPath, "native-review-output.schema.json"); err != nil {
+	schemaName := strings.TrimSpace(options.NativeSchemaName)
+	if schemaName == "" {
+		schemaName = "native-review-output.schema.json"
+	}
+	if schemaName != "native-review-output.schema.json" && schemaName != "native-review-incremental-output.schema.json" {
+		preparation.abort()
+		return NativeSession{}, errors.New("unsupported native review output schema")
+	}
+	if err := writeSchema(preparation.layout.NativeSchemaPath, schemaName); err != nil {
 		preparation.abort()
 		return NativeSession{}, err
 	}
@@ -305,8 +314,8 @@ func newNativeArtifacts(layout Layout) NativeArtifacts {
 }
 
 func copyReviewRequest(request quality.ReviewRequest) quality.ReviewRequest {
-	request.ChangedFiles = append([]string(nil), request.ChangedFiles...)
-	request.AffectedEntries = append([]string(nil), request.AffectedEntries...)
+	request.ChangedFiles = append([]string{}, request.ChangedFiles...)
+	request.AffectedEntries = append([]string{}, request.AffectedEntries...)
 	if request.Change != nil {
 		change := *request.Change
 		request.Change = &change

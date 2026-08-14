@@ -1,4 +1,4 @@
-# Jenkins 生产 CI 接入（v0.5.4）
+# Jenkins 生产 CI 接入（v0.5.5）
 
 适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。
 
@@ -11,16 +11,16 @@
 - 标签为 `code-quality`，每个系统用户只设 1 个 executor。
 - 使用专用低权限用户，不保存与审查无关的凭据。
 - 已安装 `bash`、`git`、`curl` 和 `tar`，能够访问 GitHub 与所选 Provider。
-- 同一用户预装 `quality-review v0.5.4` 和一个已登录的 Provider。
+- 同一用户预装 `quality-review v0.5.5` 和一个已登录的 Provider。
 
 ```sh
 command -v bash git curl tar
 
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.4/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.4
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.5/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.5
 
 command -v quality-review
-quality-review version          # 必须是 quality-review v0.5.4
+quality-review version          # 必须是 quality-review v0.5.5
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
@@ -94,17 +94,17 @@ git fetch --no-tags origin \
   "+refs/heads/${CHANGE_TARGET}:refs/remotes/origin/${CHANGE_TARGET}" \
   "+refs/pull/${CHANGE_ID}/head:refs/remotes/origin/pr/${CHANGE_ID}/head"
 
-base_tip=$(git rev-parse "refs/remotes/origin/${CHANGE_TARGET}^{commit}")
-target=$(git rev-parse "refs/remotes/origin/pr/${CHANGE_ID}/head^{commit}")
-base=$(git merge-base "$base_tip" "$target")
-printf 'BASE_SHA=%s\nTARGET_SHA=%s\n' "$base" "$target" > "$REVIEW_ROOT/range.env"
+base_ref="refs/remotes/origin/${CHANGE_TARGET}"
+head_ref="refs/remotes/origin/pr/${CHANGE_ID}/head"
+git rev-parse "${base_ref}^{commit}" "${head_ref}^{commit}" >/dev/null
+printf 'BASE_REF=%s\nHEAD_REF=%s\n' "$base_ref" "$head_ref" > "$REVIEW_ROOT/range.env"
 '''
         }
 
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 . "$REVIEW_ROOT/range.env"
-test "$(quality-review version)" = 'quality-review v0.5.4'
+test "$(quality-review version)" = 'quality-review v0.5.5'
 
 case "$CODE_QUALITY_PROVIDER" in
   codex) host=codex; command=run-codex; model=gpt-5.6-sol ;;
@@ -113,12 +113,12 @@ case "$CODE_QUALITY_PROVIDER" in
 esac
 
 quality-review doctor --host "$host" --repo "$WORKSPACE" \
-  --base "$BASE_SHA" --target "$TARGET_SHA" \
+  --base-ref "$BASE_REF" --head-ref "$HEAD_REF" \
   --execution-profile production-ci | tee "$REVIEW_ROOT/doctor.json"
 
 set +e
 quality-review "$command" --repo "$WORKSPACE" \
-  --base "$BASE_SHA" --target "$TARGET_SHA" \
+  --base-ref "$BASE_REF" --head-ref "$HEAD_REF" \
   --diff-reason jenkins_github_pull_request \
   --execution-profile production-ci \
   --model "$model" --reasoning-effort high \
@@ -150,7 +150,7 @@ if [ -n "${REVIEW_ROOT:-}" ] && [ -d "$REVIEW_ROOT" ]; then
 fi
 if [ ! -f "$artifact_root/review-summary.md" ]; then
   printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect doctor.json.' > "$artifact_root/review-summary.md"
-  printf '%s\n' '{"schema_version":2,"result":"ERROR","release":"HOLD","blocking_issues":0,"advisory_issues":0,"issues":[]}' > "$artifact_root/review-summary.json"
+  printf '%s\n' '{"schema_version":3,"result":"ERROR","release":"HOLD","review_scope":"FULL","review_key":"review-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000","current_head":"UNAVAILABLE","blocking_issues":0,"advisory_issues":0,"resolved_previous_findings":0,"unresolved_previous_findings":0,"new_findings":0,"issues":[]}' > "$artifact_root/review-summary.json"
 fi
 cat "$artifact_root/review-summary.md"
 '''
@@ -192,5 +192,7 @@ Advisory issues: 0
 - 版本不匹配：重新运行第 1 节的固定版本安装命令，并同步修改 Jenkinsfile 中的版本断言。
 - Workspace 不干净：确认审查 stage 位于构建步骤之前，并清理该 Job 自己生成的文件；不要删除业务仓库内容。
 - 升级新版本时先在一条可信 PR 验证，再将 required check 应用于全部受保护分支。
+
+需要跨构建复用 `review_key`、执行 INCREMENTAL 或防止旧构建覆盖新 push 时，在 Jenkins Shared Library 中实现 [公司 CI 结果 envelope 合同](company-ci-review-result-envelope.md)；不要把缓存、`REUSED / SUPERSEDED` 或修复循环写进 CLI。
 
 安全边界：Provider 登录用户不得保存其他生产凭据；只在 `sshagent` 块内暴露只读 SCM 凭据；Jenkinsfile 或共享库必须由运维/CODEOWNERS 保护，不能让未信任 PR 修改后直接执行。

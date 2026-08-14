@@ -73,11 +73,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify quality-review v0.5.4
+      - name: Verify quality-review v0.5.5
         run: |
           set -eu
           review_bin=$(command -v quality-review)
-          test "$("$review_bin" version)" = 'quality-review v0.5.4'
+          test "$("$review_bin" version)" = 'quality-review v0.5.5'
           printf 'QUALITY_REVIEW_BIN=%s\n' "$review_bin" >> "$GITHUB_ENV"
           printf 'QUALITY_REVIEW_OUTPUT_ROOT=%s\n' "$RUNNER_TEMP/code-quality" >> "$GITHUB_ENV"
 
@@ -156,6 +156,8 @@ jobs:
 
       - name: Package concise result and evidence
         if: always()
+        env:
+          CURRENT_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
           output_root="${QUALITY_REVIEW_OUTPUT_ROOT:-$RUNNER_TEMP/code-quality}"
@@ -171,7 +173,7 @@ jobs:
           done
           if [ ! -f "$artifact_root/review-summary.md" ]; then
             printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect doctor.json.' > "$artifact_root/review-summary.md"
-            printf '%s\n' '{"schema_version":2,"result":"ERROR","release":"HOLD","blocking_issues":0,"advisory_issues":0,"issues":[]}' > "$artifact_root/review-summary.json"
+            printf '%s\n' "{\"schema_version\":3,\"result\":\"ERROR\",\"release\":\"HOLD\",\"review_scope\":\"FULL\",\"review_key\":\"review-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"current_head\":\"$CURRENT_HEAD\",\"blocking_issues\":0,\"advisory_issues\":0,\"resolved_previous_findings\":0,\"unresolved_previous_findings\":0,\"new_findings\":0,\"issues\":[]}" > "$artifact_root/review-summary.json"
           fi
           if [ -d "$output_root" ]; then
             tar -czf "$artifact_root/evidence.tar.gz" -C "$output_root" .

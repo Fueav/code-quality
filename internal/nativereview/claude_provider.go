@@ -36,7 +36,7 @@ func (provider claudeProvider) validateReasoningEffort(value string) error {
 }
 
 func (provider claudeProvider) buildInvocation(options providerInvocationOptions) reviewInvocation {
-	prompt := buildReviewPrompt(options.Session.Request(), options.Goal, true)
+	prompt := buildPlanReviewPrompt(options.Plan, options.Goal, true)
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",

@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Fueav/code-quality/internal/intake"
+	"github.com/Fueav/code-quality/internal/nativereview"
+	"github.com/Fueav/code-quality/internal/reviewplan"
 	"github.com/Fueav/code-quality/quality"
 )
 
@@ -29,28 +30,46 @@ type Check struct {
 }
 
 type Report struct {
-	SchemaVersion   int      `json:"schema_version"`
-	Status          string   `json:"status"`
-	Host            string   `json:"host"`
-	ProviderPath    string   `json:"provider_path,omitempty"`
-	ProviderVersion string   `json:"provider_version,omitempty"`
-	RepositoryRoot  string   `json:"repository_root,omitempty"`
-	BaseCommit      string   `json:"base_commit,omitempty"`
-	TargetCommit    string   `json:"target_commit,omitempty"`
-	ChangedFiles    []string `json:"changed_files"`
-	DirtyWorktree   bool     `json:"dirty_worktree"`
-	Checks          []Check  `json:"checks"`
-	NextAction      string   `json:"next_action,omitempty"`
+	SchemaVersion       int      `json:"schema_version"`
+	Status              string   `json:"status"`
+	Host                string   `json:"host"`
+	ProviderPath        string   `json:"provider_path,omitempty"`
+	ProviderVersion     string   `json:"provider_version,omitempty"`
+	RepositoryRoot      string   `json:"repository_root,omitempty"`
+	BaseCommit          string   `json:"base_commit,omitempty"`
+	TargetCommit        string   `json:"target_commit,omitempty"`
+	BaseRef             string   `json:"base_ref,omitempty"`
+	HeadRef             string   `json:"head_ref,omitempty"`
+	BaseTipCommit       string   `json:"base_tip_commit,omitempty"`
+	MergeBase           string   `json:"merge_base,omitempty"`
+	CurrentHead         string   `json:"current_head,omitempty"`
+	PlanStatus          string   `json:"plan_status,omitempty"`
+	ReviewScope         string   `json:"review_scope,omitempty"`
+	ReviewKey           string   `json:"review_key,omitempty"`
+	ContractDigest      string   `json:"contract_digest,omitempty"`
+	ProviderInvocations int      `json:"provider_invocations"`
+	FullRequiredReasons []string `json:"full_required_reasons"`
+	ChangedFiles        []string `json:"changed_files"`
+	DirtyWorktree       bool     `json:"dirty_worktree"`
+	Checks              []Check  `json:"checks"`
+	NextAction          string   `json:"next_action,omitempty"`
 }
 
 type Options struct {
-	Host             string
-	RepositoryPath   string
-	Base             string
-	Target           string
-	DiffReason       string
-	Environment      map[string]string
-	ExecutionProfile string
+	Host               string
+	RepositoryPath     string
+	Base               string
+	Target             string
+	BaseRef            string
+	HeadRef            string
+	DiffReason         string
+	ReviewScope        string
+	PreviousResultPath string
+	ReviewGoal         string
+	Model              string
+	ReasoningEffort    string
+	Environment        map[string]string
+	ExecutionProfile   string
 }
 
 type providerContract struct {
@@ -74,11 +93,12 @@ func Run(ctx context.Context, options Options) (Report, error) {
 		return Report{}, err
 	}
 	report := Report{
-		SchemaVersion: 1,
-		Status:        StatusReady,
-		Host:          contract.host,
-		ChangedFiles:  []string{},
-		Checks:        []Check{},
+		SchemaVersion:       1,
+		Status:              StatusReady,
+		Host:                contract.host,
+		ChangedFiles:        []string{},
+		Checks:              []Check{},
+		FullRequiredReasons: []string{},
 	}
 
 	providerPath, lookupErr := exec.LookPath(contract.binary)
@@ -112,24 +132,57 @@ func Run(ctx context.Context, options Options) (Report, error) {
 		}
 	}
 
-	discovered, discoveryErr := intake.Discover(intake.Options{
-		RepositoryPath: options.RepositoryPath,
-		Base:           options.Base,
-		Target:         options.Target,
-		DiffReason:     options.DiffReason,
-		Environment:    options.Environment,
+	provider, providerErr := nativereview.ProviderForHost(contract.host)
+	if providerErr != nil {
+		return Report{}, providerErr
+	}
+	reviewContract, contractErr := nativereview.ResolveContract(provider, options.Model, options.ReasoningEffort, profile, options.ReviewScope)
+	if contractErr != nil {
+		return Report{}, contractErr
+	}
+	parentContract, contractErr := nativereview.ResolveContract(provider, options.Model, options.ReasoningEffort, profile, quality.ReviewScopeFull)
+	if contractErr != nil {
+		return Report{}, contractErr
+	}
+	plan, discoveryErr := reviewplan.Build(ctx, reviewplan.Input{
+		RepositoryPath:     options.RepositoryPath,
+		Base:               options.Base,
+		Target:             options.Target,
+		BaseRef:            options.BaseRef,
+		HeadRef:            options.HeadRef,
+		DiffReason:         options.DiffReason,
+		ReviewScope:        options.ReviewScope,
+		PreviousResultPath: options.PreviousResultPath,
+		ReviewGoal:         options.ReviewGoal,
+		Environment:        options.Environment,
+		Contract:           reviewContract.Contract,
+		ParentContract:     parentContract.Contract,
 	})
 	if discoveryErr != nil {
-		report.RepositoryRoot = discovered.RepositoryRoot
 		report.block("review_scope", discoveryErr.Error(), scopeNextAction(discoveryErr))
 	} else {
-		report.RepositoryRoot = discovered.RepositoryRoot
-		report.BaseCommit = discovered.Request.BaseCommit
-		report.TargetCommit = discovered.Request.TargetCommit
-		report.ChangedFiles = append([]string(nil), discovered.Request.ChangedFiles...)
-		report.DirtyWorktree = discovered.DirtyWorktree
-		report.pass("review_scope", fmt.Sprintf("%d committed file(s) selected", len(report.ChangedFiles)))
-		if discovered.DirtyWorktree {
+		report.RepositoryRoot = plan.RepositoryRoot()
+		report.BaseCommit = plan.Request.BaseCommit
+		report.TargetCommit = plan.Request.TargetCommit
+		report.BaseRef = plan.BaseRef
+		report.HeadRef = plan.HeadRef
+		report.BaseTipCommit = plan.BaseTipCommit
+		report.MergeBase = plan.MergeBase
+		report.CurrentHead = plan.CurrentHead
+		report.PlanStatus = plan.Status
+		report.ReviewScope = plan.ReviewScope
+		report.ReviewKey = plan.ReviewKey
+		report.ContractDigest = plan.ContractDigest
+		report.ProviderInvocations = plan.ProviderInvocations
+		report.FullRequiredReasons = append([]string(nil), plan.FullRequiredReasons...)
+		report.ChangedFiles = append([]string(nil), plan.ProviderRequest.ChangedFiles...)
+		report.DirtyWorktree = plan.DirtyWorktree
+		if plan.Status == reviewplan.StatusFullRequired {
+			report.block("review_scope", "incremental review requires FULL: "+strings.Join(plan.FullRequiredReasons, ", "), "rerun with --review-scope full and without --previous-result")
+		} else {
+			report.pass("review_scope", fmt.Sprintf("%d committed file(s) selected", len(report.ChangedFiles)))
+		}
+		if plan.DirtyWorktree {
 			report.block("working_tree", "uncommitted changes are excluded from the review", "commit or stash working tree changes and rerun doctor")
 		} else {
 			report.pass("working_tree", "working tree is clean")
@@ -219,7 +272,7 @@ func scopeNextAction(err error) string {
 	message := err.Error()
 	switch {
 	case strings.Contains(message, "origin/HEAD"):
-		return "set origin/HEAD or rerun doctor with both --base and --target"
+		return "set origin/HEAD or rerun doctor with both --base-ref and --head-ref"
 	case strings.Contains(message, "changed_files") || strings.Contains(message, "no committed changes"):
 		return "commit at least one change or provide a non-empty --base and --target range"
 	default:

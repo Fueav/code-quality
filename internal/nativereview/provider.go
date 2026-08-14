@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/Fueav/code-quality/internal/reviewplan"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 )
 
@@ -23,6 +24,7 @@ type Provider interface {
 
 type providerInvocationOptions struct {
 	Session          reviewsession.NativeSession
+	Plan             reviewplan.Decision
 	Goal             string
 	Model            string
 	ReasoningEffort  string

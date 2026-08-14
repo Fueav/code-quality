@@ -61,7 +61,7 @@ func (provider codexProvider) buildInvocation(options providerInvocationOptions)
 		executable: provider.binary,
 		args:       args,
 		directory:  options.Session.RepositoryDirectory(),
-		stdin:      buildReviewPrompt(options.Session.Request(), options.Goal, options.ExecutionProfile == quality.ExecutionProfileProductionCI),
+		stdin:      buildPlanReviewPrompt(options.Plan, options.Goal, options.ExecutionProfile == quality.ExecutionProfileProductionCI),
 		paths:      capturePathsFromSession(options.Session),
 	}
 	if options.LeaseFile != nil {

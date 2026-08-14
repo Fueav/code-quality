@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Fueav/code-quality/internal/intake"
+	"github.com/Fueav/code-quality/internal/reviewplan"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
@@ -21,16 +21,21 @@ type NativeRunSummary struct {
 }
 
 type TransactionOptions struct {
-	RepositoryPath   string
-	Base             string
-	Target           string
-	DiffReason       string
-	Goal             string
-	Model            string
-	ReasoningEffort  string
-	ExecutionProfile string
-	OutputRoot       string
-	Provider         Provider
+	RepositoryPath     string
+	Base               string
+	Target             string
+	BaseRef            string
+	HeadRef            string
+	DiffReason         string
+	ReviewScope        string
+	PreviousResultPath string
+	Goal               string
+	Model              string
+	ReasoningEffort    string
+	ExecutionProfile   string
+	OutputRoot         string
+	Provider           Provider
+	Environment        map[string]string
 	// CodexBinary is retained for source compatibility. Prefer Provider.
 	CodexBinary  string
 	AcquireLease func() (io.Closer, *os.File, error)
@@ -38,6 +43,7 @@ type TransactionOptions struct {
 
 type TransactionResult struct {
 	Summary       NativeRunSummary
+	Plan          reviewplan.Decision
 	DirtyWorktree bool
 	Warnings      []string
 	ExitCode      int
@@ -76,6 +82,14 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	if err := validateProvider(provider); err != nil {
 		return TransactionResult{}, atStage("select native review provider", 2, err)
 	}
+	contract, err := ResolveContract(provider, options.Model, options.ReasoningEffort, options.ExecutionProfile, options.ReviewScope)
+	if err != nil {
+		return TransactionResult{}, atStage("freeze native review contract", 2, err)
+	}
+	parentContract, err := ResolveContract(provider, options.Model, options.ReasoningEffort, options.ExecutionProfile, quality.ReviewScopeFull)
+	if err != nil {
+		return TransactionResult{}, atStage("freeze parent review contract", 2, err)
+	}
 	acquireLease := options.AcquireLease
 	if acquireLease == nil {
 		acquireLease = func() (io.Closer, *os.File, error) {
@@ -95,25 +109,37 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	}
 	defer func() { _ = lease.Close() }()
 
-	discovered, err := intake.Discover(intake.Options{
-		RepositoryPath: options.RepositoryPath,
-		Base:           options.Base,
-		Target:         options.Target,
-		DiffReason:     options.DiffReason,
+	plan, err := reviewplan.Build(ctx, reviewplan.Input{
+		RepositoryPath:     options.RepositoryPath,
+		Base:               options.Base,
+		Target:             options.Target,
+		BaseRef:            options.BaseRef,
+		HeadRef:            options.HeadRef,
+		DiffReason:         options.DiffReason,
+		ReviewScope:        options.ReviewScope,
+		PreviousResultPath: options.PreviousResultPath,
+		ReviewGoal:         options.Goal,
+		Environment:        options.Environment,
+		Contract:           contract.Contract,
+		ParentContract:     parentContract.Contract,
 	})
 	if err != nil {
 		return TransactionResult{}, atStage("resolve review scope", 1, err)
 	}
-	outputRoot, err := resolveTransactionOutputRoot(options.OutputRoot, discovered.RepositoryRoot)
+	if plan.Status == reviewplan.StatusFullRequired {
+		return TransactionResult{Plan: plan, DirtyWorktree: plan.DirtyWorktree, Warnings: []string{}, ExitCode: 4}, nil
+	}
+	outputRoot, err := resolveTransactionOutputRoot(options.OutputRoot, plan.RepositoryRoot())
 	if err != nil {
 		return TransactionResult{}, atStage("output root", 2, err)
 	}
 	session, err := reviewsession.PrepareNative(ctx, reviewsession.Options{
-		RepositoryRoot: discovered.RepositoryRoot,
-		OutputRoot:     outputRoot,
-		Host:           provider.Host(),
-		Request:        discovered.Request,
-		DirtyWorktree:  discovered.DirtyWorktree,
+		RepositoryRoot:   plan.RepositoryRoot(),
+		OutputRoot:       outputRoot,
+		Host:             provider.Host(),
+		Request:          plan.ProviderRequest,
+		DirtyWorktree:    plan.DirtyWorktree,
+		NativeSchemaName: contract.OutputSchemaName,
 	})
 	if err != nil {
 		return TransactionResult{}, atStage("prepare native review", 1, err)
@@ -125,8 +151,8 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	}()
 
 	outcome, err := runNativeSession(ctx, nativeRunOptions{
-		Session: session, Goal: options.Goal, Model: options.Model,
-		ReasoningEffort: options.ReasoningEffort, ExecutionProfile: options.ExecutionProfile,
+		Session: session, Plan: plan, Goal: options.Goal, Model: contract.Contract.Model,
+		ReasoningEffort: contract.Contract.ReasoningEffort, ExecutionProfile: contract.Contract.ExecutionProfile,
 		Provider: provider, LeaseFile: leaseFile,
 	})
 	if err != nil {
@@ -145,6 +171,7 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	}
 	artifacts := session.Artifacts()
 	transaction = TransactionResult{
+		Plan: plan,
 		Summary: NativeRunSummary{
 			NativeReleaseSummary: outcome.Summary(),
 			SummaryPath:          artifacts.SummaryMarkdownPath(), EvidenceDir: session.Directory(),

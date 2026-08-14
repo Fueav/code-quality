@@ -13,9 +13,9 @@ import (
 
 	bundle "github.com/Fueav/code-quality"
 	evalrunner "github.com/Fueav/code-quality/internal/eval"
-	"github.com/Fueav/code-quality/internal/intake"
 	"github.com/Fueav/code-quality/internal/nativereview"
 	"github.com/Fueav/code-quality/internal/onboarding"
+	"github.com/Fueav/code-quality/internal/reviewplan"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
@@ -69,6 +69,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runClaude(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr)
+	case "plan":
+		return runPlan(args[1:], stdout, stderr)
 	}
 	policy, err := loadPolicy()
 	if err != nil {
@@ -103,6 +105,7 @@ func printHelp(writer io.Writer) {
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Usage:")
 	fmt.Fprintln(writer, "  quality-review doctor --host <codex|claude-code> --repo <path> [--execution-profile <personal|production-ci>]")
+	fmt.Fprintln(writer, "  quality-review plan --host <codex|claude-code> [flags]")
 	fmt.Fprintln(writer, "  quality-review run-codex [flags]")
 	fmt.Fprintln(writer, "  quality-review run-claude [flags]")
 	fmt.Fprintln(writer, "  quality-review version")
@@ -138,7 +141,11 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	repository := flags.String("repo", ".", "Git repository path")
 	base := flags.String("base", "", "base commit")
 	target := flags.String("target", "", "target commit")
+	baseRef := flags.String("base-ref", "", "destination branch or ref")
+	headRef := flags.String("head-ref", "", "source branch or ref")
 	reason := flags.String("diff-reason", "", "diff selection reason")
+	reviewScope := flags.String("review-scope", "full", "review scope: full or incremental")
+	previousResult := flags.String("previous-result", "", "immutable previous review-result.json for incremental review")
 	goal := flags.String("goal", "", "optional change intent or extra review concern")
 	model := flags.String("model", config.model, config.modelHelp)
 	reasoningEffort := flags.String("reasoning-effort", "max", config.effortHelp)
@@ -152,16 +159,20 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		return 2
 	}
 	transaction, err := runNativeReview(context.Background(), nativereview.TransactionOptions{
-		RepositoryPath:   *repository,
-		Base:             *base,
-		Target:           *target,
-		DiffReason:       *reason,
-		Goal:             *goal,
-		Model:            *model,
-		ReasoningEffort:  *reasoningEffort,
-		ExecutionProfile: *executionProfile,
-		OutputRoot:       *outputRoot,
-		Provider:         config.provider(),
+		RepositoryPath:     *repository,
+		Base:               *base,
+		Target:             *target,
+		BaseRef:            *baseRef,
+		HeadRef:            *headRef,
+		DiffReason:         *reason,
+		ReviewScope:        *reviewScope,
+		PreviousResultPath: *previousResult,
+		Goal:               *goal,
+		Model:              *model,
+		ReasoningEffort:    *reasoningEffort,
+		ExecutionProfile:   *executionProfile,
+		OutputRoot:         *outputRoot,
+		Provider:           config.provider(),
 	})
 	if errors.Is(err, nativereview.ErrNativeReviewActive) {
 		fmt.Fprintln(stderr, "quality-review: another native review is active for this user; retry after it finishes or review directly in the current host agent")
@@ -170,6 +181,13 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: %v\n", err)
 		return nativereview.TransactionExitCode(err)
+	}
+	if transaction.Plan.Status == reviewplan.StatusFullRequired {
+		if err := quality.EncodeJSON(stdout, transaction.Plan); err != nil {
+			fmt.Fprintf(stderr, "quality-review: encode FULL_REQUIRED plan: %v\n", err)
+			return 2
+		}
+		return transaction.ExitCode
 	}
 	if transaction.DirtyWorktree {
 		fmt.Fprintln(stderr, "quality-review: working tree changes are not included; review covers committed base and target only")
@@ -191,18 +209,27 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	repository := flags.String("repo", ".", "Git repository path")
 	base := flags.String("base", "", "base commit")
 	target := flags.String("target", "", "target commit")
+	baseRef := flags.String("base-ref", "", "destination branch or ref")
+	headRef := flags.String("head-ref", "", "source branch or ref")
 	reason := flags.String("diff-reason", "", "diff selection reason")
+	reviewScope := flags.String("review-scope", "full", "review scope: full or incremental")
+	previousResult := flags.String("previous-result", "", "immutable previous review-result.json for incremental review")
+	goal := flags.String("goal", "", "optional change intent or extra review concern")
+	model := flags.String("model", "", "provider model or alias")
+	reasoningEffort := flags.String("reasoning-effort", "max", "provider reasoning effort")
 	executionProfile := flags.String("execution-profile", quality.ExecutionProfilePersonal, "execution profile: personal or production-ci")
 	if err := flags.Parse(args); err != nil {
 		return flagParseExitCode(err)
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*host) == "" {
-		fmt.Fprintln(stderr, "usage: quality-review doctor --host <codex|claude-code> --repo <path> [--base <commit> --target <commit>] [--execution-profile <personal|production-ci>]")
+		fmt.Fprintln(stderr, "usage: quality-review doctor --host <codex|claude-code> --repo <path> [scope flags] [--execution-profile <personal|production-ci>]")
 		return 2
 	}
 	report, err := onboarding.Run(context.Background(), onboarding.Options{
-		Host: *host, RepositoryPath: *repository, Base: *base, Target: *target, DiffReason: *reason,
-		ExecutionProfile: *executionProfile,
+		Host: *host, RepositoryPath: *repository, Base: *base, Target: *target,
+		BaseRef: *baseRef, HeadRef: *headRef, DiffReason: *reason,
+		ReviewScope: *reviewScope, PreviousResultPath: *previousResult, ReviewGoal: *goal,
+		Model: *model, ReasoningEffort: *reasoningEffort, ExecutionProfile: *executionProfile,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: doctor: %v\n", err)
@@ -214,6 +241,63 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 	if report.Status != onboarding.StatusReady {
 		return 1
+	}
+	return 0
+}
+
+func runPlan(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("plan", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	host := flags.String("host", "", "native review host: codex or claude-code")
+	repository := flags.String("repo", ".", "Git repository path")
+	base := flags.String("base", "", "base commit")
+	target := flags.String("target", "", "target commit")
+	baseRef := flags.String("base-ref", "", "destination branch or ref")
+	headRef := flags.String("head-ref", "", "source branch or ref")
+	reason := flags.String("diff-reason", "", "diff selection reason")
+	reviewScope := flags.String("review-scope", "full", "review scope: full or incremental")
+	previousResult := flags.String("previous-result", "", "immutable previous review-result.json for incremental review")
+	goal := flags.String("goal", "", "optional change intent or extra review concern")
+	model := flags.String("model", "", "provider model or alias")
+	reasoningEffort := flags.String("reasoning-effort", "max", "provider reasoning effort")
+	executionProfile := flags.String("execution-profile", quality.ExecutionProfilePersonal, "execution profile: personal or production-ci")
+	if err := flags.Parse(args); err != nil {
+		return flagParseExitCode(err)
+	}
+	if flags.NArg() != 0 || strings.TrimSpace(*host) == "" {
+		fmt.Fprintln(stderr, "usage: quality-review plan --host <codex|claude-code> [scope and provider flags]")
+		return 2
+	}
+	provider, err := nativereview.ProviderForHost(*host)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: plan: %v\n", err)
+		return 2
+	}
+	contract, err := nativereview.ResolveContract(provider, *model, *reasoningEffort, *executionProfile, *reviewScope)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: plan: %v\n", err)
+		return 2
+	}
+	parentContract, err := nativereview.ResolveContract(provider, *model, *reasoningEffort, *executionProfile, quality.ReviewScopeFull)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: plan: %v\n", err)
+		return 2
+	}
+	decision, err := reviewplan.Build(context.Background(), reviewplan.Input{
+		RepositoryPath: *repository, Base: *base, Target: *target, BaseRef: *baseRef, HeadRef: *headRef,
+		DiffReason: *reason, ReviewScope: *reviewScope, PreviousResultPath: *previousResult,
+		ReviewGoal: *goal, Contract: contract.Contract, ParentContract: parentContract.Contract,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: plan: %v\n", err)
+		return 1
+	}
+	if err := quality.EncodeJSON(stdout, decision); err != nil {
+		fmt.Fprintf(stderr, "quality-review: encode plan: %v\n", err)
+		return 2
+	}
+	if decision.Status == reviewplan.StatusFullRequired {
+		return 4
 	}
 	return 0
 }
@@ -264,33 +348,41 @@ func runPrepare(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "quality-review: prepare accepts flags only")
 		return 2
 	}
-	result, err := intake.Discover(intake.Options{
-		RepositoryPath: *repository,
-		Base:           *base,
-		Target:         *target,
-		DiffReason:     *reason,
+	provider, err := nativereview.ProviderForHost(*host)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: prepare: %v\n", err)
+		return 2
+	}
+	contract, err := nativereview.ResolveContract(provider, "", "max", quality.ExecutionProfilePersonal, quality.ReviewScopeFull)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: prepare: %v\n", err)
+		return 2
+	}
+	plan, err := reviewplan.Build(context.Background(), reviewplan.Input{
+		RepositoryPath: *repository, Base: *base, Target: *target, DiffReason: *reason,
+		ReviewScope: quality.ReviewScopeFull, Contract: contract.Contract,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: prepare: %v\n", err)
 		return 1
 	}
-	root, err := resolvePath(*outputRoot, result.RepositoryRoot)
+	root, err := resolvePath(*outputRoot, plan.RepositoryRoot())
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: output root: %v\n", err)
 		return 2
 	}
 	prepared, err := reviewsession.Prepare(context.Background(), reviewsession.Options{
-		RepositoryRoot: result.RepositoryRoot,
+		RepositoryRoot: plan.RepositoryRoot(),
 		OutputRoot:     root,
 		Host:           *host,
-		Request:        result.Request,
-		DirtyWorktree:  result.DirtyWorktree,
+		Request:        plan.Request,
+		DirtyWorktree:  plan.DirtyWorktree,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: prepare session: %v\n", err)
 		return 1
 	}
-	if result.DirtyWorktree {
+	if plan.DirtyWorktree {
 		fmt.Fprintln(stderr, "quality-review: working tree changes are not included; review covers committed base and target only")
 	}
 	if err := quality.EncodeJSON(stdout, prepared); err != nil {

@@ -61,11 +61,11 @@ func TestReviewIdentityIsDeterministicAndBindsNormalizedInputs(t *testing.T) {
 }
 
 func TestFindingIdentityIgnoresProviderOrderButBindsContent(t *testing.T) {
-	first, err := IdentifyNativeFinding(v8Finding("b.go", 7, 1, "Second defect"))
+	first, err := IdentifyNativeFinding(v8Finding("pkg/service.go", 7, 1, "Second defect"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := IdentifyNativeFinding(v8Finding("a.go", 3, 2, "First defect"))
+	second, err := IdentifyNativeFinding(v8Finding("pkg/fix.go", 3, 2, "First defect"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,11 @@ func TestFindingIdentityIgnoresProviderOrderButBindsContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	encode := func(findings []NativeFinding) []byte {
-		raw, marshalErr := json.Marshal(map[string]any{"findings": findings})
+		providerFindings := cloneNativeFindings(findings)
+		for index := range providerFindings {
+			providerFindings[index].ID = ""
+		}
+		raw, marshalErr := json.Marshal(map[string]any{"findings": providerFindings})
 		if marshalErr != nil {
 			t.Fatal(marshalErr)
 		}
@@ -87,12 +91,14 @@ func TestFindingIdentityIgnoresProviderOrderButBindsContent(t *testing.T) {
 	}
 	left, err := ClassifyFrozenNativeReview(NativeOutcomeOptions{
 		Request: request, ProviderRequest: request, Identity: identity,
+		ReviewGoal: inputReviewGoal(ReviewScopeFull),
 	}, encode([]NativeFinding{first, second}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	right, err := ClassifyFrozenNativeReview(NativeOutcomeOptions{
 		Request: request, ProviderRequest: request, Identity: identity,
+		ReviewGoal: inputReviewGoal(ReviewScopeFull),
 	}, encode([]NativeFinding{second, first}), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +136,7 @@ func TestIncrementalOutcomeResolvesPreviousBlockerAndRetainsNewFinding(t *testin
 	outcome, err := ClassifyFrozenNativeReview(NativeOutcomeOptions{
 		Request: input.Request, ProviderRequest: deltaRequest, Identity: identity,
 		PreviousBlockingFindings: []NativeFinding{previous},
+		ReviewGoal:               input.ReviewGoal,
 	}, encoded, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -179,6 +186,7 @@ func TestIncrementalOutcomeRejectsMissingDuplicateAndUnknownResolutions(t *testi
 			outcome, classifyErr := ClassifyFrozenNativeReview(NativeOutcomeOptions{
 				Request: input.Request, ProviderRequest: deltaRequest, Identity: identity,
 				PreviousBlockingFindings: []NativeFinding{previous},
+				ReviewGoal:               input.ReviewGoal,
 			}, raw, nil)
 			if classifyErr != nil {
 				t.Fatal(classifyErr)
@@ -218,6 +226,10 @@ func v8IdentityInput(scope string) ReviewIdentityInput {
 		input.DeltaChangedFiles = []string{"pkg/fix.go"}
 	}
 	return input
+}
+
+func inputReviewGoal(scope string) string {
+	return v8IdentityInput(scope).ReviewGoal
 }
 
 func v8Finding(path string, line, priority int, title string) NativeFinding {
