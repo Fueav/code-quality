@@ -129,6 +129,9 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	if plan.Status == reviewplan.StatusFullRequired {
 		return TransactionResult{Plan: plan, DirtyWorktree: plan.DirtyWorktree, Warnings: []string{}, ExitCode: 4}, nil
 	}
+	if plan.Status == reviewplan.StatusManualRequired {
+		return TransactionResult{Plan: plan, DirtyWorktree: plan.DirtyWorktree, Warnings: []string{}, ExitCode: 5}, nil
+	}
 	outputRoot, err := resolveTransactionOutputRoot(options.OutputRoot, plan.RepositoryRoot())
 	if err != nil {
 		return TransactionResult{}, atStage("output root", 2, err)
@@ -157,6 +160,13 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	})
 	if err != nil {
 		return TransactionResult{}, atStage("run native review", 1, err)
+	}
+	outcome, err = runRestrictedAdjudication(ctx, restrictedRunOptions{
+		Session: session, Plan: plan, Provider: provider, Model: contract.Contract.Model,
+		ReasoningEffort: contract.Contract.ReasoningEffort, LeaseFile: leaseFile,
+	}, outcome)
+	if err != nil {
+		return TransactionResult{}, atStage("run restricted adjudication", 1, err)
 	}
 	if err := publishNativeOutcome(session, outcome); err != nil {
 		return TransactionResult{}, atStage("publish native review", 1, err)

@@ -156,6 +156,55 @@ func TestIncrementalOutcomeResolvesPreviousBlockerAndRetainsNewFinding(t *testin
 	}
 }
 
+func TestRestrictedAdjudicationDismissesUnresolvedPreviousBlocker(t *testing.T) {
+	previous, err := IdentifyNativeFinding(v8Finding("pkg/service.go", 10, 1, "Rare old blocker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := v8IdentityInput(ReviewScopeIncremental)
+	identity, err := BuildReviewIdentity(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deltaRequest := input.Request
+	deltaRequest.BaseCommit = *input.PreviousHead
+	deltaRequest.ChangedFiles = append([]string(nil), input.DeltaChangedFiles...)
+	raw, err := json.Marshal(map[string]any{
+		"previous_finding_resolutions": []any{map[string]any{
+			"finding_id": previous.ID, "status": ResolutionUnresolved,
+			"reason": "The pattern still exists.",
+			"current_finding": map[string]any{
+				"title": previous.Title, "priority": previous.Priority, "code_location": previous.CodeLocation,
+				"reason": previous.Reason, "suggestion": previous.Suggestion,
+			},
+		}},
+		"new_findings": []any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := ClassifyFrozenNativeReview(NativeOutcomeOptions{
+		Request: input.Request, ProviderRequest: deltaRequest, Identity: identity,
+		PreviousBlockingFindings: []NativeFinding{previous}, ReviewGoal: input.ReviewGoal,
+	}, raw, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := outcome.ApplyRestrictedAdjudication([]RestrictedFindingDecision{{FindingID: previous.ID, Retain: false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := filtered.Result()
+	if result.Adjudication.SemanticResult != ResultPass || len(result.Findings) != 0 ||
+		len(result.PreviousFindingResolutions) != 1 || result.PreviousFindingResolutions[0].Status != ResolutionDismissed ||
+		result.PreviousFindingResolutions[0].CurrentFinding != nil || result.Execution.ProviderInvocations != 2 {
+		t.Fatalf("dismissed result = %#v", result)
+	}
+	if problems := ValidateNativeResult(result); len(problems) != 0 {
+		t.Fatalf("dismissed validation = %#v", problems)
+	}
+}
+
 func TestIncrementalOutcomeRejectsMissingDuplicateAndUnknownResolutions(t *testing.T) {
 	previous, err := IdentifyNativeFinding(v8Finding("pkg/service.go", 10, 1, "Old blocker"))
 	if err != nil {
@@ -205,7 +254,7 @@ func v8IdentityInput(scope string) ReviewIdentityInput {
 		Contract: NativeReviewContract{
 			ToolVersion: SkillVersion, ResultSchemaVersion: NativeResultSchemaVersion,
 			ProviderOutputSchema:  "sha256:" + strings.Repeat("3", 64),
-			PromptContractVersion: "2", EvaluationRubricVersion: EvaluationRubricVersion,
+			PromptContractVersion: "3", EvaluationRubricVersion: EvaluationRubricVersion,
 			ProviderHost: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "max",
 			ExecutionProfile: ExecutionProfileProductionCI,
 		},

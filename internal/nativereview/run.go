@@ -110,7 +110,7 @@ func normalizeRunOptions(options *nativeRunOptions) error {
 		}
 		options.Plan = reviewplan.Decision{
 			ReviewIdentity: identity, SchemaVersion: 1, Status: reviewplan.StatusReady,
-			FullRequiredReasons: []string{}, Request: request, ProviderRequest: request, ProviderInvocations: 0,
+			FullRequiredReasons: []string{}, ManualRequiredReasons: []string{}, Request: request, ProviderRequest: request, ProviderInvocations: 0,
 		}
 	}
 	if options.Plan.Status != reviewplan.StatusReady {
@@ -173,6 +173,9 @@ func buildPlanReviewPrompt(plan reviewplan.Decision, goal string, reportOnlyBoun
 }
 
 func publishNativeOutcome(session reviewsession.NativeSession, outcome quality.NativeOutcome) error {
+	if err := outcome.ValidatePublication(); err != nil {
+		return err
+	}
 	artifacts := session.Artifacts()
 	if err := writeExclusiveEncoded(artifacts.ResultPath(), outcome.EncodeJSON); err != nil {
 		return fmt.Errorf("write native review result: %w", err)

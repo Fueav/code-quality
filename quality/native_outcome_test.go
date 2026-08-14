@@ -1,7 +1,9 @@
 package quality
 
 import (
+	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -43,6 +45,89 @@ func TestClassifyFrozenNativeReviewPreservesReleaseGateContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRestrictedAdjudicationSilentlyRemovesNonFloorBlocker(t *testing.T) {
+	outcome := validBlockingNativeOutcome(t, "Extremely rare topology corner")
+	blocking := outcome.BlockingFindings()
+	filtered, err := outcome.ApplyRestrictedAdjudication([]RestrictedFindingDecision{{FindingID: blocking[0].ID, Retain: false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := filtered.Result()
+	if result.Adjudication.SemanticResult != ResultPass || result.Execution.ProviderInvocations != 2 ||
+		len(result.Findings) != 0 || len(result.NewFindings) != 0 || len(result.Execution.AdapterDrops) != 1 {
+		t.Fatalf("filtered result = %#v", result)
+	}
+	if result.Execution.AdapterDrops[0].Reason != RestrictedAdjudicationDropReason {
+		t.Fatalf("adapter drop = %#v", result.Execution.AdapterDrops)
+	}
+	var publicJSON strings.Builder
+	if err := filtered.EncodeJSON(&publicJSON); err != nil {
+		t.Fatal(err)
+	}
+	summaryJSON, err := json.Marshal(filtered.Summary())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for surface, contents := range map[string]string{
+		"result": publicJSON.String(), "markdown": filtered.Markdown(), "summary": string(summaryJSON),
+	} {
+		if strings.Contains(contents, "Extremely rare topology corner") || strings.Contains(contents, "only under an unsupported topology") {
+			t.Fatalf("%s leaked a rejected corner case: %s", surface, contents)
+		}
+	}
+}
+
+func TestRestrictedAdjudicationRetainsOnlyProvenBlocker(t *testing.T) {
+	outcome := validBlockingNativeOutcome(t, "Deterministic money loss")
+	if err := outcome.ValidatePublication(); err == nil {
+		t.Fatal("intermediate native BLOCK was publishable before restricted adjudication")
+	}
+	blocking := outcome.BlockingFindings()
+	filtered, err := outcome.ApplyRestrictedAdjudication([]RestrictedFindingDecision{{FindingID: blocking[0].ID, Retain: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := filtered.Result()
+	if result.Adjudication.SemanticResult != ResultBlock || result.Execution.ProviderInvocations != 2 ||
+		len(result.Findings) != 1 || len(result.Execution.AdapterDrops) != 0 {
+		t.Fatalf("retained result = %#v", result)
+	}
+	if err := filtered.ValidatePublication(); err != nil {
+		t.Fatalf("restricted BLOCK is not publishable: %v", err)
+	}
+}
+
+func TestRestrictedAdjudicationFailureHoldsWithoutCandidateProse(t *testing.T) {
+	outcome := validBlockingNativeOutcome(t, "Do not expose this candidate")
+	failed, err := outcome.RestrictedAdjudicationFailure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := failed.Result()
+	if result.Adjudication.SemanticResult != ResultError || result.Adjudication.CIAction != "hold_release" ||
+		result.Execution.ProviderInvocations != 2 || len(result.Findings) != 0 {
+		t.Fatalf("failure result = %#v", result)
+	}
+	if strings.Contains(failed.Markdown(), "Do not expose this candidate") {
+		t.Fatalf("failure markdown leaked candidate: %s", failed.Markdown())
+	}
+}
+
+func validBlockingNativeOutcome(t *testing.T, title string) NativeOutcome {
+	t.Helper()
+	outcome, err := ClassifyFrozenNativeReview(NativeOutcomeOptions{
+		Request: ReviewRequest{
+			Repository: "example/repo", TargetBranch: "main", BaseCommit: "base", TargetCommit: "target",
+			DiffSelectionReason: "test", ChangedFiles: []string{"app.go"}, AffectedEntries: []string{},
+		},
+		Model: "gpt-5.6-sol", ReasoningEffort: "max",
+	}, []byte(`{"findings":[{"priority":1,"title":`+strconv.Quote(title)+`,"code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The path fails only under an unsupported topology.","suggestion":"Change the path."}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return outcome
 }
 
 func TestNativeOutcomeKeepsOneValidatedFactForJSONAndMarkdown(t *testing.T) {

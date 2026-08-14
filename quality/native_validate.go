@@ -101,13 +101,22 @@ func validateNativeExecution(result NativeReviewResult) []string {
 	if execution.ExecutionProfile != ExecutionProfilePersonal && execution.ExecutionProfile != ExecutionProfileProductionCI {
 		problems = append(problems, "execution.execution_profile must be personal or production-ci")
 	}
-	if execution.ProviderInvocations != 1 {
-		problems = append(problems, "execution.provider_invocations must be exactly 1")
+	if execution.ProviderInvocations != 1 && execution.ProviderInvocations != 2 {
+		problems = append(problems, "execution.provider_invocations must be 1 or 2")
 	}
+	if execution.ProviderInvocations == 1 && len(execution.AdapterDrops) != 0 {
+		problems = append(problems, "execution.adapter_drops require a restricted second invocation")
+	}
+	seenDropIndexes := map[int]struct{}{}
+	originalFindingCount := len(result.Findings) + len(execution.AdapterDrops)
 	for index, dropped := range execution.AdapterDrops {
-		if dropped.Index < 0 || strings.TrimSpace(dropped.Reason) == "" {
+		if dropped.Index < 0 || dropped.Index >= originalFindingCount || dropped.Reason != RestrictedAdjudicationDropReason {
 			problems = append(problems, fmt.Sprintf("execution.adapter_drops[%d] is invalid", index))
 		}
+		if _, duplicate := seenDropIndexes[dropped.Index]; duplicate {
+			problems = append(problems, fmt.Sprintf("execution.adapter_drops[%d] index is duplicated", index))
+		}
+		seenDropIndexes[dropped.Index] = struct{}{}
 	}
 	return problems
 }
@@ -159,9 +168,9 @@ func validateIncrementalResultFindings(result NativeReviewResult, fullPaths map[
 			problems = append(problems, prefix+" reason must be concise single-line content")
 		}
 		switch resolution.Status {
-		case ResolutionResolved:
+		case ResolutionResolved, ResolutionDismissed:
 			if resolution.CurrentFinding != nil {
-				problems = append(problems, prefix+" RESOLVED must have null current_finding")
+				problems = append(problems, prefix+" "+resolution.Status+" must have null current_finding")
 			}
 		case ResolutionUnresolved:
 			if resolution.CurrentFinding == nil {
@@ -175,7 +184,7 @@ func validateIncrementalResultFindings(result NativeReviewResult, fullPaths map[
 			}
 			expectedCurrent = append(expectedCurrent, finding)
 		default:
-			problems = append(problems, prefix+" status must be RESOLVED or UNRESOLVED")
+			problems = append(problems, prefix+" status must be RESOLVED, UNRESOLVED, or DISMISSED")
 		}
 	}
 	if len(seenResolutions) != len(previousByID) {

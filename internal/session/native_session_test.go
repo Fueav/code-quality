@@ -34,9 +34,17 @@ func TestNativeSessionOwnsModeSpecificArtifactsAndCleanup(t *testing.T) {
 	for _, path := range []string{
 		artifacts.FinalMessagePath(), artifacts.JSONLPath(), artifacts.StderrPath(),
 		artifacts.FreezeManifestPath(), artifacts.MetricsPath(), artifacts.ResultPath(), artifacts.MarkdownPath(),
+		artifacts.RestrictedFinalMessagePath(), artifacts.RestrictedJSONLPath(), artifacts.RestrictedStderrPath(),
+		artifacts.RestrictedFreezeManifestPath(), artifacts.RestrictedMetricsPath(),
 	} {
 		if !strings.HasPrefix(path, session.Directory()+string(filepath.Separator)) {
 			t.Fatalf("artifact escaped native session: %q", path)
+		}
+	}
+	for _, path := range []string{session.RestrictedAdjudicationPolicyPath(), session.RestrictedAdjudicationSchemaPath()} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0o400 {
+			t.Fatalf("restricted adjudication input %s is not frozen: info=%v err=%v", path, info, err)
 		}
 	}
 	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json", "evidence-context.json"} {

@@ -61,6 +61,27 @@ func (provider claudeProvider) buildInvocation(options providerInvocationOptions
 	return invocation
 }
 
+func (provider claudeProvider) buildRestrictedInvocation(options restrictedInvocationOptions) reviewInvocation {
+	prompt := buildRestrictedAdjudicationPrompt(options.Plan, options.Findings)
+	args := []string{
+		"-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
+		"--permission-mode", "plan", "--safe-mode", "--strict-mcp-config",
+		"--system-prompt", string(options.Policy),
+		"--model", options.Model, "--effort", options.ReasoningEffort,
+		"--json-schema", string(options.OutputSchema), prompt,
+	}
+	invocation := reviewInvocation{
+		executable: provider.binary,
+		args:       args,
+		directory:  options.Session.RepositoryDirectory(),
+		paths:      restrictedCapturePathsFromSession(options.Session),
+	}
+	if options.LeaseFile != nil {
+		invocation.extraFiles = append(invocation.extraFiles, options.LeaseFile)
+	}
+	return invocation
+}
+
 type claudeEvent struct {
 	Type    string       `json:"type"`
 	Subtype string       `json:"subtype"`

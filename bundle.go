@@ -21,6 +21,10 @@ func Workflow() ([]byte, error) {
 	return files.ReadFile("policy/v1.2/workflow.md")
 }
 
+func RestrictedAdjudicationPolicy() ([]byte, error) {
+	return files.ReadFile("policy/v1.2/restricted-adjudication.md")
+}
+
 func Schema(name string) ([]byte, error) {
 	return files.ReadFile("schemas/" + name)
 }

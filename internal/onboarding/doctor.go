@@ -30,29 +30,30 @@ type Check struct {
 }
 
 type Report struct {
-	SchemaVersion       int      `json:"schema_version"`
-	Status              string   `json:"status"`
-	Host                string   `json:"host"`
-	ProviderPath        string   `json:"provider_path,omitempty"`
-	ProviderVersion     string   `json:"provider_version,omitempty"`
-	RepositoryRoot      string   `json:"repository_root,omitempty"`
-	BaseCommit          string   `json:"base_commit,omitempty"`
-	TargetCommit        string   `json:"target_commit,omitempty"`
-	BaseRef             string   `json:"base_ref,omitempty"`
-	HeadRef             string   `json:"head_ref,omitempty"`
-	BaseTipCommit       string   `json:"base_tip_commit,omitempty"`
-	MergeBase           string   `json:"merge_base,omitempty"`
-	CurrentHead         string   `json:"current_head,omitempty"`
-	PlanStatus          string   `json:"plan_status,omitempty"`
-	ReviewScope         string   `json:"review_scope,omitempty"`
-	ReviewKey           string   `json:"review_key,omitempty"`
-	ContractDigest      string   `json:"contract_digest,omitempty"`
-	ProviderInvocations int      `json:"provider_invocations"`
-	FullRequiredReasons []string `json:"full_required_reasons"`
-	ChangedFiles        []string `json:"changed_files"`
-	DirtyWorktree       bool     `json:"dirty_worktree"`
-	Checks              []Check  `json:"checks"`
-	NextAction          string   `json:"next_action,omitempty"`
+	SchemaVersion         int      `json:"schema_version"`
+	Status                string   `json:"status"`
+	Host                  string   `json:"host"`
+	ProviderPath          string   `json:"provider_path,omitempty"`
+	ProviderVersion       string   `json:"provider_version,omitempty"`
+	RepositoryRoot        string   `json:"repository_root,omitempty"`
+	BaseCommit            string   `json:"base_commit,omitempty"`
+	TargetCommit          string   `json:"target_commit,omitempty"`
+	BaseRef               string   `json:"base_ref,omitempty"`
+	HeadRef               string   `json:"head_ref,omitempty"`
+	BaseTipCommit         string   `json:"base_tip_commit,omitempty"`
+	MergeBase             string   `json:"merge_base,omitempty"`
+	CurrentHead           string   `json:"current_head,omitempty"`
+	PlanStatus            string   `json:"plan_status,omitempty"`
+	ReviewScope           string   `json:"review_scope,omitempty"`
+	ReviewKey             string   `json:"review_key,omitempty"`
+	ContractDigest        string   `json:"contract_digest,omitempty"`
+	ProviderInvocations   int      `json:"provider_invocations"`
+	FullRequiredReasons   []string `json:"full_required_reasons"`
+	ManualRequiredReasons []string `json:"manual_required_reasons"`
+	ChangedFiles          []string `json:"changed_files"`
+	DirtyWorktree         bool     `json:"dirty_worktree"`
+	Checks                []Check  `json:"checks"`
+	NextAction            string   `json:"next_action,omitempty"`
 }
 
 type Options struct {
@@ -93,12 +94,13 @@ func Run(ctx context.Context, options Options) (Report, error) {
 		return Report{}, err
 	}
 	report := Report{
-		SchemaVersion:       1,
-		Status:              StatusReady,
-		Host:                contract.host,
-		ChangedFiles:        []string{},
-		Checks:              []Check{},
-		FullRequiredReasons: []string{},
+		SchemaVersion:         1,
+		Status:                StatusReady,
+		Host:                  contract.host,
+		ChangedFiles:          []string{},
+		Checks:                []Check{},
+		FullRequiredReasons:   []string{},
+		ManualRequiredReasons: []string{},
 	}
 
 	providerPath, lookupErr := exec.LookPath(contract.binary)
@@ -175,10 +177,13 @@ func Run(ctx context.Context, options Options) (Report, error) {
 		report.ContractDigest = plan.ContractDigest
 		report.ProviderInvocations = plan.ProviderInvocations
 		report.FullRequiredReasons = append([]string(nil), plan.FullRequiredReasons...)
+		report.ManualRequiredReasons = append([]string(nil), plan.ManualRequiredReasons...)
 		report.ChangedFiles = append([]string(nil), plan.ProviderRequest.ChangedFiles...)
 		report.DirtyWorktree = plan.DirtyWorktree
 		if plan.Status == reviewplan.StatusFullRequired {
 			report.block("review_scope", "incremental review requires FULL: "+strings.Join(plan.FullRequiredReasons, ", "), "rerun with --review-scope full and without --previous-result")
+		} else if plan.Status == reviewplan.StatusManualRequired {
+			report.block("review_scope", "automatic review stopped after two rounds: "+strings.Join(plan.ManualRequiredReasons, ", "), "hand the remaining blocker to a human; do not start a third automatic review")
 		} else {
 			report.pass("review_scope", fmt.Sprintf("%d committed file(s) selected", len(report.ChangedFiles)))
 		}
@@ -200,11 +205,9 @@ func contractForHost(host, profile string) (providerContract, error) {
 			authArguments:       []string{"login", "status"},
 			capabilityArguments: []string{"exec", "--help"},
 			requiredCapabilities: []string{
-				"--sandbox", "--model", "--json", "--output-last-message", "--output-schema",
+				"--sandbox", "--model", "--json", "--output-last-message", "--output-schema", "--config",
+				"read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--disable",
 			},
-		}
-		if profile == quality.ExecutionProfileProductionCI {
-			contract.requiredCapabilities = append(contract.requiredCapabilities, "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--disable")
 		}
 		return contract, nil
 	case "claude", "claude-code":
@@ -213,11 +216,9 @@ func contractForHost(host, profile string) (providerContract, error) {
 			authArguments:       []string{"auth", "status", "--json"},
 			capabilityArguments: []string{"--help"},
 			requiredCapabilities: []string{
-				"--output-format", "stream-json", "--permission-mode", "auto", "--effort", "--no-session-persistence", "--model", "--json-schema",
+				"--output-format", "stream-json", "--permission-mode", "auto", "plan", "--safe-mode", "--strict-mcp-config",
+				"--effort", "--no-session-persistence", "--model", "--json-schema", "--system-prompt",
 			},
-		}
-		if profile == quality.ExecutionProfileProductionCI {
-			contract.requiredCapabilities = append(contract.requiredCapabilities, "plan", "--safe-mode", "--strict-mcp-config")
 		}
 		return contract, nil
 	default:

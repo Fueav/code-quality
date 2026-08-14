@@ -182,9 +182,9 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		fmt.Fprintf(stderr, "quality-review: %v\n", err)
 		return nativereview.TransactionExitCode(err)
 	}
-	if transaction.Plan.Status == reviewplan.StatusFullRequired {
+	if transaction.Plan.Status == reviewplan.StatusFullRequired || transaction.Plan.Status == reviewplan.StatusManualRequired {
 		if err := quality.EncodeJSON(stdout, transaction.Plan); err != nil {
-			fmt.Fprintf(stderr, "quality-review: encode FULL_REQUIRED plan: %v\n", err)
+			fmt.Fprintf(stderr, "quality-review: encode terminal review plan: %v\n", err)
 			return 2
 		}
 		return transaction.ExitCode
@@ -298,6 +298,9 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 	}
 	if decision.Status == reviewplan.StatusFullRequired {
 		return 4
+	}
+	if decision.Status == reviewplan.StatusManualRequired {
+		return 5
 	}
 	return 0
 }

@@ -248,11 +248,24 @@ func TestIncrementalTransactionUsesDeltaSchemaAndResolvesParentBlocker(t *testin
 	runTransactionGit(t, repository, "branch", "deploy", previousHead)
 	providerPath := transactionFlexibleCodex(t)
 	responsePath := filepath.Join(t.TempDir(), "response.json")
+	restrictedResponsePath := filepath.Join(t.TempDir(), "restricted-response.json")
 	promptPath := filepath.Join(t.TempDir(), "prompt.txt")
 	t.Setenv("FAKE_NATIVE_RESPONSE", responsePath)
+	t.Setenv("FAKE_RESTRICTED_RESPONSE", restrictedResponsePath)
 	t.Setenv("FAKE_NATIVE_PROMPT", promptPath)
 	fullResponse := `{"findings":[{"priority":1,"title":"Old blocker","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The changed path returns the wrong value.","suggestion":"Correct the changed path."}]}`
 	if err := os.WriteFile(responsePath, []byte(fullResponse), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identified, err := quality.IdentifyNativeFinding(quality.NativeFinding{
+		Priority: 1, Title: "Old blocker", CodeLocation: quality.NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
+		Reason: "The changed path returns the wrong value.", Suggestion: "Correct the changed path.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restrictedResponse := fmt.Sprintf(`{"adjudications":[{"finding_id":%q,"validity":"SUPPORTED","severity":"S3","trigger_confidence":"T3","evidence_level":"E2","introduced_or_worsened_by_change":true,"trigger_condition_is_concrete":true,"causal_chain_is_complete":true,"finding_is_not_style_preference":true,"recommended_disposition":"BLOCK","evidence_refs":[{"path":"app.go","start_line":2,"end_line":2,"support":"The changed path is target-reachable."}],"uncertainties":[],"reason":"The repository proves the production-floor failure."}]}`, identified.ID)
+	if err := os.WriteFile(restrictedResponsePath, []byte(restrictedResponse), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	first, err := RunTransaction(context.Background(), TransactionOptions{
@@ -312,6 +325,183 @@ func TestIncrementalTransactionUsesDeltaSchemaAndResolvesParentBlocker(t *testin
 	}
 	if result.Contract.ProviderOutputSchema != quality.SHA256Digest(schema) || !strings.Contains(string(schema), `"previous_finding_resolutions"`) {
 		t.Fatalf("incremental schema contract = %q / %s", result.Contract.ProviderOutputSchema, schema)
+	}
+}
+
+func TestRestrictedAdjudicationSilentlyFiltersHardToTriggerBlocker(t *testing.T) {
+	repository, base, target := transactionRepository(t)
+	providerPath := transactionFlexibleCodex(t)
+	nativeResponsePath := filepath.Join(t.TempDir(), "native.json")
+	restrictedResponsePath := filepath.Join(t.TempDir(), "restricted.json")
+	promptPath := filepath.Join(t.TempDir(), "prompt.txt")
+	t.Setenv("FAKE_NATIVE_RESPONSE", nativeResponsePath)
+	t.Setenv("FAKE_RESTRICTED_RESPONSE", restrictedResponsePath)
+	t.Setenv("FAKE_NATIVE_PROMPT", promptPath)
+	nativeResponse := `{"findings":[{"priority":1,"title":"Rare multi-worker corner","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"This could fail only under an unproven worker topology.","suggestion":"Add distributed coordination."}]}`
+	if err := os.WriteFile(nativeResponsePath, []byte(nativeResponse), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	finding, err := quality.IdentifyNativeFinding(quality.NativeFinding{
+		Priority: 1, Title: "Rare multi-worker corner", CodeLocation: quality.NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
+		Reason: "This could fail only under an unproven worker topology.", Suggestion: "Add distributed coordination.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restrictedResponse := fmt.Sprintf(`{"adjudications":[{"finding_id":%q,"validity":"INSUFFICIENT","severity":"S3","trigger_confidence":"T1","evidence_level":"E1","introduced_or_worsened_by_change":true,"trigger_condition_is_concrete":false,"causal_chain_is_complete":false,"finding_is_not_style_preference":true,"recommended_disposition":"MANUAL_REVIEW","evidence_refs":[],"uncertainties":["The deployed worker topology is not established."],"reason":"The repository does not prove the trigger is reachable."}]}`, finding.ID)
+	if err := os.WriteFile(restrictedResponsePath, []byte(restrictedResponse), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, Base: base, Target: target, DiffReason: "test",
+		OutputRoot: filepath.Join(t.TempDir(), "sessions"), Provider: NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transaction.ExitCode != 0 || transaction.Summary.Result != quality.ResultPass || transaction.Summary.BlockingIssues != 0 {
+		t.Fatalf("transaction = %#v", transaction)
+	}
+	resultPath := filepath.Join(transaction.Summary.EvidenceDir, "output", "review-result.json")
+	result := readTransactionResult(t, resultPath)
+	if result.Execution.ProviderInvocations != 2 || len(result.Findings) != 0 || len(result.Execution.AdapterDrops) != 1 {
+		t.Fatalf("filtered result = %#v", result)
+	}
+	for _, path := range []string{
+		resultPath,
+		filepath.Join(transaction.Summary.EvidenceDir, "output", "review-result.md"),
+		filepath.Join(transaction.Summary.EvidenceDir, "output", "review-summary.json"),
+		filepath.Join(transaction.Summary.EvidenceDir, "output", "review-summary.md"),
+	} {
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if strings.Contains(string(raw), "Rare multi-worker corner") || strings.Contains(string(raw), "unproven worker topology") {
+			t.Fatalf("published surface %s leaked the filtered candidate: %s", path, raw)
+		}
+	}
+	rawNative, err := os.ReadFile(filepath.Join(transaction.Summary.EvidenceDir, "output", "native-review.txt"))
+	if err != nil || !strings.Contains(string(rawNative), "Rare multi-worker corner") {
+		t.Fatalf("frozen native evidence = %q, err = %v", rawNative, err)
+	}
+	for _, name := range []string{"restricted-adjudication.json", "restricted-adjudication-freeze.json", "restricted-adjudication-metrics.json"} {
+		if _, err := os.Stat(filepath.Join(transaction.Summary.EvidenceDir, "output", name)); err != nil {
+			t.Fatalf("restricted evidence %s is missing: %v", name, err)
+		}
+	}
+}
+
+func TestRestrictedAdjudicationProtocolFailureHoldsWithoutFindingProse(t *testing.T) {
+	repository, base, target := transactionRepository(t)
+	providerPath := transactionFlexibleCodex(t)
+	nativeResponsePath := filepath.Join(t.TempDir(), "native.json")
+	restrictedResponsePath := filepath.Join(t.TempDir(), "restricted.json")
+	promptPath := filepath.Join(t.TempDir(), "prompt.txt")
+	t.Setenv("FAKE_NATIVE_RESPONSE", nativeResponsePath)
+	t.Setenv("FAKE_RESTRICTED_RESPONSE", restrictedResponsePath)
+	t.Setenv("FAKE_NATIVE_PROMPT", promptPath)
+	if err := os.WriteFile(nativeResponsePath, []byte(`{"findings":[{"priority":1,"title":"Candidate must stay private","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The changed path may fail.","suggestion":"Change it."}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(restrictedResponsePath, []byte(`{"adjudications":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, Base: base, Target: target, DiffReason: "test",
+		OutputRoot: filepath.Join(t.TempDir(), "sessions"), Provider: NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transaction.ExitCode != 1 || transaction.Summary.Result != quality.ResultError || transaction.Summary.Release != "HOLD" {
+		t.Fatalf("transaction = %#v", transaction)
+	}
+	resultPath := filepath.Join(transaction.Summary.EvidenceDir, "output", "review-result.json")
+	result := readTransactionResult(t, resultPath)
+	if result.Execution.ProviderInvocations != 2 || len(result.Findings) != 0 {
+		t.Fatalf("error result = %#v", result)
+	}
+	for _, path := range []string{resultPath, transaction.Summary.SummaryPath} {
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if strings.Contains(string(raw), "Candidate must stay private") || strings.Contains(string(raw), "changed path may fail") {
+			t.Fatalf("failure surface leaked native candidate: %s", raw)
+		}
+	}
+}
+
+func TestThirdAutomaticReviewStopsBeforeProviderAndSession(t *testing.T) {
+	repository, base, firstHead := transactionRepository(t)
+	runTransactionGit(t, repository, "branch", "production", base)
+	runTransactionGit(t, repository, "branch", "deploy", firstHead)
+	providerPath := transactionFlexibleCodex(t)
+	responsePath := filepath.Join(t.TempDir(), "response.json")
+	restrictedResponsePath := filepath.Join(t.TempDir(), "restricted.json")
+	promptPath := filepath.Join(t.TempDir(), "prompt.txt")
+	t.Setenv("FAKE_NATIVE_RESPONSE", responsePath)
+	t.Setenv("FAKE_RESTRICTED_RESPONSE", restrictedResponsePath)
+	t.Setenv("FAKE_NATIVE_PROMPT", promptPath)
+	if err := os.WriteFile(responsePath, []byte(`{"findings":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(restrictedResponsePath, []byte(`{"adjudications":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	full, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, BaseRef: "production", HeadRef: "deploy", ReviewScope: quality.ReviewScopeFull,
+		OutputRoot: filepath.Join(t.TempDir(), "full"), Provider: NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil || full.ExitCode != 0 {
+		t.Fatalf("full transaction = %#v, err = %v", full, err)
+	}
+	runTransactionGit(t, repository, "switch", "deploy")
+	if err := os.WriteFile(filepath.Join(repository, "first.go"), []byte("package app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runTransactionGit(t, repository, "add", "first.go")
+	runTransactionGit(t, repository, "commit", "-qm", "first automatic repair")
+	if err := os.WriteFile(responsePath, []byte(`{"previous_finding_resolutions":[],"new_findings":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	incremental, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, BaseRef: "production", HeadRef: "deploy", ReviewScope: quality.ReviewScopeIncremental,
+		PreviousResultPath: filepath.Join(full.Summary.EvidenceDir, "output", "review-result.json"),
+		OutputRoot:         filepath.Join(t.TempDir(), "incremental"), Provider: NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil || incremental.ExitCode != 0 {
+		t.Fatalf("incremental transaction = %#v, err = %v", incremental, err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "second.go"), []byte("package app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runTransactionGit(t, repository, "add", "second.go")
+	runTransactionGit(t, repository, "commit", "-qm", "second attempted repair")
+	if err := os.Remove(providerPath); err != nil {
+		t.Fatal(err)
+	}
+	thirdOutput := filepath.Join(t.TempDir(), "third")
+	third, err := RunTransaction(context.Background(), TransactionOptions{
+		RepositoryPath: repository, BaseRef: "production", HeadRef: "deploy", ReviewScope: quality.ReviewScopeIncremental,
+		PreviousResultPath: filepath.Join(incremental.Summary.EvidenceDir, "output", "review-result.json"),
+		OutputRoot:         thirdOutput, Provider: NewCodexProvider(providerPath),
+		AcquireLease: func() (io.Closer, *os.File, error) { return &recordingLease{}, nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.ExitCode != 5 || third.Plan.Status != "MANUAL_REQUIRED" || third.Plan.ProviderInvocations != 0 ||
+		strings.Join(third.Plan.ManualRequiredReasons, ",") != "automatic_review_round_limit_reached" {
+		t.Fatalf("third transaction = %#v", third)
+	}
+	if _, err := os.Lstat(thirdOutput); !os.IsNotExist(err) {
+		t.Fatalf("third automatic review created a session: %v", err)
 	}
 }
 
@@ -420,7 +610,10 @@ for argument in "$@"; do
 done
 test -n "$output"
 cat > "$FAKE_NATIVE_PROMPT"
-cp "$FAKE_NATIVE_RESPONSE" "$output"
+case "$output" in
+  *restricted-adjudication.json) cp "$FAKE_RESTRICTED_RESPONSE" "$output" ;;
+  *) cp "$FAKE_NATIVE_RESPONSE" "$output" ;;
+esac
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":20,"output_tokens":4}}'
 `
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {

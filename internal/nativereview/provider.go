@@ -7,6 +7,7 @@ import (
 
 	"github.com/Fueav/code-quality/internal/reviewplan"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
+	"github.com/Fueav/code-quality/quality"
 )
 
 // Provider is the deliberately small boundary between the evidence lifecycle
@@ -18,8 +19,20 @@ type Provider interface {
 	defaultReasoningEffort() string
 	validateReasoningEffort(string) error
 	buildInvocation(providerInvocationOptions) reviewInvocation
+	buildRestrictedInvocation(restrictedInvocationOptions) reviewInvocation
 	decodeTranscript(io.Reader) (decodedTranscript, error)
 	finalMessageFromTranscript() bool
+}
+
+type restrictedInvocationOptions struct {
+	Session         reviewsession.NativeSession
+	Plan            reviewplan.Decision
+	Findings        []quality.NativeFinding
+	Model           string
+	ReasoningEffort string
+	LeaseFile       *os.File
+	Policy          []byte
+	OutputSchema    []byte
 }
 
 type providerInvocationOptions struct {

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result_source", "lifecycle_status", "review_result"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "result_source": {"enum": ["EXECUTED", "REUSED"]},
+    "lifecycle_status": {"enum": ["CURRENT", "SUPERSEDED"]},
+    "review_result": {"$ref": "review-result-v9.schema.json"}
+  }
+}

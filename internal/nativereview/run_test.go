@@ -78,6 +78,41 @@ func TestProductionCICodexInvocationIsReadOnlyAndIgnoresCustomizations(t *testin
 	}
 }
 
+func TestRestrictedCodexInvocationIsAlwaysReadOnlyAndPolicyBound(t *testing.T) {
+	session, _ := nativeFixture(t)
+	finding, err := quality.IdentifyNativeFinding(quality.NativeFinding{
+		Title: "money loss", Priority: 1, Reason: "The changed path loses money.", Suggestion: "Preserve the transfer.",
+		CodeLocation: quality.NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := []byte("trusted production-floor policy")
+	invocation := NewCodexProvider("").buildRestrictedInvocation(restrictedInvocationOptions{
+		Session: session, Plan: restrictedFixturePlan(session), Findings: []quality.NativeFinding{finding}, Model: "gpt-5.6-sol",
+		ReasoningEffort: "max", Policy: policy, OutputSchema: []byte(`{"type":"object"}`),
+	})
+	joined := strings.Join(invocation.args, "\x00")
+	for _, required := range []string{
+		"--sandbox\x00read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--disable\x00hooks",
+		"--output-schema\x00" + session.RestrictedAdjudicationSchemaPath(),
+		"developer_instructions=\"trusted production-floor policy\"",
+		"--output-last-message\x00" + session.Artifacts().RestrictedFinalMessagePath(),
+	} {
+		if !strings.Contains(joined, required) {
+			t.Errorf("restricted Codex invocation is missing %q: %#v", required, invocation.args)
+		}
+	}
+	for _, forbidden := range []string{"workspace-write", "sandbox_workspace_write.network_access=true"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("restricted Codex invocation contains %q: %#v", forbidden, invocation.args)
+		}
+	}
+	if !strings.Contains(invocation.stdin, finding.ID) || !strings.Contains(invocation.stdin, "P0/P1") {
+		t.Fatalf("restricted prompt = %q", invocation.stdin)
+	}
+}
+
 func TestEvidenceCaptureReturnsChildFailure(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "input", "repository")

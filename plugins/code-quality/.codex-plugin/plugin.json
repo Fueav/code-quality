@@ -1,7 +1,7 @@
 {
   "name": "code-quality",
-  "version": "0.5.6",
-  "description": "调用当前宿主的完整原生代码审查能力，冻结原始输出，再发布只报告的确定性分类；V1.2 仅用于离线评测。",
+  "version": "0.5.7",
+  "description": "调用当前宿主的完整原生代码审查能力，冻结原始输出，并用 V1.2 生产下限受限裁决 P0/P1。",
   "author": {
     "name": "Fueav",
     "url": "https://github.com/Fueav"
@@ -15,8 +15,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Code Quality",
-    "shortDescription": "使用原生 Agent 审查并冻结证据",
-    "longDescription": "用当前宿主的一次顶层原生 Agent 调用审查可信的已提交 Git 增量，保留不可变原始证据并做确定性后分类。",
+    "shortDescription": "原生发现后按生产下限裁决",
+    "longDescription": "用当前宿主审查可信的已提交 Git 增量，冻结不可变原始证据，仅对 P0/P1 做受限生产下限裁决后发布结论。",
     "developerName": "Fueav",
     "category": "Developer Tools",
     "capabilities": [
@@ -25,7 +25,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "对这个已提交改动执行当前宿主的完整原生只报告审查，并汇报保留的原始冻结路径和结果路径。"
+      "对这个已提交改动执行原生只报告审查和受限生产下限裁决，只展示最终保留的问题与证据路径。"
     ]
   }
 }

@@ -78,8 +78,11 @@ func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
 		"同一组合同参数",
 		"runner_policy_version",
 		"FULL_REQUIRED",
+		"MANUAL_REQUIRED",
 		"Harness 负责修复编排",
-		"恰好一次顶层原生 Provider 调用",
+		"先做一次原生发现",
+		"强制只读的 V1.2 受限裁决",
+		"不得启动第三轮",
 		"不得临时改写宿主工具、MCP、插件、设置或上下文",
 		"review-summary.md",
 		"PASS",
@@ -242,7 +245,7 @@ set -eu
 mkdir -p "$INSTALL_DIR"
 cat > "$INSTALL_DIR/quality-review" <<'EOF'
 #!/bin/sh
-printf '%s\n' 'quality-review v0.5.6'
+printf '%s\n' 'quality-review v0.5.7'
 EOF
 chmod +x "$INSTALL_DIR/quality-review"
 `)
@@ -264,7 +267,7 @@ printf '%s\n' "$*" >> "$FAKE_HOST_LOG"
 case "$*" in
   'plugin marketplace list --json')
     if [ -f "$FAKE_HOST_STATE" ]; then printf '%s\n' '{"name": "fueav-code-quality"}'; else printf '%s\n' '{"marketplaces": []}'; fi ;;
-  'plugin marketplace add Fueav/code-quality --ref v0.5.6') touch "$FAKE_HOST_STATE" ;;
+  'plugin marketplace add Fueav/code-quality --ref v0.5.7') touch "$FAKE_HOST_STATE" ;;
   'plugin marketplace remove fueav-code-quality') rm -f "$FAKE_HOST_STATE" ;;
   'plugin add code-quality@fueav-code-quality'|'plugin remove code-quality@fueav-code-quality') ;;
   *) exit 97 ;;
@@ -274,7 +277,7 @@ esac
 set -eu
 printf '%s\n' "$*" >> "$FAKE_HOST_LOG"
 case "$*" in
-  'plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.6') ;;
+  'plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.7') ;;
   'plugin list') if [ -f "$FAKE_HOST_STATE" ]; then printf '%s\n' 'code-quality@fueav-code-quality'; fi ;;
   'plugin install code-quality@fueav-code-quality --scope user') touch "$FAKE_HOST_STATE" ;;
   'plugin update code-quality@fueav-code-quality --scope user') ;;
@@ -287,13 +290,13 @@ esac
 				t.Fatal(err)
 			}
 			for runNumber := 0; runNumber < 2; runNumber++ {
-				command := exec.Command("sh", bootstrapPath, "v0.5.6", host)
+				command := exec.Command("sh", bootstrapPath, "v0.5.7", host)
 				command.Dir = root
 				command.Env = append(os.Environ(),
 					"PATH="+binDir+string(os.PathListSeparator)+"/usr/bin:/bin",
 					"HOME="+root,
 					"INSTALL_DIR="+installDir,
-					"QUALITY_REVIEW_RELEASE_BASE=https://release.invalid/v0.5.6",
+					"QUALITY_REVIEW_RELEASE_BASE=https://release.invalid/v0.5.7",
 					"FAKE_INSTALLER="+installer,
 					"FAKE_HOST_LOG="+logPath,
 					"FAKE_HOST_STATE="+statePath,
@@ -320,7 +323,7 @@ esac
 			log := string(logBytes)
 			if host == "codex" {
 				for _, expected := range []string{
-					"plugin marketplace add Fueav/code-quality --ref v0.5.6",
+					"plugin marketplace add Fueav/code-quality --ref v0.5.7",
 					"plugin add code-quality@fueav-code-quality",
 					"plugin marketplace remove fueav-code-quality",
 				} {
@@ -330,7 +333,7 @@ esac
 				}
 			} else {
 				for _, expected := range []string{
-					"plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.6",
+					"plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.7",
 					"plugin install code-quality@fueav-code-quality --scope user",
 					"plugin update code-quality@fueav-code-quality --scope user",
 				} {

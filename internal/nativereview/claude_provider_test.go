@@ -76,6 +76,35 @@ func TestProductionCIClaudeInvocationUsesReadOnlyPlanAndNoCustomizations(t *test
 	}
 }
 
+func TestRestrictedClaudeInvocationUsesPolicyAsSystemPrompt(t *testing.T) {
+	session, _ := nativeFixture(t)
+	finding, err := quality.IdentifyNativeFinding(quality.NativeFinding{
+		Title: "money loss", Priority: 1, Reason: "The changed path loses money.", Suggestion: "Preserve the transfer.",
+		CodeLocation: quality.NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := []byte("trusted production-floor policy")
+	schema := []byte(`{"type":"object"}`)
+	invocation := NewClaudeProvider("").buildRestrictedInvocation(restrictedInvocationOptions{
+		Session: session, Plan: restrictedFixturePlan(session), Findings: []quality.NativeFinding{finding}, Model: "opus", ReasoningEffort: "max",
+		Policy: policy, OutputSchema: schema,
+	})
+	joined := strings.Join(invocation.args, "\x00")
+	for _, required := range []string{
+		"--permission-mode\x00plan", "--safe-mode", "--strict-mcp-config",
+		"--system-prompt\x00trusted production-floor policy", "--json-schema\x00" + string(schema), finding.ID,
+	} {
+		if !strings.Contains(joined, required) {
+			t.Errorf("restricted Claude invocation is missing %q: %#v", required, invocation.args)
+		}
+	}
+	if strings.Contains(joined, "--permission-mode\x00auto") {
+		t.Fatalf("restricted Claude invocation enables auto mode: %#v", invocation.args)
+	}
+}
+
 func TestClaudeTranscriptExtractsFinalResultAndUsage(t *testing.T) {
 	raw := strings.Join([]string{
 		`{"type":"system","subtype":"init","tools":["Read","Grep"],"mcp_servers":[{"name":"github","status":"connected"}]}`,

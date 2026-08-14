@@ -70,6 +70,29 @@ func (provider codexProvider) buildInvocation(options providerInvocationOptions)
 	return invocation
 }
 
+func (provider codexProvider) buildRestrictedInvocation(options restrictedInvocationOptions) reviewInvocation {
+	artifacts := options.Session.Artifacts()
+	args := []string{
+		"exec", "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--disable", "hooks",
+		"--model", options.Model,
+		"--output-schema", options.Session.RestrictedAdjudicationSchemaPath(),
+		"--config", "model_reasoning_effort=" + strconv.Quote(options.ReasoningEffort),
+		"--config", "developer_instructions=" + strconv.Quote(string(options.Policy)),
+		"--json", "--output-last-message", artifacts.RestrictedFinalMessagePath(), "-",
+	}
+	invocation := reviewInvocation{
+		executable: provider.binary,
+		args:       args,
+		directory:  options.Session.RepositoryDirectory(),
+		stdin:      buildRestrictedAdjudicationPrompt(options.Plan, options.Findings),
+		paths:      restrictedCapturePathsFromSession(options.Session),
+	}
+	if options.LeaseFile != nil {
+		invocation.extraFiles = append(invocation.extraFiles, options.LeaseFile)
+	}
+	return invocation
+}
+
 type codexEvent struct {
 	Type  string      `json:"type"`
 	Usage *codexUsage `json:"usage,omitempty"`

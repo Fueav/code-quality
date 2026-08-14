@@ -151,7 +151,7 @@ func TestPlanDoctorAndRunCodexShareTheSameReviewKey(t *testing.T) {
 set -eu
 case "$*" in
   '--version') printf '%s\n' 'codex-cli test'; exit 0 ;;
-  'exec --help') printf '%s\n' '--sandbox --model --json --output-last-message --output-schema read-only --ephemeral --ignore-user-config --ignore-rules --disable'; exit 0 ;;
+  'exec --help') printf '%s\n' '--sandbox --model --json --output-last-message --output-schema --config read-only --ephemeral --ignore-user-config --ignore-rules --disable'; exit 0 ;;
   'login status') printf '%s\n' 'logged in'; exit 0 ;;
 esac
 output=''
@@ -283,7 +283,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 		t.Fatalf("prompt = %q, err = %v", prompt, err)
 	}
 	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
-	if result.SchemaVersion != 8 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
+	if result.SchemaVersion != 9 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
 		t.Fatalf("result = %#v", result)
 	}
 	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json"} {
@@ -313,6 +313,25 @@ func TestRunCodexBlockingFindingReturnsReleaseGateFailureAndSummary(t *testing.T
 	repo, base, target := cliReviewFixture(t)
 	directory := t.TempDir()
 	scriptPath := filepath.Join(directory, "codex")
+	nativeResponsePath := filepath.Join(directory, "native.json")
+	restrictedResponsePath := filepath.Join(directory, "restricted.json")
+	nativeResponse := `{"findings":[{"priority":1,"title":"Duplicate charge on retry","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The payment runs before the idempotency claim.","suggestion":"Claim the idempotency key before charging."}]}`
+	if err := os.WriteFile(nativeResponsePath, []byte(nativeResponse), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	finding, err := quality.IdentifyNativeFinding(quality.NativeFinding{
+		Priority: 1, Title: "Duplicate charge on retry", CodeLocation: quality.NativeCodeLocation{Path: "app.go", StartLine: 2, EndLine: 2},
+		Reason: "The payment runs before the idempotency claim.", Suggestion: "Claim the idempotency key before charging.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restrictedResponse := fmt.Sprintf(`{"adjudications":[{"finding_id":%q,"validity":"SUPPORTED","severity":"S3","trigger_confidence":"T3","evidence_level":"E2","introduced_or_worsened_by_change":true,"trigger_condition_is_concrete":true,"causal_chain_is_complete":true,"finding_is_not_style_preference":true,"recommended_disposition":"BLOCK","evidence_refs":[{"path":"app.go","start_line":2,"end_line":2,"support":"The changed payment entry is target-reachable."}],"uncertainties":[],"reason":"The committed path proves deterministic duplicate money movement."}]}`, finding.ID)
+	if err := os.WriteFile(restrictedResponsePath, []byte(restrictedResponse), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_NATIVE_RESPONSE", nativeResponsePath)
+	t.Setenv("FAKE_RESTRICTED_RESPONSE", restrictedResponsePath)
 	script := `#!/bin/sh
 set -eu
 output=''
@@ -323,7 +342,10 @@ for argument in "$@"; do
 done
 test -n "$output"
 cat >/dev/null
-printf '%s\n' '{"findings":[{"priority":1,"title":"Duplicate charge on retry","code_location":{"path":"app.go","start_line":2,"end_line":2},"reason":"The payment runs before the idempotency claim.","suggestion":"Claim the idempotency key before charging."}]}' > "$output"
+case "$output" in
+  *restricted-adjudication.json) cp "$FAKE_RESTRICTED_RESPONSE" "$output" ;;
+  *) cp "$FAKE_NATIVE_RESPONSE" "$output" ;;
+esac
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_tokens":45}}'
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
@@ -450,7 +472,7 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"{
 		t.Fatalf("summary = %#v", summary)
 	}
 	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
-	if result.SchemaVersion != 8 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
+	if result.SchemaVersion != 9 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	count, err := os.ReadFile(countPath)

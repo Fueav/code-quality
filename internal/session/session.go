@@ -89,15 +89,20 @@ type Metadata struct {
 // review. Its layout is private so callers depend on artifact roles rather than
 // session file names.
 type NativeArtifacts struct {
-	finalMessagePath    string
-	jsonlPath           string
-	stderrPath          string
-	freezeManifestPath  string
-	metricsPath         string
-	resultPath          string
-	markdownPath        string
-	summaryJSONPath     string
-	summaryMarkdownPath string
+	finalMessagePath             string
+	jsonlPath                    string
+	stderrPath                   string
+	freezeManifestPath           string
+	metricsPath                  string
+	resultPath                   string
+	markdownPath                 string
+	summaryJSONPath              string
+	summaryMarkdownPath          string
+	restrictedFinalMessagePath   string
+	restrictedJSONLPath          string
+	restrictedStderrPath         string
+	restrictedFreezeManifestPath string
+	restrictedMetricsPath        string
 }
 
 func (artifacts NativeArtifacts) FinalMessagePath() string    { return artifacts.finalMessagePath }
@@ -109,6 +114,17 @@ func (artifacts NativeArtifacts) ResultPath() string          { return artifacts
 func (artifacts NativeArtifacts) MarkdownPath() string        { return artifacts.markdownPath }
 func (artifacts NativeArtifacts) SummaryJSONPath() string     { return artifacts.summaryJSONPath }
 func (artifacts NativeArtifacts) SummaryMarkdownPath() string { return artifacts.summaryMarkdownPath }
+func (artifacts NativeArtifacts) RestrictedFinalMessagePath() string {
+	return artifacts.restrictedFinalMessagePath
+}
+func (artifacts NativeArtifacts) RestrictedJSONLPath() string  { return artifacts.restrictedJSONLPath }
+func (artifacts NativeArtifacts) RestrictedStderrPath() string { return artifacts.restrictedStderrPath }
+func (artifacts NativeArtifacts) RestrictedFreezeManifestPath() string {
+	return artifacts.restrictedFreezeManifestPath
+}
+func (artifacts NativeArtifacts) RestrictedMetricsPath() string {
+	return artifacts.restrictedMetricsPath
+}
 
 // NativeSession owns the isolated checkout and retained artifact layout for a
 // native provider review. Cleanup removes only its checkout.
@@ -126,6 +142,12 @@ func (session NativeSession) RepositoryDirectory() string { return session.layou
 func (session NativeSession) DirtyWorktree() bool         { return session.dirtyWorktree }
 func (session NativeSession) Artifacts() NativeArtifacts  { return session.artifacts }
 func (session NativeSession) OutputSchemaPath() string    { return session.layout.NativeSchemaPath }
+func (session NativeSession) RestrictedAdjudicationPolicyPath() string {
+	return filepath.Join(session.layout.InputDir, "restricted-adjudication-policy.md")
+}
+func (session NativeSession) RestrictedAdjudicationSchemaPath() string {
+	return filepath.Join(session.layout.InputDir, "restricted-adjudication-output.schema.json")
+}
 
 func (session NativeSession) Request() quality.ReviewRequest {
 	request := session.request
@@ -222,6 +244,14 @@ func PrepareNative(ctx context.Context, options Options) (NativeSession, error) 
 		preparation.abort()
 		return NativeSession{}, err
 	}
+	if err := writeEmbedded(filepath.Join(preparation.layout.InputDir, "restricted-adjudication-policy.md"), bundle.RestrictedAdjudicationPolicy); err != nil {
+		preparation.abort()
+		return NativeSession{}, err
+	}
+	if err := writeSchema(filepath.Join(preparation.layout.InputDir, "restricted-adjudication-output.schema.json"), "restricted-adjudication-output.schema.json"); err != nil {
+		preparation.abort()
+		return NativeSession{}, err
+	}
 	return NativeSession{
 		repositoryRoot: options.RepositoryRoot,
 		layout:         preparation.layout,
@@ -301,15 +331,20 @@ func (preparation *preparation) abort() {
 
 func newNativeArtifacts(layout Layout) NativeArtifacts {
 	return NativeArtifacts{
-		finalMessagePath:    filepath.Join(layout.OutputDir, "native-review.txt"),
-		jsonlPath:           filepath.Join(layout.OutputDir, "native-review.stdout.log"),
-		stderrPath:          filepath.Join(layout.OutputDir, "native-review.stderr.log"),
-		freezeManifestPath:  filepath.Join(layout.OutputDir, "native-review-freeze.json"),
-		metricsPath:         filepath.Join(layout.OutputDir, "native-run-metrics.json"),
-		resultPath:          layout.ResultPath,
-		markdownPath:        layout.MarkdownPath,
-		summaryJSONPath:     filepath.Join(layout.OutputDir, "review-summary.json"),
-		summaryMarkdownPath: filepath.Join(layout.OutputDir, "review-summary.md"),
+		finalMessagePath:             filepath.Join(layout.OutputDir, "native-review.txt"),
+		jsonlPath:                    filepath.Join(layout.OutputDir, "native-review.stdout.log"),
+		stderrPath:                   filepath.Join(layout.OutputDir, "native-review.stderr.log"),
+		freezeManifestPath:           filepath.Join(layout.OutputDir, "native-review-freeze.json"),
+		metricsPath:                  filepath.Join(layout.OutputDir, "native-run-metrics.json"),
+		resultPath:                   layout.ResultPath,
+		markdownPath:                 layout.MarkdownPath,
+		summaryJSONPath:              filepath.Join(layout.OutputDir, "review-summary.json"),
+		summaryMarkdownPath:          filepath.Join(layout.OutputDir, "review-summary.md"),
+		restrictedFinalMessagePath:   filepath.Join(layout.OutputDir, "restricted-adjudication.json"),
+		restrictedJSONLPath:          filepath.Join(layout.OutputDir, "restricted-adjudication.stdout.log"),
+		restrictedStderrPath:         filepath.Join(layout.OutputDir, "restricted-adjudication.stderr.log"),
+		restrictedFreezeManifestPath: filepath.Join(layout.OutputDir, "restricted-adjudication-freeze.json"),
+		restrictedMetricsPath:        filepath.Join(layout.OutputDir, "restricted-adjudication-metrics.json"),
 	}
 }
 

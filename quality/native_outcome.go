@@ -27,7 +27,7 @@ type NativeOutcomeOptions struct {
 }
 
 // NativeOutcome is the validated runtime outcome of one ordinary provider
-// review. Its wire representation is NativeReviewResult schema v8.
+// review. Its wire representation is NativeReviewResult schema v9.
 type NativeOutcome struct {
 	result NativeReviewResult
 }
@@ -137,7 +137,7 @@ func normalizeNativeOutcomeOptions(options NativeOutcomeOptions) (NativeOutcomeO
 			Contract: NativeReviewContract{
 				ToolVersion: SkillVersion, ResultSchemaVersion: NativeResultSchemaVersion,
 				ProviderOutputSchema:  SHA256Digest([]byte("direct-full-native-review-output")),
-				PromptContractVersion: "2", EvaluationRubricVersion: EvaluationRubricVersion,
+				PromptContractVersion: "3", EvaluationRubricVersion: EvaluationRubricVersion,
 				ProviderHost: host, Model: model, ReasoningEffort: effort, ExecutionProfile: profile,
 			},
 			Request: options.Request, ReviewGoal: options.ReviewGoal, ReviewScope: ReviewScopeFull,
@@ -189,7 +189,7 @@ func classifyReleaseGate(result *NativeReviewResult) {
 	result.Adjudication.Reasons = []string{fmt.Sprintf("%d P0/P1 blocking issue(s) must be fixed before release", blockingFindings)}
 }
 
-// Result returns a detached copy of the schema-v8 wire representation.
+// Result returns a detached copy of the schema-v9 wire representation.
 func (outcome NativeOutcome) Result() NativeReviewResult {
 	return cloneNativeReviewResult(outcome.result)
 }
@@ -210,6 +210,123 @@ func (outcome NativeOutcome) SemanticResult() string {
 }
 func (outcome NativeOutcome) ProviderInvocations() int {
 	return outcome.result.Execution.ProviderInvocations
+}
+
+// ValidatePublication rejects an intermediate native BLOCK before it can be
+// mistaken for the final production-floor decision.
+func (outcome NativeOutcome) ValidatePublication() error {
+	if problems := ValidateNativeResult(outcome.result); len(problems) > 0 {
+		return fmt.Errorf("native review outcome is invalid: %s", strings.Join(problems, "; "))
+	}
+	if outcome.result.Adjudication.SemanticResult == ResultBlock && outcome.result.Execution.ProviderInvocations != 2 {
+		return errors.New("native P0/P1 candidates require restricted adjudication before publication")
+	}
+	if len(outcome.result.Execution.AdapterDrops) > 0 && outcome.result.Execution.ProviderInvocations != 2 {
+		return errors.New("restricted adapter drops require two provider invocations")
+	}
+	return nil
+}
+
+// BlockingFindings returns the frozen native P0/P1 candidates that require a
+// second, restricted production-floor adjudication.
+func (outcome NativeOutcome) BlockingFindings() []NativeFinding {
+	values := make([]NativeFinding, 0, nativeBlockingFindingCount(outcome.result.Findings))
+	for _, finding := range outcome.result.Findings {
+		if isBlockingNativePriority(finding.Priority) {
+			values = append(values, finding)
+		}
+	}
+	return values
+}
+
+// ApplyRestrictedAdjudication removes native P0/P1 candidates that do not meet
+// the production floor. Removed candidate prose is retained only in the raw,
+// frozen provider evidence and is not copied into the public result.
+func (outcome NativeOutcome) ApplyRestrictedAdjudication(decisions []RestrictedFindingDecision) (NativeOutcome, error) {
+	result := cloneNativeReviewResult(outcome.result)
+	if problems := ValidateNativeResult(result); len(problems) > 0 {
+		return NativeOutcome{}, fmt.Errorf("native outcome is invalid before restricted adjudication: %s", strings.Join(problems, "; "))
+	}
+	if result.Execution.ProviderInvocations != 1 {
+		return NativeOutcome{}, errors.New("restricted adjudication requires exactly one prior provider invocation")
+	}
+	blocking := outcome.BlockingFindings()
+	if len(blocking) == 0 {
+		return NativeOutcome{}, errors.New("restricted adjudication requires at least one P0/P1 candidate")
+	}
+	if len(decisions) != len(blocking) {
+		return NativeOutcome{}, errors.New("restricted adjudication decision count does not match P0/P1 candidates")
+	}
+	retained := make(map[string]bool, len(decisions))
+	for index, decision := range decisions {
+		if decision.FindingID != blocking[index].ID {
+			return NativeOutcome{}, fmt.Errorf("restricted adjudication decision %d does not match frozen candidate order", index)
+		}
+		if _, duplicate := retained[decision.FindingID]; duplicate {
+			return NativeOutcome{}, fmt.Errorf("restricted adjudication decision %d duplicates a finding id", index)
+		}
+		retained[decision.FindingID] = decision.Retain
+	}
+
+	filter := func(findings []NativeFinding, recordDrops bool) []NativeFinding {
+		filtered := make([]NativeFinding, 0, len(findings))
+		for index, finding := range findings {
+			keep, adjudicated := retained[finding.ID]
+			if !adjudicated || keep {
+				filtered = append(filtered, finding)
+				continue
+			}
+			if recordDrops {
+				result.Execution.AdapterDrops = append(result.Execution.AdapterDrops, AdapterDrop{
+					Index: index, Reason: RestrictedAdjudicationDropReason,
+				})
+			}
+		}
+		return filtered
+	}
+	result.Findings = filter(result.Findings, true)
+	result.NewFindings = filter(result.NewFindings, false)
+	for index := range result.PreviousFindingResolutions {
+		resolution := &result.PreviousFindingResolutions[index]
+		if resolution.Status != ResolutionUnresolved || resolution.CurrentFinding == nil {
+			continue
+		}
+		if keep, adjudicated := retained[resolution.CurrentFinding.ID]; adjudicated && !keep {
+			resolution.Status = ResolutionDismissed
+			resolution.Reason = RestrictedAdjudicationDropReason
+			resolution.CurrentFinding = nil
+		}
+	}
+	result.Execution.ProviderInvocations = 2
+	classifyReleaseGate(&result)
+	if problems := ValidateNativeResult(result); len(problems) > 0 {
+		return NativeOutcome{}, fmt.Errorf("restricted native outcome is invalid: %s", strings.Join(problems, "; "))
+	}
+	return NativeOutcome{result: result}, nil
+}
+
+// RestrictedAdjudicationFailure fails closed without publishing native
+// candidate prose. Detailed diagnostics remain in the frozen evidence files.
+func (outcome NativeOutcome) RestrictedAdjudicationFailure() (NativeOutcome, error) {
+	result := cloneNativeReviewResult(outcome.result)
+	if problems := ValidateNativeResult(result); len(problems) > 0 {
+		return NativeOutcome{}, fmt.Errorf("native outcome is invalid before restricted adjudication failure: %s", strings.Join(problems, "; "))
+	}
+	if result.Execution.ProviderInvocations != 1 || nativeBlockingFindingCount(result.Findings) == 0 {
+		return NativeOutcome{}, errors.New("restricted adjudication failure requires a native P0/P1 candidate")
+	}
+	result.Findings = []NativeFinding{}
+	result.PreviousFindingResolutions = []PreviousFindingResolution{}
+	result.NewFindings = []NativeFinding{}
+	result.Execution.ProviderInvocations = 2
+	result.Adjudication = Adjudication{
+		SemanticResult: ResultError, RolloutMode: "release_gate", CIAction: "hold_release",
+		Reasons: []string{"restricted production-floor adjudication failed; inspect frozen evidence"},
+	}
+	if problems := ValidateNativeResult(result); len(problems) > 0 {
+		return NativeOutcome{}, fmt.Errorf("restricted adjudication error outcome is invalid: %s", strings.Join(problems, "; "))
+	}
+	return NativeOutcome{result: result}, nil
 }
 
 type nativeProviderFinding struct {

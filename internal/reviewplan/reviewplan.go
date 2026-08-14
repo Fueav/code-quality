@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	StatusReady        = "READY"
-	StatusFullRequired = "FULL_REQUIRED"
-	maxPreviousResult  = int64(8 << 20)
+	StatusReady          = "READY"
+	StatusFullRequired   = "FULL_REQUIRED"
+	StatusManualRequired = "MANUAL_REQUIRED"
+	maxPreviousResult    = int64(8 << 20)
 )
 
 type Input struct {
@@ -41,17 +42,18 @@ type Input struct {
 
 type Decision struct {
 	quality.ReviewIdentity
-	SchemaVersion       int                   `json:"schema_version"`
-	Status              string                `json:"status"`
-	FullRequiredReasons []string              `json:"full_required_reasons"`
-	Request             quality.ReviewRequest `json:"request"`
-	ProviderRequest     quality.ReviewRequest `json:"provider_request"`
-	ProviderInvocations int                   `json:"provider_invocations"`
-	DirtyWorktree       bool                  `json:"dirty_worktree"`
-	DetectionSource     string                `json:"detection_source"`
-	repositoryRoot      string
-	previousResult      *quality.NativeReviewResult
-	previousBlockers    []quality.NativeFinding
+	SchemaVersion         int                   `json:"schema_version"`
+	Status                string                `json:"status"`
+	FullRequiredReasons   []string              `json:"full_required_reasons"`
+	ManualRequiredReasons []string              `json:"manual_required_reasons"`
+	Request               quality.ReviewRequest `json:"request"`
+	ProviderRequest       quality.ReviewRequest `json:"provider_request"`
+	ProviderInvocations   int                   `json:"provider_invocations"`
+	DirtyWorktree         bool                  `json:"dirty_worktree"`
+	DetectionSource       string                `json:"detection_source"`
+	repositoryRoot        string
+	previousResult        *quality.NativeReviewResult
+	previousBlockers      []quality.NativeFinding
 }
 
 func (decision Decision) RepositoryRoot() string { return decision.repositoryRoot }
@@ -150,7 +152,7 @@ func Build(ctx context.Context, input Input) (Decision, error) {
 		return Decision{}, fmt.Errorf("generated review request is invalid: %s", strings.Join(problems, "; "))
 	}
 	common := Decision{
-		SchemaVersion: 1, Status: StatusReady, FullRequiredReasons: []string{},
+		SchemaVersion: 1, Status: StatusReady, FullRequiredReasons: []string{}, ManualRequiredReasons: []string{},
 		Request: request, ProviderRequest: cloneRequest(request), ProviderInvocations: 0,
 		DirtyWorktree: dirty, DetectionSource: selection.source, repositoryRoot: root,
 	}
@@ -225,6 +227,9 @@ func buildIncrementalDecision(ctx context.Context, input Input, decision Decisio
 	previous, err := readPreviousResult(input.PreviousResultPath)
 	if err != nil {
 		return fullRequired(decision, "previous_result_invalid"), nil
+	}
+	if previous.ReviewScope == quality.ReviewScopeIncremental {
+		return manualRequired(decision, "automatic_review_round_limit_reached"), nil
 	}
 	parentContract := input.Contract
 	if previous.ReviewScope == quality.ReviewScopeFull {
@@ -306,6 +311,14 @@ func fullRequired(decision Decision, reasons ...string) Decision {
 	decision.Status = StatusFullRequired
 	decision.ProviderInvocations = 0
 	decision.FullRequiredReasons = sortedUnique(reasons)
+	decision.previousBlockers = []quality.NativeFinding{}
+	return decision
+}
+
+func manualRequired(decision Decision, reasons ...string) Decision {
+	decision.Status = StatusManualRequired
+	decision.ProviderInvocations = 0
+	decision.ManualRequiredReasons = sortedUnique(reasons)
 	decision.previousBlockers = []quality.NativeFinding{}
 	return decision
 }

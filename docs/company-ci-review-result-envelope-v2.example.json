@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "result_source": "EXECUTED",
+  "lifecycle_status": "CURRENT",
+  "review_result": {
+    "review_key": "review-v1:sha256:9aee5cf9a6e86ca15c6de66401188ac537c6a2c230fba56abf1a798e7e6c5951",
+    "contract_digest": "contract-v1:sha256:9eb4e4329cc1cdf999e65396d0befe75639e93b67c9c61b48cc1365e8232622e",
+    "review_scope": "FULL",
+    "base_ref": "production",
+    "head_ref": "deploy",
+    "base_tip_commit": "1111111111111111111111111111111111111111",
+    "merge_base": "1111111111111111111111111111111111111111",
+    "parent_review_key": null,
+    "previous_head": null,
+    "current_head": "2222222222222222222222222222222222222222",
+    "delta_changed_files": [],
+    "contract": {
+      "tool_version": "0.5.7",
+      "result_schema_version": 9,
+      "provider_output_schema": "sha256:47bc3df29c976c0f042a2aa49bd5216f0cf50f49f62e840a5c904383d30125e2",
+      "prompt_contract_version": "3",
+      "evaluation_rubric_version": "1.2.0",
+      "provider_host": "codex",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "max",
+      "execution_profile": "production-ci"
+    },
+    "schema_version": 9,
+    "evaluation_rubric_version": "1.2.0",
+    "request": {
+      "repository": "github.com/Fueav/code-quality",
+      "target_branch": "production",
+      "base_commit": "1111111111111111111111111111111111111111",
+      "target_commit": "2222222222222222222222222222222222222222",
+      "diff_selection_reason": "explicit_ref_range",
+      "changed_files": ["main.go"],
+      "affected_entries": []
+    },
+    "findings": [],
+    "previous_blocking_findings": [],
+    "previous_finding_resolutions": [],
+    "new_findings": [],
+    "execution": {
+      "host": "codex",
+      "review_mode": "native_review",
+      "execution_profile": "production-ci",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "max",
+      "provider_invocations": 1,
+      "adapter_drops": []
+    },
+    "adjudication": {
+      "semantic_result": "PASS",
+      "rollout_mode": "release_gate",
+      "ci_action": "continue_release",
+      "reasons": ["no P0/P1 blocking issue was reported"]
+    }
+  }
+}

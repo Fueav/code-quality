@@ -38,11 +38,28 @@ func TestValidateNativeResultAllowsPassWithAdvisories(t *testing.T) {
 	}
 }
 
-func TestValidateNativeResultEnforcesSingleProviderInvocation(t *testing.T) {
+func TestValidateNativeResultAllowsNativePlusRestrictedInvocationOnly(t *testing.T) {
 	result := validNativeResult()
 	result.Execution.ProviderInvocations = 2
+	if problems := ValidateNativeResult(result); len(problems) != 0 {
+		t.Fatalf("native plus restricted result problems = %#v", problems)
+	}
+	result.Execution.ProviderInvocations = 3
 	if problems := ValidateNativeResult(result); len(problems) == 0 {
-		t.Fatal("native result with two provider invocations was accepted")
+		t.Fatal("native result with a third provider invocation was accepted")
+	}
+}
+
+func TestValidateNativeResultRejectsUntrustedAdapterDropMetadata(t *testing.T) {
+	result := validNativeResult()
+	result.Findings = []NativeFinding{}
+	result.NewFindings = []NativeFinding{}
+	result.Execution.ProviderInvocations = 2
+	result.Execution.AdapterDrops = []AdapterDrop{{Index: 0, Reason: "model supplied reason"}}
+	result.Adjudication.SemanticResult = ResultPass
+	result.Adjudication.CIAction = "continue_release"
+	if problems := ValidateNativeResult(result); len(problems) == 0 {
+		t.Fatal("untrusted adapter drop metadata was accepted")
 	}
 }
 
@@ -110,7 +127,7 @@ func validNativeResult() NativeReviewResult {
 	contract := NativeReviewContract{
 		ToolVersion: SkillVersion, ResultSchemaVersion: NativeResultSchemaVersion,
 		ProviderOutputSchema:  SHA256Digest([]byte("test-provider-schema")),
-		PromptContractVersion: "2", EvaluationRubricVersion: EvaluationRubricVersion,
+		PromptContractVersion: "3", EvaluationRubricVersion: EvaluationRubricVersion,
 		ProviderHost: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high",
 		ExecutionProfile: ExecutionProfilePersonal,
 	}

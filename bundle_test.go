@@ -90,6 +90,19 @@ func TestNativeResultV8SchemaCarriesScopeIdentityAndLineage(t *testing.T) {
 	}
 }
 
+func TestNativeResultV9SchemaCarriesRestrictedAdjudication(t *testing.T) {
+	raw, err := Schema("review-result-v9.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{`"schema_version": {"const": 9}`, `"result_schema_version": {"const": 9}`, `"provider_invocations": {"enum": [1, 2]}`, `"DISMISSED"`, quality.RestrictedAdjudicationDropReason} {
+		if !strings.Contains(text, required) {
+			t.Errorf("v9 schema is missing %s", required)
+		}
+	}
+}
+
 func TestReviewSummarySchemaV3CarriesIdentityAndIncrementalCounts(t *testing.T) {
 	raw, err := Schema("review-summary.schema.json")
 	if err != nil {
@@ -121,19 +134,34 @@ func TestIncrementalProviderSchemaUsesStructuredOutputSubset(t *testing.T) {
 	}
 }
 
-func TestCompanyCIEnvelopeKeepsLifecycleOutsideImmutableResult(t *testing.T) {
-	raw, err := Schema("review-result-envelope-v1.schema.json")
+func TestCompanyCIEnvelopeV1RemainsFrozen(t *testing.T) {
+	for path, want := range map[string]string{
+		"schemas/review-result-envelope-v1.schema.json":          "8cb3e7dad7e2b1c40fa1ade197572fdd910de505d9e6d90f508c59bb75a23145",
+		"docs/company-ci-review-result-envelope-v1.example.json": "d2ef6b01551161a98b8bc7073528bf8c0b9c08675dcf52f1b1ab3f7525a46bf6",
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != want {
+			t.Fatalf("immutable envelope-v1 artifact %s changed: %s", path, got)
+		}
+	}
+}
+
+func TestCompanyCIEnvelopeV2KeepsLifecycleOutsideImmutableResult(t *testing.T) {
+	raw, err := Schema("review-result-envelope-v2.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	schema := string(raw)
-	for _, required := range []string{`"schema_version": {"const": 1}`, `"EXECUTED"`, `"REUSED"`, `"CURRENT"`, `"SUPERSEDED"`, `"$ref": "review-result-v8.schema.json"`} {
+	for _, required := range []string{`"schema_version": {"const": 2}`, `"EXECUTED"`, `"REUSED"`, `"CURRENT"`, `"SUPERSEDED"`, `"$ref": "review-result-v9.schema.json"`} {
 		if !strings.Contains(schema, required) {
 			t.Errorf("company CI envelope schema is missing %s", required)
 		}
 	}
 
-	fixture, err := os.ReadFile("docs/company-ci-review-result-envelope-v1.example.json")
+	fixture, err := os.ReadFile("docs/company-ci-review-result-envelope-v2.example.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +174,7 @@ func TestCompanyCIEnvelopeKeepsLifecycleOutsideImmutableResult(t *testing.T) {
 	if err := json.Unmarshal(fixture, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != 1 || envelope.ResultSource != "EXECUTED" || envelope.LifecycleStatus != "CURRENT" {
+	if envelope.SchemaVersion != 2 || envelope.ResultSource != "EXECUTED" || envelope.LifecycleStatus != "CURRENT" {
 		t.Fatalf("company CI envelope fixture drifted: %#v", envelope)
 	}
 	if envelope.ReviewResult.Contract.ToolVersion != quality.SkillVersion ||
@@ -235,9 +263,13 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-result-v6.schema.json",
 		"review-result-v7.schema.json",
 		"review-result-v8.schema.json",
+		"review-result-v9.schema.json",
 		"review-result-envelope-v1.schema.json",
+		"review-result-envelope-v2.schema.json",
 		"native-review-output.schema.json",
 		"native-review-incremental-output.schema.json",
+		"restricted-adjudication-output.schema.json",
+		"restricted-adjudication-freeze.schema.json",
 		"review-summary.schema.json",
 		"native-review-freeze.schema.json",
 		"native-run-metrics.schema.json",
@@ -321,7 +353,7 @@ func TestNativeFreezeSchemaFixesArtifactIdentityAndDigest(t *testing.T) {
 }
 
 func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
-	for _, name := range []string{"review-result-v3.schema.json", "review-result-v4.schema.json", "review-result-v5.schema.json", "review-result-v6.schema.json", "review-result-v7.schema.json", "review-result-v8.schema.json"} {
+	for _, name := range []string{"review-result-v3.schema.json", "review-result-v4.schema.json", "review-result-v5.schema.json", "review-result-v6.schema.json", "review-result-v7.schema.json", "review-result-v8.schema.json", "review-result-v9.schema.json"} {
 		raw, err := Schema(name)
 		if err != nil {
 			t.Fatal(err)
@@ -336,6 +368,22 @@ func TestNativeRuntimeSchemasDoNotExposeRuleCoverageContract(t *testing.T) {
 		if _, err := Schema(retired); err == nil {
 			t.Fatalf("retired runtime schema %s is still embedded", retired)
 		}
+	}
+}
+
+func TestRestrictedAdjudicationPolicyHasOneEmbeddedTruthSource(t *testing.T) {
+	raw, err := RestrictedAdjudicationPolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := string(raw)
+	for _, required := range []string{"candidate-only production-floor adjudicator", "Do not perform another general code review", "SUPPORTED", "S3", "T3", "E2 or E3", "recommended disposition is advisory"} {
+		if !strings.Contains(policy, required) {
+			t.Errorf("restricted adjudication policy is missing %q", required)
+		}
+	}
+	if _, err := os.Stat("pilot/restricted-adjudication-policy.md"); !os.IsNotExist(err) {
+		t.Fatalf("pilot policy duplicate still exists: %v", err)
 	}
 }
 

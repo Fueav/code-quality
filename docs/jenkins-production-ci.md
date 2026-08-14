@@ -1,6 +1,6 @@
-# Jenkins 生产 CI 接入（v0.5.6）
+# Jenkins 生产 CI 接入（v0.5.7）
 
-适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。
+适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。CLI 先冻结原生发现，仅在出现 P0/P1 时追加一次只读受限裁决。
 
 运维只需完成四件事：准备一个专用 Agent、以 Agent 服务用户安装并登录 Provider、创建 Multibranch Pipeline、把下面的 Jenkinsfile 合入受保护分支。
 
@@ -11,16 +11,16 @@
 - 标签为 `code-quality`，每个系统用户只设 1 个 executor。
 - 使用专用低权限用户，不保存与审查无关的凭据。
 - 已安装 `bash`、`git`、`curl` 和 `tar`，能够访问 GitHub 与所选 Provider。
-- 同一用户预装 `quality-review v0.5.6` 和一个已登录的 Provider。
+- 同一用户预装 `quality-review v0.5.7` 和一个已登录的 Provider。
 
 ```sh
 command -v bash git curl tar
 
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.6/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.6
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.7/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.7
 
 command -v quality-review
-quality-review version          # 必须是 quality-review v0.5.6
+quality-review version          # 必须是 quality-review v0.5.7
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
@@ -104,7 +104,7 @@ printf 'BASE_REF=%s\nHEAD_REF=%s\n' "$base_ref" "$head_ref" > "$REVIEW_ROOT/rang
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 . "$REVIEW_ROOT/range.env"
-test "$(quality-review version)" = 'quality-review v0.5.6'
+test "$(quality-review version)" = 'quality-review v0.5.7'
 
 case "$CODE_QUALITY_PROVIDER" in
   codex) host=codex; command=run-codex; model=gpt-5.6-sol ;;
@@ -171,8 +171,8 @@ cat "$artifact_root/review-summary.md"
 
 ## 4. 结果与验收
 
-- `PASS`：没有 P0/P1 阻塞问题，可以继续发布流程；P2/P3 advisory 仍会展示，Jenkins stage 成功。
-- `BLOCK`：存在至少一个 P0/P1 必须修复的问题；`ERROR`：扫描不可信或未完成。两者都使 Jenkins stage 失败。
+- `PASS`：没有达到生产下限的 P0/P1 阻塞问题，可以继续发布流程；P2/P3 advisory 仍会展示，Jenkins stage 成功。
+- `BLOCK`：至少一个 P0/P1 通过受限生产下限裁决；`ERROR`：扫描或裁决不可信。两者都使 Jenkins stage 失败。
 - 开发者只看 `review-summary.md`；机器读取 `review-summary.json`；完整原始证据统一放在 `evidence.tar.gz`。
 
 Jenkins 控制台和 Artifact 中的主结论类似：

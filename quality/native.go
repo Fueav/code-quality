@@ -6,13 +6,16 @@ import (
 )
 
 const (
-	NativeResultSchemaVersion = 8
+	NativeResultSchemaVersion = 9
 	EvaluationRubricVersion   = "1.2.0"
 	ReviewScopeFull           = "FULL"
 	ReviewScopeIncremental    = "INCREMENTAL"
 	ResolutionResolved        = "RESOLVED"
 	ResolutionUnresolved      = "UNRESOLVED"
+	ResolutionDismissed       = "DISMISSED"
 )
+
+const RestrictedAdjudicationDropReason = "finding did not meet the restricted production floor"
 
 type NativeCodeLocation struct {
 	Path      string `json:"path"`
@@ -39,6 +42,14 @@ type PreviousFindingResolution struct {
 type AdapterDrop struct {
 	Index  int    `json:"index"`
 	Reason string `json:"reason"`
+}
+
+// RestrictedFindingDecision is the trusted deterministic output of the
+// production-floor adjudication adapter. Retain is computed from validated
+// adjudication facts; it is never copied from the model recommendation.
+type RestrictedFindingDecision struct {
+	FindingID string
+	Retain    bool
 }
 
 type NativeExecution struct {

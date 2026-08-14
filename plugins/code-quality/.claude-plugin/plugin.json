@@ -1,7 +1,7 @@
 {
   "name": "code-quality",
-  "version": "0.5.6",
-  "description": "调用当前宿主的完整原生代码审查能力，冻结原始输出，再发布只报告的确定性分类；V1.2 仅用于离线评测。",
+  "version": "0.5.7",
+  "description": "调用当前宿主的完整原生代码审查能力，冻结原始输出，并用 V1.2 生产下限受限裁决 P0/P1。",
   "author": {
     "name": "Fueav",
     "url": "https://github.com/Fueav"

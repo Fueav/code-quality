@@ -88,7 +88,7 @@ func TestIncrementalPlanUsesPreviousHeadDeltaAndPreviousP0P1Only(t *testing.T) {
 	}
 }
 
-func TestIncrementalPlanCanChainFromPreviousIncrementalResult(t *testing.T) {
+func TestIncrementalPlanStopsBeforeThirdAutomaticReview(t *testing.T) {
 	repo := reviewPlanRepository(t)
 	fullContract := reviewPlanContract()
 	incrementalContract := fullContract
@@ -142,9 +142,8 @@ func TestIncrementalPlanCanChainFromPreviousIncrementalResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secondDecision.Status != StatusReady || secondDecision.PreviousHead == nil ||
-		*secondDecision.PreviousHead != firstDecision.CurrentHead ||
-		strings.Join(secondDecision.DeltaChangedFiles, ",") != "second-delta.go" {
+	if secondDecision.Status != StatusManualRequired || secondDecision.ProviderInvocations != 0 ||
+		strings.Join(secondDecision.ManualRequiredReasons, ",") != "automatic_review_round_limit_reached" {
 		t.Fatalf("second incremental decision = %#v", secondDecision)
 	}
 }
@@ -333,7 +332,7 @@ func reviewPlanContract() quality.NativeReviewContract {
 	return quality.NativeReviewContract{
 		ToolVersion: quality.SkillVersion, ResultSchemaVersion: quality.NativeResultSchemaVersion,
 		ProviderOutputSchema:  "sha256:" + strings.Repeat("3", 64),
-		PromptContractVersion: "2", EvaluationRubricVersion: quality.EvaluationRubricVersion,
+		PromptContractVersion: "3", EvaluationRubricVersion: quality.EvaluationRubricVersion,
 		ProviderHost: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "max",
 		ExecutionProfile: quality.ExecutionProfileProductionCI,
 	}
