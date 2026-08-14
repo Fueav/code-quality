@@ -82,6 +82,20 @@ class RestrictedAdjudicationTests(unittest.TestCase):
             "REJECT",
         )
 
+    def test_effective_priority_comes_from_computed_disposition(self) -> None:
+        finding_id = "finding-v1:sha256:" + "f" * 64
+        original = finding(finding_id)
+        original["priority"] = 1
+        claimed = adjudication(
+            finding_id,
+            trigger_confidence="T2",
+            recommended_disposition="BLOCK",
+        )
+        claimed["computed_disposition"] = MODULE.computed_disposition(claimed)
+        values = MODULE.effective_findings([original], [claimed])
+        self.assertEqual(values[0]["effective_priority"], 2)
+        self.assertEqual(values[0]["adjudication"]["computed_disposition"], "MANUAL_REVIEW")
+
     def test_payload_must_preserve_finding_identity_and_order(self) -> None:
         first = "finding-v1:sha256:" + "c" * 64
         second = "finding-v1:sha256:" + "d" * 64

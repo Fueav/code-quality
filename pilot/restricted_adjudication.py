@@ -22,6 +22,7 @@ from typing import Any
 
 
 PROFILE = "restricted_adjudication_blind_eval_v2"
+CASE_PROFILE = "restricted_adjudication_frozen_case_v1"
 MODEL = "gpt-5.6-sol"
 REASONING_EFFORT = "max"
 MAX_WORKERS = 1
@@ -162,7 +163,14 @@ def codex_usage(stdout: bytes) -> dict[str, int | None]:
     }
 
 
-def clone_target(source: pathlib.Path, target: pathlib.Path, base: str, head: str) -> None:
+def clone_target(
+    source: pathlib.Path,
+    target: pathlib.Path,
+    base: str,
+    head: str,
+    *,
+    require_first_parent: bool = True,
+) -> None:
     run_checked(["git", "clone", "--quiet", "--no-hardlinks", str(source), str(target)])
     git(target, "checkout", "--quiet", "--detach", head)
     remotes = git(target, "remote").splitlines()
@@ -171,8 +179,11 @@ def clone_target(source: pathlib.Path, target: pathlib.Path, base: str, head: st
             git(target, "remote", "remove", remote.strip())
     if git(target, "rev-parse", "HEAD") != head:
         raise ValueError("cloned target HEAD mismatch")
-    if git(target, "rev-parse", f"{head}^1") != base:
-        raise ValueError("cloned target first parent mismatch")
+    if require_first_parent:
+        if git(target, "rev-parse", f"{head}^1") != base:
+            raise ValueError("cloned target first parent mismatch")
+    else:
+        run_checked(["git", "-C", str(target), "merge-base", "--is-ancestor", base, head])
     if git(target, "status", "--porcelain=v1", "--untracked-files=all"):
         raise ValueError("cloned target is dirty")
 
@@ -356,6 +367,122 @@ def native_call_completed(returncode: int, timed_out: bool) -> bool:
     return not timed_out and returncode in {0, 3}
 
 
+def adjudicate_findings(
+    workspace: pathlib.Path,
+    evidence: pathlib.Path,
+    source: pathlib.Path,
+    base: str,
+    target: str,
+    findings: list[dict[str, Any]],
+    runtime_root: pathlib.Path,
+    *,
+    require_first_parent: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if not findings:
+        return [], {
+            "called": False,
+            "duration_ms": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+        }
+
+    adjudication_repo = runtime_root / "adjudication-repository"
+    clone_target(
+        source,
+        adjudication_repo,
+        base,
+        target,
+        require_first_parent=require_first_parent,
+    )
+    policy_path = workspace / "frozen" / POLICY_PATH.name
+    schema_path = workspace / "frozen" / SCHEMA_PATH.name
+    policy = policy_path.read_text(encoding="utf-8")
+    policy_sha256 = file_sha256(policy_path)
+    final_path = evidence / "adjudicator-final.json"
+    prompt = adjudication_prompt(base, target, findings)
+    write_bytes(evidence / "adjudicator-prompt.txt", prompt.encode())
+    developer_override = "developer_instructions=" + json.dumps(policy, ensure_ascii=False)
+    adjudicator_command = [
+        "codex",
+        "exec",
+        "--sandbox",
+        "read-only",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--ephemeral",
+        "--disable",
+        "hooks",
+        "--model",
+        MODEL,
+        "--output-schema",
+        str(schema_path),
+        "--config",
+        f'model_reasoning_effort="{REASONING_EFFORT}"',
+        "--config",
+        developer_override,
+        "--json",
+        "--output-last-message",
+        str(final_path),
+        "-",
+    ]
+    adjudicator_run = model_process(
+        adjudicator_command,
+        cwd=adjudication_repo,
+        stdin=prompt,
+        timeout_seconds=CALL_TIMEOUT_SECONDS,
+    )
+    stdout = adjudicator_run.pop("stdout")
+    stderr = adjudicator_run.pop("stderr")
+    write_bytes(evidence / "adjudicator.stdout.jsonl", stdout)
+    write_bytes(evidence / "adjudicator.stderr.log", stderr)
+    usage = codex_usage(stdout)
+    write_json(
+        evidence / "adjudicator-run.json",
+        {
+            **adjudicator_run,
+            **usage,
+            "command": sanitized_command(adjudicator_command, policy_sha256),
+            "developer_instructions_sha256": policy_sha256,
+            "prompt_sha256": file_sha256(evidence / "adjudicator-prompt.txt"),
+            "started_from_clean_checkout": True,
+        },
+    )
+    if adjudicator_run["returncode"] != 0 or adjudicator_run["timed_out"]:
+        raise ValueError("adjudication call did not complete")
+    payload = load_json(final_path)
+    normalized = validate_adjudication_payload(payload, findings, adjudication_repo)
+    return normalized, {
+        "called": True,
+        "duration_ms": adjudicator_run["duration_ms"],
+        **usage,
+        "result_sha256": file_sha256(final_path),
+    }
+
+
+def effective_findings(
+    findings: list[dict[str, Any]],
+    adjudications: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    values: list[dict[str, Any]] = []
+    for finding, adjudication in zip(findings, adjudications, strict=True):
+        disposition = adjudication["computed_disposition"]
+        effective_priority: int | None
+        if disposition == "BLOCK":
+            effective_priority = 0 if finding["priority"] == 0 else 1
+        elif disposition in {"MANUAL_REVIEW", "ADVISORY"}:
+            effective_priority = 2
+        else:
+            effective_priority = None
+        values.append(
+            {
+                "finding": finding,
+                "adjudication": adjudication,
+                "effective_priority": effective_priority,
+            }
+        )
+    return values
+
+
 def run_sample(workspace: pathlib.Path, sample: dict[str, Any]) -> dict[str, Any]:
     sample_id = str(sample["sample_id"])
     evidence = workspace / "evidence" / sample_id
@@ -424,98 +551,18 @@ def run_sample(workspace: pathlib.Path, sample: dict[str, Any]) -> dict[str, Any
         frozen_findings = evidence / "frozen-native-findings.json"
         write_json(frozen_findings, {"findings": findings})
 
-        normalized: list[dict[str, Any]] = []
-        adjudicator_record: dict[str, Any] = {
-            "called": False,
-            "duration_ms": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-        }
+        normalized, adjudicator_record = adjudicate_findings(
+            workspace,
+            evidence,
+            source,
+            base,
+            target,
+            findings,
+            runtime_root,
+        )
         if findings:
-            adjudication_repo = runtime_root / "adjudication-repository"
-            clone_target(source, adjudication_repo, base, target)
-            policy_path = workspace / "frozen" / POLICY_PATH.name
-            schema_path = workspace / "frozen" / SCHEMA_PATH.name
-            policy = policy_path.read_text(encoding="utf-8")
-            policy_sha256 = file_sha256(policy_path)
-            final_path = evidence / "adjudicator-final.json"
-            prompt = adjudication_prompt(base, target, findings)
-            write_bytes(evidence / "adjudicator-prompt.txt", prompt.encode())
-            developer_override = "developer_instructions=" + json.dumps(policy, ensure_ascii=False)
-            adjudicator_command = [
-                "codex",
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--ignore-user-config",
-                "--ignore-rules",
-                "--ephemeral",
-                "--disable",
-                "hooks",
-                "--model",
-                MODEL,
-                "--output-schema",
-                str(schema_path),
-                "--config",
-                f'model_reasoning_effort="{REASONING_EFFORT}"',
-                "--config",
-                developer_override,
-                "--json",
-                "--output-last-message",
-                str(final_path),
-                "-",
-            ]
             call_count += 1
-            adjudicator_run = model_process(
-                adjudicator_command,
-                cwd=adjudication_repo,
-                stdin=prompt,
-                timeout_seconds=CALL_TIMEOUT_SECONDS,
-            )
-            stdout = adjudicator_run.pop("stdout")
-            stderr = adjudicator_run.pop("stderr")
-            write_bytes(evidence / "adjudicator.stdout.jsonl", stdout)
-            write_bytes(evidence / "adjudicator.stderr.log", stderr)
-            usage = codex_usage(stdout)
-            write_json(
-                evidence / "adjudicator-run.json",
-                {
-                    **adjudicator_run,
-                    **usage,
-                    "command": sanitized_command(adjudicator_command, policy_sha256),
-                    "developer_instructions_sha256": policy_sha256,
-                    "prompt_sha256": file_sha256(evidence / "adjudicator-prompt.txt"),
-                    "started_from_clean_checkout": True,
-                },
-            )
-            if adjudicator_run["returncode"] != 0 or adjudicator_run["timed_out"]:
-                raise ValueError("adjudication call did not complete")
-            payload = load_json(final_path)
-            normalized = validate_adjudication_payload(payload, findings, adjudication_repo)
-            adjudicator_record = {
-                "called": True,
-                "duration_ms": adjudicator_run["duration_ms"],
-                **usage,
-                "result_sha256": file_sha256(final_path),
-            }
-
-        effective_findings: list[dict[str, Any]] = []
-        for finding, adjudication in zip(findings, normalized, strict=True):
-            disposition = adjudication["computed_disposition"]
-            effective_priority: int | None
-            if disposition == "BLOCK":
-                effective_priority = 0 if finding["priority"] == 0 else 1
-            elif disposition in {"MANUAL_REVIEW", "ADVISORY"}:
-                effective_priority = 2
-            else:
-                effective_priority = None
-            effective_findings.append(
-                {
-                    "finding": finding,
-                    "adjudication": adjudication,
-                    "effective_priority": effective_priority,
-                }
-            )
+        effective_values = effective_findings(findings, normalized)
         effective = {
             "schema_version": 1,
             "profile": PROFILE,
@@ -526,9 +573,9 @@ def run_sample(workspace: pathlib.Path, sample: dict[str, Any]) -> dict[str, Any
             "treatment": {
                 "predicts_block": any(
                     item["adjudication"]["computed_disposition"] == "BLOCK"
-                    for item in effective_findings
+                    for item in effective_values
                 ),
-                "findings": effective_findings,
+                "findings": effective_values,
             },
             "calls": call_count,
             "adjudicator": adjudicator_record,
@@ -563,6 +610,130 @@ def run_sample(workspace: pathlib.Path, sample: dict[str, Any]) -> dict[str, Any
         return failure
     finally:
         shutil.rmtree(runtime_root, ignore_errors=True)
+
+
+def adjudicate_frozen_case(args: argparse.Namespace) -> None:
+    source = args.repository.resolve(strict=True)
+    findings_source = args.findings.resolve(strict=True)
+    output = args.output.resolve()
+    if output.exists():
+        raise ValueError("--output must not already exist")
+    if git(source, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise ValueError("frozen case adjudication requires a clean source repository")
+
+    base = git(source, "rev-parse", f"{args.base}^{{commit}}")
+    target = git(source, "rev-parse", f"{args.target}^{{commit}}")
+    run_checked(["git", "-C", str(source), "merge-base", "--is-ancestor", base, target])
+    diff = subprocess.check_output(["git", "-C", str(source), "diff", "--binary", base, target, "--"])
+    if not diff:
+        raise ValueError("frozen case diff is empty")
+
+    payload = load_json(findings_source)
+    if not isinstance(payload, dict) or set(payload) != {"findings"}:
+        raise ValueError("frozen findings input must contain only findings")
+    findings = payload["findings"]
+    if not isinstance(findings, list):
+        raise ValueError("frozen findings must be a list")
+    native_summary = native_result_summary({"findings": findings})
+    for index, finding_value in enumerate(findings):
+        if not isinstance(finding_value, dict):
+            raise ValueError(f"frozen finding {index} is invalid")
+        finding_id = finding_value.get("id")
+        if not isinstance(finding_id, str) or not finding_id.startswith("finding-v1:sha256:"):
+            raise ValueError(f"frozen finding {index} has no stable ID")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = pathlib.Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
+    runtime_root = temporary / "runtime"
+    runtime_root.mkdir()
+    evidence = temporary / "evidence"
+    evidence.mkdir()
+    (temporary / "frozen").mkdir()
+    repository_root = pathlib.Path(__file__).resolve().parents[1]
+    try:
+        policy_target = temporary / "frozen" / POLICY_PATH.name
+        schema_target = temporary / "frozen" / SCHEMA_PATH.name
+        shutil.copyfile(repository_root / POLICY_PATH, policy_target)
+        shutil.copyfile(repository_root / SCHEMA_PATH, schema_target)
+        frozen_findings = temporary / "frozen" / "native-findings.json"
+        write_json(frozen_findings, {"findings": findings})
+        manifest = {
+            "schema_version": 1,
+            "profile": CASE_PROFILE,
+            "created_at": utc_now(),
+            "source_url": args.source_url,
+            "source_repository": str(source),
+            "source_clean": True,
+            "base": base,
+            "target": target,
+            "diff_sha256": sha256_bytes(diff),
+            "model": MODEL,
+            "reasoning_effort": REASONING_EFFORT,
+            "call_timeout_seconds": CALL_TIMEOUT_SECONDS,
+            "policy_sha256": file_sha256(policy_target),
+            "schema_sha256": file_sha256(schema_target),
+            "frozen_findings_sha256": file_sha256(frozen_findings),
+        }
+        write_json(temporary / "manifest.json", manifest)
+        normalized, adjudicator_record = adjudicate_findings(
+            temporary,
+            evidence,
+            source,
+            base,
+            target,
+            findings,
+            runtime_root,
+            require_first_parent=False,
+        )
+        effective_values = effective_findings(findings, normalized)
+        effective = {
+            "schema_version": 1,
+            "profile": CASE_PROFILE,
+            "source_url": args.source_url,
+            "base": base,
+            "target": target,
+            "native": native_summary,
+            "treatment": {
+                "predicts_block": any(
+                    item["adjudication"]["computed_disposition"] == "BLOCK"
+                    for item in effective_values
+                ),
+                "findings": effective_values,
+            },
+            "calls": 1 if findings else 0,
+            "adjudicator": adjudicator_record,
+        }
+        write_json(temporary / "effective-result.json", effective)
+        completion = {
+            "schema_version": 1,
+            "profile": CASE_PROFILE,
+            "status": "COMPLETE",
+            "calls": effective["calls"],
+            "manifest_sha256": file_sha256(temporary / "manifest.json"),
+            "frozen_findings_sha256": file_sha256(frozen_findings),
+            "effective_result_sha256": file_sha256(temporary / "effective-result.json"),
+            "baseline_predicts_block": native_summary["predicts_block"],
+            "treatment_predicts_block": effective["treatment"]["predicts_block"],
+            "completed_at": utc_now(),
+        }
+        write_json(temporary / "complete.json", completion)
+        shutil.rmtree(runtime_root, ignore_errors=True)
+        os.replace(temporary, output)
+        print(json.dumps({"workspace": str(output), **completion}, sort_keys=True))
+    except Exception as error:
+        shutil.rmtree(runtime_root, ignore_errors=True)
+        write_json(
+            temporary / "incomplete.json",
+            {
+                "schema_version": 1,
+                "profile": CASE_PROFILE,
+                "status": "INCOMPLETE",
+                "error": str(error),
+                "completed_at": utc_now(),
+            },
+        )
+        os.replace(temporary, output)
+        raise
 
 
 def exact_paired_pvalue(baseline_only_error: int, treatment_only_error: int) -> float:
@@ -998,6 +1169,15 @@ def main() -> int:
     score_parser = subparsers.add_parser("score")
     score_parser.add_argument("--workspace", required=True, type=pathlib.Path)
     score_parser.set_defaults(handler=score)
+
+    case_parser = subparsers.add_parser("adjudicate-frozen")
+    case_parser.add_argument("--repository", required=True, type=pathlib.Path)
+    case_parser.add_argument("--base", required=True)
+    case_parser.add_argument("--target", required=True)
+    case_parser.add_argument("--findings", required=True, type=pathlib.Path)
+    case_parser.add_argument("--output", required=True, type=pathlib.Path)
+    case_parser.add_argument("--source-url", required=True)
+    case_parser.set_defaults(handler=adjudicate_frozen_case)
 
     args = parser.parse_args()
     args.handler(args)

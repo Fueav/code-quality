@@ -1,0 +1,16 @@
+{
+  "findings": [
+    {
+      "id": "finding-v1:sha256:41ed4fd6efab262af2f3ef8985c3dfdc3fc1eb2cc069d269d53794f2c65a23f2",
+      "priority": 1,
+      "title": "Drain the worker lease before starting the handoff clock",
+      "reason": "A legacy run can commit reserveBaseWeight immediately before the budget trigger acquires its table lock and then pause before UserFillsByTime. Because this migration never acquires the worker's advisory lease, its 10-minute clock can expire while that run remains past both fences. When it resumes, the request uses an expired legacy reservation timestamp; after the run releases its lease, v2 can spend a fresh budget within the same trailing 60 seconds.",
+      "suggestion": "Acquire the same (8411, 1) advisory lock transactionally before installing the triggers, wait for every active legacy run to finish, and start the handoff clock only while holding that lock after the fences are installed. Add a regression test with a legacy run blocked after reservation.",
+      "code_location": {
+        "path": "migrations/000023_fence_agentic_trading_legacy_worker.up.sql",
+        "start_line": 25,
+        "end_line": 30
+      }
+    }
+  ]
+}
