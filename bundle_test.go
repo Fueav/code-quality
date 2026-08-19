@@ -213,13 +213,11 @@ func TestCompanyCIEnvelopeV2KeepsLifecycleOutsideImmutableResult(t *testing.T) {
 	if envelope.SchemaVersion != 2 || envelope.ResultSource != "EXECUTED" || envelope.LifecycleStatus != "CURRENT" {
 		t.Fatalf("company CI envelope fixture drifted: %#v", envelope)
 	}
-	if envelope.ReviewResult.Contract.ToolVersion != quality.SkillVersion ||
+	if envelope.ReviewResult.SchemaVersion != 9 || envelope.ReviewResult.Contract.ToolVersion != "0.5.7" ||
+		envelope.ReviewResult.Contract.ResultSchemaVersion != 9 ||
 		envelope.ReviewResult.Contract.ReasoningEffort != "max" ||
 		envelope.ReviewResult.Execution.ReasoningEffort != "max" {
-		t.Fatalf("company CI fixture does not use the current max-effort contract: %#v", envelope.ReviewResult.Contract)
-	}
-	if problems := quality.ValidateNativeResult(envelope.ReviewResult); len(problems) > 0 {
-		t.Fatalf("embedded immutable review result is invalid: %#v", problems)
+		t.Fatalf("company CI fixture does not preserve the v0.5.7 max-effort contract: %#v", envelope.ReviewResult.Contract)
 	}
 	resultJSON, err := json.Marshal(envelope.ReviewResult)
 	if err != nil {
@@ -243,6 +241,58 @@ func TestCompanyCIEnvelopeV3ReferencesOnlyResultV10(t *testing.T) {
 	}
 	if strings.Contains(text, "review-result-v9.schema.json") {
 		t.Fatal("company CI envelope v3 still references result v9")
+	}
+	fixture, err := os.ReadFile("docs/company-ci-review-result-envelope-v3.example.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		SchemaVersion   int                        `json:"schema_version"`
+		ResultSource    string                     `json:"result_source"`
+		LifecycleStatus string                     `json:"lifecycle_status"`
+		ReviewResult    quality.NativeReviewResult `json:"review_result"`
+	}
+	if err := json.Unmarshal(fixture, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.SchemaVersion != 3 || envelope.ResultSource != "EXECUTED" || envelope.LifecycleStatus != "CURRENT" {
+		t.Fatalf("company CI envelope v3 fixture drifted: %#v", envelope)
+	}
+	if problems := quality.ValidateNativeResult(envelope.ReviewResult); len(problems) > 0 {
+		t.Fatalf("company CI envelope v3 result is invalid: %#v", problems)
+	}
+	if envelope.ReviewResult.Execution.ProviderAttemptsTotal != 3 || !envelope.ReviewResult.Execution.Resumed ||
+		envelope.ReviewResult.Execution.AdoptedRestrictedAttempt == nil || *envelope.ReviewResult.Execution.AdoptedRestrictedAttempt != 2 {
+		t.Fatalf("company CI envelope v3 does not express resumed attempt accounting: %#v", envelope.ReviewResult.Execution)
+	}
+}
+
+func TestRestrictedResumeSchemasBindStateAttemptsAndStageMetrics(t *testing.T) {
+	tests := map[string][]string{
+		"native-session-checkpoint.schema.json": {
+			`"RESTRICTED_RUNNING"`, `"RESTRICTED_RETRYABLE"`, `"MANUAL_REQUIRED"`,
+			`"checkpoint_digest"`, `"session_digest"`, `"restricted_attempts"`,
+			`"review-result-v10.schema.json"`, `"restricted_prompt_sha256"`,
+		},
+		"restricted-attempt.schema.json": {
+			`"attempt_digest"`, `"PROCESS_INTERRUPTED"`, `"TARGET_COMMIT_UNAVAILABLE"`,
+			`"minItems": 5`, `"finished_at"`,
+		},
+		"native-stage-metrics-v2.schema.json": {
+			`"schema_version": {"const": 2}`, `"NATIVE"`, `"RESTRICTED"`,
+			`"cached_input_tokens"`, `"cached_input_tokens_available"`, `"cached_input_tokens_error"`,
+		},
+	}
+	for name, required := range tests {
+		raw, err := Schema(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, value := range required {
+			if !strings.Contains(string(raw), value) {
+				t.Errorf("%s is missing %s", name, value)
+			}
+		}
 	}
 }
 

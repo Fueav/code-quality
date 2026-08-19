@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	NativeResultSchemaVersion = 9
+	NativeResultSchemaVersion = 10
 	EvaluationRubricVersion   = "1.2.0"
 	ReviewScopeFull           = "FULL"
 	ReviewScopeIncremental    = "INCREMENTAL"
@@ -53,13 +53,19 @@ type RestrictedFindingDecision struct {
 }
 
 type NativeExecution struct {
-	Host                string        `json:"host"`
-	ReviewMode          string        `json:"review_mode"`
-	ExecutionProfile    string        `json:"execution_profile"`
-	Model               string        `json:"model"`
-	ReasoningEffort     string        `json:"reasoning_effort"`
-	ProviderInvocations int           `json:"provider_invocations"`
-	AdapterDrops        []AdapterDrop `json:"adapter_drops"`
+	Host                     string        `json:"host"`
+	ReviewMode               string        `json:"review_mode"`
+	ExecutionProfile         string        `json:"execution_profile"`
+	Model                    string        `json:"model"`
+	ReasoningEffort          string        `json:"reasoning_effort"`
+	ProviderInvocations      int           `json:"provider_invocations"`
+	NativeAttempts           int           `json:"native_attempts"`
+	RestrictedAttempts       int           `json:"restricted_attempts"`
+	ProviderAttemptsTotal    int           `json:"provider_attempts_total"`
+	AdoptedRestrictedAttempt *int          `json:"adopted_restricted_attempt"`
+	Resumed                  bool          `json:"resumed"`
+	ResumedSessionDigest     *string       `json:"resumed_session_digest"`
+	AdapterDrops             []AdapterDrop `json:"adapter_drops"`
 }
 
 type NativeReviewResult struct {

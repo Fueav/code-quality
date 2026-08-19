@@ -28,12 +28,16 @@ type capturePaths struct {
 }
 
 type reviewInvocation struct {
-	executable string
-	args       []string
-	directory  string
-	stdin      string
-	paths      capturePaths
-	extraFiles []*os.File
+	executable        string
+	args              []string
+	directory         string
+	stdin             string
+	paths             capturePaths
+	extraFiles        []*os.File
+	stage             string
+	attempt           int
+	heartbeatInterval time.Duration
+	progress          io.Writer
 }
 
 type processOutputWriter struct {
@@ -46,14 +50,19 @@ type capturedNativeEvidence struct {
 }
 
 type NativeRunMetrics struct {
-	SchemaVersion    int    `json:"schema_version"`
-	DurationMS       int64  `json:"duration_ms"`
-	InputTokens      *int64 `json:"input_tokens"`
-	OutputTokens     *int64 `json:"output_tokens"`
-	UsageAvailable   bool   `json:"usage_available"`
-	UsageError       string `json:"usage_error,omitempty"`
-	ChangedFileCount int    `json:"changed_file_count"`
-	TrustedDiffBytes int64  `json:"trusted_diff_bytes"`
+	SchemaVersion              int    `json:"schema_version"`
+	Stage                      string `json:"stage"`
+	Attempt                    int    `json:"attempt"`
+	DurationMS                 int64  `json:"duration_ms"`
+	InputTokens                *int64 `json:"input_tokens"`
+	OutputTokens               *int64 `json:"output_tokens"`
+	CachedInputTokens          *int64 `json:"cached_input_tokens"`
+	CachedInputTokensAvailable bool   `json:"cached_input_tokens_available"`
+	CachedInputTokensError     string `json:"cached_input_tokens_error,omitempty"`
+	UsageAvailable             bool   `json:"usage_available"`
+	UsageError                 string `json:"usage_error,omitempty"`
+	ChangedFileCount           int    `json:"changed_file_count"`
+	TrustedDiffBytes           int64  `json:"trusted_diff_bytes"`
 }
 
 func capturePathsFromSession(session reviewsession.NativeSession) capturePaths {
@@ -107,10 +116,30 @@ func runNativeProcess(ctx context.Context, invocation reviewInvocation) error {
 	command.Stderr = processOutputWriter{Writer: stderr}
 	command.ExtraFiles = invocation.extraFiles
 	command.WaitDelay = processOutputDrainTimeout
-	if err := command.Run(); err != nil {
+	if err := command.Start(); err != nil {
 		return fmt.Errorf("native review process: %w", err)
 	}
-	return nil
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	var ticker *time.Ticker
+	var heartbeats <-chan time.Time
+	if invocation.progress != nil && invocation.heartbeatInterval > 0 {
+		ticker = time.NewTicker(invocation.heartbeatInterval)
+		heartbeats = ticker.C
+		defer ticker.Stop()
+	}
+	started := time.Now()
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				return fmt.Errorf("native review process: %w", err)
+			}
+			return nil
+		case <-heartbeats:
+			fmt.Fprintf(invocation.progress, "quality-review: heartbeat stage=%s attempt=%d elapsed=%s\n", invocation.stage, invocation.attempt, time.Since(started).Round(time.Second))
+		}
+	}
 }
 
 // runCodexProcess remains as a narrow compatibility shim for existing tests
@@ -142,8 +171,12 @@ func materializeProviderFinalMessage(provider Provider, paths capturePaths) erro
 }
 
 func collectRunMetrics(request quality.ReviewRequest, duration time.Duration, trustedDiffBytes int64, frozen frozenNativeArtifacts) NativeRunMetrics {
+	return collectStageRunMetrics(request, "NATIVE", 1, duration, trustedDiffBytes, frozen)
+}
+
+func collectStageRunMetrics(request quality.ReviewRequest, stage string, attempt int, duration time.Duration, trustedDiffBytes int64, frozen frozenNativeArtifacts) NativeRunMetrics {
 	metrics := NativeRunMetrics{
-		SchemaVersion: 1, DurationMS: duration.Milliseconds(),
+		SchemaVersion: 2, Stage: stage, Attempt: attempt, DurationMS: duration.Milliseconds(),
 		ChangedFileCount: len(request.ChangedFiles), TrustedDiffBytes: trustedDiffBytes,
 	}
 	if frozen.UsageError != nil {
@@ -152,7 +185,13 @@ func collectRunMetrics(request quality.ReviewRequest, duration time.Duration, tr
 	}
 	metrics.InputTokens = frozen.InputTokens
 	metrics.OutputTokens = frozen.OutputTokens
+	metrics.CachedInputTokens = frozen.CachedInputTokens
 	metrics.UsageAvailable = frozen.InputTokens != nil && frozen.OutputTokens != nil
+	if frozen.CachedInputTokens != nil {
+		metrics.CachedInputTokensAvailable = true
+	} else {
+		metrics.CachedInputTokensError = "Provider did not report cached input tokens"
+	}
 	return metrics
 }
 

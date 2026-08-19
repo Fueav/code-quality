@@ -31,8 +31,10 @@ type restrictedInvocationOptions struct {
 	Model           string
 	ReasoningEffort string
 	LeaseFile       *os.File
+	SessionLockFile *os.File
 	Policy          []byte
 	OutputSchema    []byte
+	CapturePaths    capturePaths
 }
 
 type providerInvocationOptions struct {
@@ -43,14 +45,16 @@ type providerInvocationOptions struct {
 	ReasoningEffort  string
 	ExecutionProfile string
 	LeaseFile        *os.File
+	SessionLockFile  *os.File
 	OutputSchema     []byte
 }
 
 type decodedTranscript struct {
-	FinalMessage []byte
-	InputTokens  *int64
-	OutputTokens *int64
-	UsageError   error
+	FinalMessage      []byte
+	InputTokens       *int64
+	OutputTokens      *int64
+	CachedInputTokens *int64
+	UsageError        error
 }
 
 func validateProvider(provider Provider) error {

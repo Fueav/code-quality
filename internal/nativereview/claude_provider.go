@@ -58,11 +58,18 @@ func (provider claudeProvider) buildInvocation(options providerInvocationOptions
 	if options.LeaseFile != nil {
 		invocation.extraFiles = append(invocation.extraFiles, options.LeaseFile)
 	}
+	if options.SessionLockFile != nil {
+		invocation.extraFiles = append(invocation.extraFiles, options.SessionLockFile)
+	}
 	return invocation
 }
 
 func (provider claudeProvider) buildRestrictedInvocation(options restrictedInvocationOptions) reviewInvocation {
 	prompt := buildRestrictedAdjudicationPrompt(options.Plan, options.Findings)
+	paths := options.CapturePaths
+	if paths.finalMessage == "" {
+		paths = restrictedCapturePathsFromSession(options.Session)
+	}
 	args := []string{
 		"-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
 		"--permission-mode", "plan", "--safe-mode", "--strict-mcp-config",
@@ -74,10 +81,13 @@ func (provider claudeProvider) buildRestrictedInvocation(options restrictedInvoc
 		executable: provider.binary,
 		args:       args,
 		directory:  options.Session.RepositoryDirectory(),
-		paths:      restrictedCapturePathsFromSession(options.Session),
+		paths:      paths,
 	}
 	if options.LeaseFile != nil {
 		invocation.extraFiles = append(invocation.extraFiles, options.LeaseFile)
+	}
+	if options.SessionLockFile != nil {
+		invocation.extraFiles = append(invocation.extraFiles, options.SessionLockFile)
 	}
 	return invocation
 }
@@ -91,8 +101,9 @@ type claudeEvent struct {
 }
 
 type claudeUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens          int64  `json:"input_tokens"`
+	OutputTokens         int64  `json:"output_tokens"`
+	CacheReadInputTokens *int64 `json:"cache_read_input_tokens,omitempty"`
 }
 
 func (provider claudeProvider) decodeTranscript(reader io.Reader) (decodedTranscript, error) {
@@ -136,7 +147,8 @@ func decodeClaudeTranscript(reader io.Reader) (decodedTranscript, error) {
 		transcript.UsageError = errors.New("Claude result event has no usage counters")
 		return transcript, nil
 	}
-	if resultEvent.Usage.InputTokens < 0 || resultEvent.Usage.OutputTokens < 0 {
+	if resultEvent.Usage.InputTokens < 0 || resultEvent.Usage.OutputTokens < 0 ||
+		(resultEvent.Usage.CacheReadInputTokens != nil && *resultEvent.Usage.CacheReadInputTokens < 0) {
 		transcript.UsageError = errors.New("Claude usage tokens must be non-negative")
 		return transcript, nil
 	}
@@ -148,5 +160,9 @@ func decodeClaudeTranscript(reader io.Reader) (decodedTranscript, error) {
 	outputTokens := resultEvent.Usage.OutputTokens
 	transcript.InputTokens = &inputTokens
 	transcript.OutputTokens = &outputTokens
+	if resultEvent.Usage.CacheReadInputTokens != nil {
+		cachedInputTokens := *resultEvent.Usage.CacheReadInputTokens
+		transcript.CachedInputTokens = &cachedInputTokens
+	}
 	return transcript, nil
 }

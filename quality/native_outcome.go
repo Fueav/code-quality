@@ -27,7 +27,7 @@ type NativeOutcomeOptions struct {
 }
 
 // NativeOutcome is the validated runtime outcome of one ordinary provider
-// review. Its wire representation is NativeReviewResult schema v9.
+// review. Its wire representation is NativeReviewResult schema v10.
 type NativeOutcome struct {
 	result NativeReviewResult
 }
@@ -53,7 +53,8 @@ func ClassifyFrozenNativeReview(options NativeOutcomeOptions, finalMessage []byt
 		Execution: NativeExecution{
 			Host: contract.ProviderHost, ReviewMode: "native_review", ExecutionProfile: contract.ExecutionProfile,
 			Model: contract.Model, ReasoningEffort: contract.ReasoningEffort,
-			ProviderInvocations: 1, AdapterDrops: []AdapterDrop{},
+			ProviderInvocations: 1, NativeAttempts: 1, RestrictedAttempts: 0, ProviderAttemptsTotal: 1,
+			AdoptedRestrictedAttempt: nil, Resumed: false, ResumedSessionDigest: nil, AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{
 			SemanticResult: ResultError, RolloutMode: "release_gate", CIAction: "hold_release", Reasons: []string{},
@@ -138,7 +139,10 @@ func normalizeNativeOutcomeOptions(options NativeOutcomeOptions) (NativeOutcomeO
 				ToolVersion: SkillVersion, ResultSchemaVersion: NativeResultSchemaVersion,
 				ProviderOutputSchema:  SHA256Digest([]byte("direct-full-native-review-output")),
 				PromptContractVersion: "3", EvaluationRubricVersion: EvaluationRubricVersion,
-				ProviderHost: host, Model: model, ReasoningEffort: effort, ExecutionProfile: profile,
+				EvaluationRubricDigest: SHA256Digest([]byte("direct-review-rubric")),
+				RestrictedPolicyDigest: SHA256Digest([]byte("direct-restricted-policy")),
+				RestrictedSchemaDigest: SHA256Digest([]byte("direct-restricted-schema")),
+				ProviderHost:           host, Model: model, ReasoningEffort: effort, ExecutionProfile: profile,
 			},
 			Request: options.Request, ReviewGoal: options.ReviewGoal, ReviewScope: ReviewScopeFull,
 			BaseRef: baseRef, HeadRef: headRef, BaseTipCommit: baseTip,
@@ -189,7 +193,7 @@ func classifyReleaseGate(result *NativeReviewResult) {
 	result.Adjudication.Reasons = []string{fmt.Sprintf("%d P0/P1 blocking issue(s) must be fixed before release", blockingFindings)}
 }
 
-// Result returns a detached copy of the schema-v9 wire representation.
+// Result returns a detached copy of the schema-v10 wire representation.
 func (outcome NativeOutcome) Result() NativeReviewResult {
 	return cloneNativeReviewResult(outcome.result)
 }
@@ -212,16 +216,51 @@ func (outcome NativeOutcome) ProviderInvocations() int {
 	return outcome.result.Execution.ProviderInvocations
 }
 
+// RestoreNativeOutcome reconstructs a private intermediate outcome from a
+// checkpoint after the checkpoint and all bound artifacts have been verified.
+func RestoreNativeOutcome(result NativeReviewResult) (NativeOutcome, error) {
+	result = cloneNativeReviewResult(result)
+	if problems := ValidateNativeResult(result); len(problems) > 0 {
+		return NativeOutcome{}, fmt.Errorf("restore native outcome: %s", strings.Join(problems, "; "))
+	}
+	return NativeOutcome{result: result}, nil
+}
+
+// WithAttemptAudit binds final stage-attempt accounting before publication.
+// It cannot alter findings or any review-identity input.
+func (outcome NativeOutcome) WithAttemptAudit(restrictedAttempts, adoptedAttempt int, resumed bool, resumedSessionDigest *string) (NativeOutcome, error) {
+	result := cloneNativeReviewResult(outcome.result)
+	if restrictedAttempts < 0 || restrictedAttempts > 2 {
+		return NativeOutcome{}, errors.New("restricted attempts must be between 0 and 2")
+	}
+	result.Execution.NativeAttempts = 1
+	result.Execution.RestrictedAttempts = restrictedAttempts
+	result.Execution.ProviderAttemptsTotal = 1 + restrictedAttempts
+	result.Execution.ProviderInvocations = result.Execution.ProviderAttemptsTotal
+	if restrictedAttempts == 0 {
+		result.Execution.AdoptedRestrictedAttempt = nil
+	} else {
+		value := adoptedAttempt
+		result.Execution.AdoptedRestrictedAttempt = &value
+	}
+	result.Execution.Resumed = resumed
+	result.Execution.ResumedSessionDigest = cloneStringPointer(resumedSessionDigest)
+	if problems := ValidateNativeResult(result); len(problems) > 0 {
+		return NativeOutcome{}, fmt.Errorf("apply attempt audit: %s", strings.Join(problems, "; "))
+	}
+	return NativeOutcome{result: result}, nil
+}
+
 // ValidatePublication rejects an intermediate native BLOCK before it can be
 // mistaken for the final production-floor decision.
 func (outcome NativeOutcome) ValidatePublication() error {
 	if problems := ValidateNativeResult(outcome.result); len(problems) > 0 {
 		return fmt.Errorf("native review outcome is invalid: %s", strings.Join(problems, "; "))
 	}
-	if outcome.result.Adjudication.SemanticResult == ResultBlock && outcome.result.Execution.ProviderInvocations != 2 {
+	if outcome.result.Adjudication.SemanticResult == ResultBlock && outcome.result.Execution.RestrictedAttempts < 1 {
 		return errors.New("native P0/P1 candidates require restricted adjudication before publication")
 	}
-	if len(outcome.result.Execution.AdapterDrops) > 0 && outcome.result.Execution.ProviderInvocations != 2 {
+	if len(outcome.result.Execution.AdapterDrops) > 0 && outcome.result.Execution.RestrictedAttempts < 1 {
 		return errors.New("restricted adapter drops require two provider invocations")
 	}
 	return nil
@@ -298,6 +337,10 @@ func (outcome NativeOutcome) ApplyRestrictedAdjudication(decisions []RestrictedF
 		}
 	}
 	result.Execution.ProviderInvocations = 2
+	result.Execution.RestrictedAttempts = 1
+	result.Execution.ProviderAttemptsTotal = 2
+	adoptedAttempt := 1
+	result.Execution.AdoptedRestrictedAttempt = &adoptedAttempt
 	classifyReleaseGate(&result)
 	if problems := ValidateNativeResult(result); len(problems) > 0 {
 		return NativeOutcome{}, fmt.Errorf("restricted native outcome is invalid: %s", strings.Join(problems, "; "))
@@ -319,6 +362,9 @@ func (outcome NativeOutcome) RestrictedAdjudicationFailure() (NativeOutcome, err
 	result.PreviousFindingResolutions = []PreviousFindingResolution{}
 	result.NewFindings = []NativeFinding{}
 	result.Execution.ProviderInvocations = 2
+	result.Execution.RestrictedAttempts = 1
+	result.Execution.ProviderAttemptsTotal = 2
+	result.Execution.AdoptedRestrictedAttempt = nil
 	result.Adjudication = Adjudication{
 		SemanticResult: ResultError, RolloutMode: "release_gate", CIAction: "hold_release",
 		Reasons: []string{"restricted production-floor adjudication failed; inspect frozen evidence"},
@@ -530,6 +576,11 @@ func cloneNativeReviewResult(result NativeReviewResult) NativeReviewResult {
 	result.PreviousBlockingFindings = cloneNativeFindings(result.PreviousBlockingFindings)
 	result.PreviousFindingResolutions = clonePreviousFindingResolutions(result.PreviousFindingResolutions)
 	result.NewFindings = cloneNativeFindings(result.NewFindings)
+	if result.Execution.AdoptedRestrictedAttempt != nil {
+		value := *result.Execution.AdoptedRestrictedAttempt
+		result.Execution.AdoptedRestrictedAttempt = &value
+	}
+	result.Execution.ResumedSessionDigest = cloneStringPointer(result.Execution.ResumedSessionDigest)
 	result.Execution.AdapterDrops = append([]AdapterDrop{}, result.Execution.AdapterDrops...)
 	result.Adjudication.Reasons = append([]string(nil), result.Adjudication.Reasons...)
 	return result

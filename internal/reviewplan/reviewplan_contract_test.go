@@ -333,7 +333,10 @@ func reviewPlanContract() quality.NativeReviewContract {
 		ToolVersion: quality.SkillVersion, ResultSchemaVersion: quality.NativeResultSchemaVersion,
 		ProviderOutputSchema:  "sha256:" + strings.Repeat("3", 64),
 		PromptContractVersion: "3", EvaluationRubricVersion: quality.EvaluationRubricVersion,
-		ProviderHost: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "max",
+		EvaluationRubricDigest: "sha256:" + strings.Repeat("4", 64),
+		RestrictedPolicyDigest: "sha256:" + strings.Repeat("5", 64),
+		RestrictedSchemaDigest: "sha256:" + strings.Repeat("6", 64),
+		ProviderHost:           "codex", Model: "gpt-5.6-sol", ReasoningEffort: "max",
 		ExecutionProfile: quality.ExecutionProfileProductionCI,
 	}
 }

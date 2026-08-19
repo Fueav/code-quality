@@ -66,11 +66,26 @@ func ResolveContract(provider Provider, model, reasoningEffort, executionProfile
 	if err != nil {
 		return ContractBundle{}, fmt.Errorf("load native review output schema: %w", err)
 	}
+	rubric, err := bundle.ReviewLens()
+	if err != nil {
+		return ContractBundle{}, fmt.Errorf("load review rubric: %w", err)
+	}
+	restrictedPolicy, err := bundle.RestrictedAdjudicationPolicy()
+	if err != nil {
+		return ContractBundle{}, fmt.Errorf("load restricted adjudication policy: %w", err)
+	}
+	restrictedSchema, err := bundle.Schema("restricted-adjudication-output.schema.json")
+	if err != nil {
+		return ContractBundle{}, fmt.Errorf("load restricted adjudication schema: %w", err)
+	}
 	return ContractBundle{
 		Contract: quality.NativeReviewContract{
 			ToolVersion: quality.SkillVersion, ResultSchemaVersion: quality.NativeResultSchemaVersion,
 			ProviderOutputSchema: quality.SHA256Digest(schema), PromptContractVersion: NativePromptContractVersion,
-			EvaluationRubricVersion: quality.EvaluationRubricVersion, ProviderHost: provider.Host(),
+			EvaluationRubricVersion: quality.EvaluationRubricVersion,
+			EvaluationRubricDigest:  quality.SHA256Digest(rubric),
+			RestrictedPolicyDigest:  quality.SHA256Digest(restrictedPolicy),
+			RestrictedSchemaDigest:  quality.SHA256Digest(restrictedSchema), ProviderHost: provider.Host(),
 			Model: model, ReasoningEffort: reasoningEffort, ExecutionProfile: executionProfile,
 		},
 		OutputSchemaName: schemaName,

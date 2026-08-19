@@ -1,6 +1,6 @@
 {
   "name": "code-quality",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "description": "调用当前宿主的完整原生代码审查能力，冻结原始输出，并用 V1.2 生产下限受限裁决 P0/P1。",
   "author": {
     "name": "Fueav",

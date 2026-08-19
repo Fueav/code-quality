@@ -68,7 +68,7 @@ func TestTopLevelHelpSucceedsAndListsOnboardingCommands(t *testing.T) {
 		if code := run([]string{argument}, &stdout, &stderr); code != 0 {
 			t.Fatalf("%s exit code = %d, stderr = %s", argument, code, stderr.String())
 		}
-		for _, command := range []string{"doctor", "plan", "run-codex", "run-claude"} {
+		for _, command := range []string{"doctor", "plan", "run-codex", "run-claude", "resume-restricted"} {
 			if !strings.Contains(stdout.String(), command) {
 				t.Fatalf("%s help is missing %s: %q", argument, command, stdout.String())
 			}
@@ -80,7 +80,7 @@ func TestEverySubcommandHelpSucceeds(t *testing.T) {
 	for _, helpArgument := range []string{"-h", "--help"} {
 		for _, command := range []string{
 			"adjudicate", "compare", "doctor", "eval", "finalize", "plan", "prepare", "render", "replay",
-			"run-claude", "run-codex", "validate", "version",
+			"resume-restricted", "run-claude", "run-codex", "validate", "version",
 		} {
 			var stdout, stderr bytes.Buffer
 			if code := run([]string{command, helpArgument}, &stdout, &stderr); code != 0 {
@@ -93,6 +93,44 @@ func TestEverySubcommandHelpSucceeds(t *testing.T) {
 				t.Fatalf("replay %s %s exit code = %d, stderr = %s", command, helpArgument, code, stderr.String())
 			}
 		}
+	}
+}
+
+func TestResumeRestrictedCLIExposesOnlySessionAndTimingContract(t *testing.T) {
+	previous := resumeRestrictedReview
+	called := 0
+	var observed nativereview.ResumeOptions
+	resumeRestrictedReview = func(_ context.Context, options nativereview.ResumeOptions) (nativereview.TransactionResult, error) {
+		called++
+		observed = options
+		return nativereview.TransactionResult{
+			Status:   nativereview.SessionStatus{SchemaVersion: 1, State: nativereview.StateRestrictedRetryable, SessionDir: options.SessionDir},
+			ExitCode: 1,
+		}, nil
+	}
+	t.Cleanup(func() { resumeRestrictedReview = previous })
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"resume-restricted", "--session", "relative/session"}, &stdout, &stderr); code != 2 || called != 0 {
+		t.Fatalf("relative resume code=%d called=%d stderr=%q", code, called, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	sessionDir := filepath.Join(t.TempDir(), "review-session")
+	if code := run([]string{"resume-restricted", "--session", sessionDir, "--repo", "."}, &stdout, &stderr); code != 2 || called != 0 {
+		t.Fatalf("override resume code=%d called=%d stderr=%q", code, called, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"resume-restricted", "--session", sessionDir}, &stdout, &stderr); code != 1 {
+		t.Fatalf("resume code=%d stderr=%q", code, stderr.String())
+	}
+	if called != 1 || observed.SessionDir != sessionDir || observed.RestrictedTimeout <= 0 || observed.HeartbeatInterval <= 0 || observed.ProgressWriter == nil {
+		t.Fatalf("resume options = %#v, called=%d", observed, called)
+	}
+	var status nativereview.SessionStatus
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil || status.State != nativereview.StateRestrictedRetryable {
+		t.Fatalf("resume status=%#v err=%v stdout=%q", status, err, stdout.String())
 	}
 }
 
@@ -264,13 +302,15 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 	freezePath := filepath.Join(summary.EvidenceDir, "output", "native-review-freeze.json")
 	metrics := readJSON[struct {
 		SchemaVersion    int    `json:"schema_version"`
+		Stage            string `json:"stage"`
+		Attempt          int    `json:"attempt"`
 		DurationMS       int64  `json:"duration_ms"`
 		InputTokens      *int64 `json:"input_tokens"`
 		OutputTokens     *int64 `json:"output_tokens"`
 		ChangedFileCount int    `json:"changed_file_count"`
 		TrustedDiffBytes int64  `json:"trusted_diff_bytes"`
 	}](t, metricsPath)
-	if metrics.SchemaVersion != 1 || metrics.DurationMS < 0 || metrics.InputTokens == nil || *metrics.InputTokens != 123 ||
+	if metrics.SchemaVersion != 2 || metrics.Stage != "NATIVE" || metrics.Attempt != 1 || metrics.DurationMS < 0 || metrics.InputTokens == nil || *metrics.InputTokens != 123 ||
 		metrics.OutputTokens == nil || *metrics.OutputTokens != 45 || metrics.ChangedFileCount != 1 || metrics.TrustedDiffBytes < 1 {
 		t.Fatalf("metrics = %#v", metrics)
 	}
@@ -283,7 +323,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":123,"output_toke
 		t.Fatalf("prompt = %q, err = %v", prompt, err)
 	}
 	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
-	if result.SchemaVersion != 9 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
+	if result.SchemaVersion != 10 || result.Execution.ProviderInvocations != 1 || result.Execution.ExecutionProfile != quality.ExecutionProfileProductionCI {
 		t.Fatalf("result = %#v", result)
 	}
 	for _, legacy := range []string{"rubric.md", "workflow.md", "model-review.schema.json"} {
@@ -472,7 +512,7 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"{
 		t.Fatalf("summary = %#v", summary)
 	}
 	result := readJSON[quality.NativeReviewResult](t, filepath.Join(summary.EvidenceDir, "output", "review-result.json"))
-	if result.SchemaVersion != 9 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
+	if result.SchemaVersion != 10 || result.Execution.Host != "claude-code" || result.Execution.ProviderInvocations != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	count, err := os.ReadFile(countPath)

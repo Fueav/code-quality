@@ -101,10 +101,41 @@ func validateNativeExecution(result NativeReviewResult) []string {
 	if execution.ExecutionProfile != ExecutionProfilePersonal && execution.ExecutionProfile != ExecutionProfileProductionCI {
 		problems = append(problems, "execution.execution_profile must be personal or production-ci")
 	}
-	if execution.ProviderInvocations != 1 && execution.ProviderInvocations != 2 {
-		problems = append(problems, "execution.provider_invocations must be 1 or 2")
+	if execution.NativeAttempts != 1 {
+		problems = append(problems, "execution.native_attempts must be 1")
 	}
-	if execution.ProviderInvocations == 1 && len(execution.AdapterDrops) != 0 {
+	if execution.RestrictedAttempts < 0 || execution.RestrictedAttempts > 2 {
+		problems = append(problems, "execution.restricted_attempts must be between 0 and 2")
+	}
+	if execution.ProviderAttemptsTotal != execution.NativeAttempts+execution.RestrictedAttempts || execution.ProviderAttemptsTotal < 1 || execution.ProviderAttemptsTotal > 3 {
+		problems = append(problems, "execution.provider_attempts_total must equal native plus restricted attempts and be at most 3")
+	}
+	if execution.ProviderInvocations != execution.ProviderAttemptsTotal {
+		problems = append(problems, "execution.provider_invocations must equal provider_attempts_total")
+	}
+	if execution.RestrictedAttempts == 0 && execution.AdoptedRestrictedAttempt != nil {
+		problems = append(problems, "execution.adopted_restricted_attempt must be null without a restricted attempt")
+	}
+	if execution.RestrictedAttempts > 0 && execution.AdoptedRestrictedAttempt == nil && result.Adjudication.SemanticResult != ResultError {
+		problems = append(problems, "execution.adopted_restricted_attempt is required with restricted attempts")
+	}
+	if execution.AdoptedRestrictedAttempt != nil && (*execution.AdoptedRestrictedAttempt < 1 || *execution.AdoptedRestrictedAttempt > execution.RestrictedAttempts) {
+		problems = append(problems, "execution.adopted_restricted_attempt is outside the attempt ledger")
+	}
+	if execution.Resumed {
+		if execution.RestrictedAttempts == 0 {
+			problems = append(problems, "execution.resumed requires a restricted attempt")
+		}
+		if execution.ResumedSessionDigest == nil || !validDigest(*execution.ResumedSessionDigest, "session-v1:sha256:") {
+			problems = append(problems, "execution.resumed requires a valid resumed_session_digest")
+		}
+	} else if execution.ResumedSessionDigest != nil {
+		problems = append(problems, "execution.resumed_session_digest requires resumed=true")
+	}
+	if execution.RestrictedAttempts == 2 && !execution.Resumed {
+		problems = append(problems, "two restricted attempts require resumed=true")
+	}
+	if execution.RestrictedAttempts == 0 && len(execution.AdapterDrops) != 0 {
 		problems = append(problems, "execution.adapter_drops require a restricted second invocation")
 	}
 	seenDropIndexes := map[int]struct{}{}

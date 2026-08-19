@@ -1,8 +1,10 @@
-# Jenkins 生产 CI 接入（v0.5.7）
+# Jenkins 生产 CI 接入（v0.5.8）
 
-适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。CLI 先冻结原生发现，仅在出现 P0/P1 时追加一次只读受限裁决。
+适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。CLI 先冻结原生发现，仅在出现 P0/P1 时追加只读受限裁决；第二次 Restricted 只能通过受限恢复入口执行。
 
 运维只需完成四件事：准备一个专用 Agent、以 Agent 服务用户安装并登录 Provider、创建 Multibranch Pipeline、把下面的 Jenkinsfile 合入受保护分支。
+
+下方是单次 workspace 流程，不会跨 GitHub rerun 自动恢复。需要公司级恢复时，session/Git object store 必须持久化在 workspace 之外，并按 [公司 CI 恢复合同](company-ci-review-result-envelope.md) 实现 CAS/分布式锁、`resume-restricted` 和 envelope-v3；不得从 raw log 自行推断状态。
 
 ## 1. 准备 Agent
 
@@ -11,16 +13,16 @@
 - 标签为 `code-quality`，每个系统用户只设 1 个 executor。
 - 使用专用低权限用户，不保存与审查无关的凭据。
 - 已安装 `bash`、`git`、`curl` 和 `tar`，能够访问 GitHub 与所选 Provider。
-- 同一用户预装 `quality-review v0.5.7` 和一个已登录的 Provider。
+- 同一用户预装 `quality-review v0.5.8` 和一个已登录的 Provider。
 
 ```sh
 command -v bash git curl tar
 
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.7/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.7
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.8/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.8
 
 command -v quality-review
-quality-review version          # 必须是 quality-review v0.5.7
+quality-review version          # 必须是 quality-review v0.5.8
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
@@ -104,7 +106,7 @@ printf 'BASE_REF=%s\nHEAD_REF=%s\n' "$base_ref" "$head_ref" > "$REVIEW_ROOT/rang
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 . "$REVIEW_ROOT/range.env"
-test "$(quality-review version)" = 'quality-review v0.5.7'
+test "$(quality-review version)" = 'quality-review v0.5.8'
 
 case "$CODE_QUALITY_PROVIDER" in
   codex) host=codex; command=run-codex; model=gpt-5.6-sol ;;

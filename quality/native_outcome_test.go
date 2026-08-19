@@ -99,6 +99,28 @@ func TestRestrictedAdjudicationRetainsOnlyProvenBlocker(t *testing.T) {
 	}
 }
 
+func TestNativeOutcomeAttemptAuditPointersAreDetached(t *testing.T) {
+	outcome := validBlockingNativeOutcome(t, "Deterministic money loss")
+	blocking := outcome.BlockingFindings()
+	filtered, err := outcome.ApplyRestrictedAdjudication([]RestrictedFindingDecision{{FindingID: blocking[0].ID, Retain: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := "session-v1:sha256:" + strings.Repeat("a", 64)
+	audited, err := filtered.WithAttemptAudit(1, 1, true, &digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy := audited.Result()
+	*copy.Execution.AdoptedRestrictedAttempt = 2
+	*copy.Execution.ResumedSessionDigest = "tampered"
+	unchanged := audited.Result()
+	if unchanged.Execution.AdoptedRestrictedAttempt == nil || *unchanged.Execution.AdoptedRestrictedAttempt != 1 ||
+		unchanged.Execution.ResumedSessionDigest == nil || *unchanged.Execution.ResumedSessionDigest != digest {
+		t.Fatalf("attempt audit pointers leaked from detached result: %#v", unchanged.Execution)
+	}
+}
+
 func TestRestrictedAdjudicationFailureHoldsWithoutCandidateProse(t *testing.T) {
 	outcome := validBlockingNativeOutcome(t, "Do not expose this candidate")
 	failed, err := outcome.RestrictedAdjudicationFailure()

@@ -28,7 +28,7 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 		"command -v quality-review",
-		"quality-review v0.5.7",
+		"quality-review v0.5.8",
 		"plan --host \"$QUALITY_REVIEW_HOST\"",
 		"doctor --host \"$QUALITY_REVIEW_HOST\"",
 		"--execution-profile \"$QUALITY_REVIEW_EXECUTION_PROFILE\"",
@@ -106,9 +106,9 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		t.Fatalf("README onboarding order is invalid: personal=%d linux_ci=%d", personal, linuxCI)
 	}
 	for _, required := range []string{
-		"请为当前仓库安装并运行 Fueav code-quality v0.5.7",
-		"bootstrap.sh | sh -s -- v0.5.7 codex",
-		"bootstrap.sh | sh -s -- v0.5.7 claude",
+		"请为当前仓库安装并运行 Fueav code-quality v0.5.8",
+		"bootstrap.sh | sh -s -- v0.5.8 codex",
+		"bootstrap.sh | sh -s -- v0.5.8 claude",
 		"quality-review doctor --host codex",
 		"quality-review doctor --host claude-code",
 		"先提交要审查的改动",
@@ -117,10 +117,10 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		"codex exec",
 		"不接收 Provider API key",
 		".github/workflows/code-quality-reusable.yml",
-		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.7",
+		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.8",
 		"PR 为审查单元",
 		"merge-base",
-		"schema v9",
+		"schema v10",
 		"--base-ref origin/production",
 		"--head-ref origin/deploy/dockerhost-dev",
 		"--review-scope incremental",
@@ -160,7 +160,7 @@ func TestJenkinsUsesOneMaxEffortContractForPlanDoctorAndRun(t *testing.T) {
 	}
 	document := string(raw)
 	for _, required := range []string{
-		"Jenkins 生产 CI 接入（v0.5.7）",
+		"Jenkins 生产 CI 接入（v0.5.8）",
 		"effort=max",
 		"review_args=(",
 		"quality-review plan --host \"$host\" \"${review_args[@]}\"",
@@ -187,11 +187,16 @@ func TestCompanyCIVersionsExternalRunnerPolicyOutsideCLIResults(t *testing.T) {
 	document := string(raw)
 	for _, required := range []string{
 		"runner_policy_version",
-		"(review_key, runner_policy_version)",
+		"(repository, review_key, contract_digest, runner_policy_version)",
 		"强制 FULL",
 		"本地代码读取",
 		"ERROR/HOLD",
-		"不得写入原始 schema-v9 结果或 envelope-v2",
+		"不得写入原始 schema-v10 结果或 envelope-v3",
+		"resume-restricted --session",
+		"NATIVE_FROZEN",
+		"RESTRICTED_RUNNING",
+		"RESTRICTED_RETRYABLE",
+		"不得自动 clone 并重跑 FULL",
 		"不能按 `FULL_REQUIRED` 路径自动回退成 FULL",
 	} {
 		if !strings.Contains(document, required) {
@@ -203,6 +208,6 @@ func TestCompanyCIVersionsExternalRunnerPolicyOutsideCLIResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(schema), "runner_policy_version") {
-		t.Fatal("runner policy leaked into the immutable envelope-v1 schema")
+		t.Fatal("runner policy leaked into the immutable envelope-v2 schema")
 	}
 }

@@ -38,15 +38,42 @@ func TestValidateNativeResultAllowsPassWithAdvisories(t *testing.T) {
 	}
 }
 
-func TestValidateNativeResultAllowsNativePlusRestrictedInvocationOnly(t *testing.T) {
+func TestValidateNativeResultAllowsOneNativeAndTwoRestrictedAttempts(t *testing.T) {
 	result := validNativeResult()
 	result.Execution.ProviderInvocations = 2
+	result.Execution.RestrictedAttempts = 1
+	result.Execution.ProviderAttemptsTotal = 2
+	first := 1
+	result.Execution.AdoptedRestrictedAttempt = &first
 	if problems := ValidateNativeResult(result); len(problems) != 0 {
 		t.Fatalf("native plus restricted result problems = %#v", problems)
 	}
-	result.Execution.ProviderInvocations = 3
+	result.Execution.AdoptedRestrictedAttempt = nil
 	if problems := ValidateNativeResult(result); len(problems) == 0 {
-		t.Fatal("native result with a third provider invocation was accepted")
+		t.Fatal("restricted result without an adopted attempt was accepted")
+	}
+	result.Execution.AdoptedRestrictedAttempt = &first
+	result.Execution.ProviderInvocations = 3
+	result.Execution.RestrictedAttempts = 2
+	result.Execution.ProviderAttemptsTotal = 3
+	second := 2
+	result.Execution.AdoptedRestrictedAttempt = &second
+	result.Execution.Resumed = true
+	digest := "session-v1:sha256:" + strings.Repeat("a", 64)
+	result.Execution.ResumedSessionDigest = &digest
+	if problems := ValidateNativeResult(result); len(problems) != 0 {
+		t.Fatalf("resumed native result problems = %#v", problems)
+	}
+	result.Execution.Resumed = false
+	result.Execution.ResumedSessionDigest = nil
+	if problems := ValidateNativeResult(result); len(problems) == 0 {
+		t.Fatal("two restricted attempts without resume were accepted")
+	}
+	result.Execution.Resumed = true
+	result.Execution.ResumedSessionDigest = &digest
+	result.Execution.ProviderInvocations = 4
+	if problems := ValidateNativeResult(result); len(problems) == 0 {
+		t.Fatal("native result with a fourth provider invocation was accepted")
 	}
 }
 
@@ -55,6 +82,10 @@ func TestValidateNativeResultRejectsUntrustedAdapterDropMetadata(t *testing.T) {
 	result.Findings = []NativeFinding{}
 	result.NewFindings = []NativeFinding{}
 	result.Execution.ProviderInvocations = 2
+	result.Execution.RestrictedAttempts = 1
+	result.Execution.ProviderAttemptsTotal = 2
+	first := 1
+	result.Execution.AdoptedRestrictedAttempt = &first
 	result.Execution.AdapterDrops = []AdapterDrop{{Index: 0, Reason: "model supplied reason"}}
 	result.Adjudication.SemanticResult = ResultPass
 	result.Adjudication.CIAction = "continue_release"
@@ -128,7 +159,10 @@ func validNativeResult() NativeReviewResult {
 		ToolVersion: SkillVersion, ResultSchemaVersion: NativeResultSchemaVersion,
 		ProviderOutputSchema:  SHA256Digest([]byte("test-provider-schema")),
 		PromptContractVersion: "3", EvaluationRubricVersion: EvaluationRubricVersion,
-		ProviderHost: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high",
+		EvaluationRubricDigest: SHA256Digest([]byte("test-rubric")),
+		RestrictedPolicyDigest: SHA256Digest([]byte("test-policy")),
+		RestrictedSchemaDigest: SHA256Digest([]byte("test-restricted-schema")),
+		ProviderHost:           "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high",
 		ExecutionProfile: ExecutionProfilePersonal,
 	}
 	identity, err := BuildReviewIdentity(ReviewIdentityInput{
@@ -156,6 +190,7 @@ func validNativeResult() NativeReviewResult {
 		Execution: NativeExecution{
 			Host: "codex", ReviewMode: "native_review", ExecutionProfile: ExecutionProfilePersonal,
 			Model: "gpt-5.6-sol", ReasoningEffort: "high", ProviderInvocations: 1,
+			NativeAttempts: 1, RestrictedAttempts: 0, ProviderAttemptsTotal: 1,
 			AdapterDrops: []AdapterDrop{},
 		},
 		Adjudication: Adjudication{

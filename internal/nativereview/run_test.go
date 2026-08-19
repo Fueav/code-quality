@@ -296,7 +296,7 @@ func TestFreezeAndUsageStreamCompleteLargeJSONL(t *testing.T) {
 	}
 	fillerLine := "{\"type\":\"item.completed\"}\n"
 	filler := strings.Repeat(fillerLine, int(maxNativeOutputBytes)/len(fillerLine)+2)
-	usageLine := "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":321,\"output_tokens\":54}}\n"
+	usageLine := "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":321,\"output_tokens\":54,\"cached_input_tokens\":210}}\n"
 	if err := os.WriteFile(paths.jsonl, []byte(filler+usageLine), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -312,8 +312,9 @@ func TestFreezeAndUsageStreamCompleteLargeJSONL(t *testing.T) {
 		t.Fatalf("freeze manifest = %#v", frozen.Manifest)
 	}
 	if frozen.InputTokens == nil || *frozen.InputTokens != 321 ||
-		frozen.OutputTokens == nil || *frozen.OutputTokens != 54 || frozen.UsageError != nil {
-		t.Fatalf("usage = %v/%v, error = %v", frozen.InputTokens, frozen.OutputTokens, frozen.UsageError)
+		frozen.OutputTokens == nil || *frozen.OutputTokens != 54 || frozen.CachedInputTokens == nil ||
+		*frozen.CachedInputTokens != 210 || frozen.UsageError != nil {
+		t.Fatalf("usage = %v/%v/%v, error = %v", frozen.InputTokens, frozen.OutputTokens, frozen.CachedInputTokens, frozen.UsageError)
 	}
 }
 
@@ -432,7 +433,7 @@ func TestRunMetricsStayBoundToFrozenStdout(t *testing.T) {
 	if err := os.WriteFile(paths.finalMessage, []byte("No findings.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	original := `{"type":"turn.completed","usage":{"input_tokens":30,"output_tokens":7}}` + "\n"
+	original := `{"type":"turn.completed","usage":{"input_tokens":30,"output_tokens":7,"cached_input_tokens":20}}` + "\n"
 	if err := os.WriteFile(paths.jsonl, []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -454,8 +455,19 @@ func TestRunMetricsStayBoundToFrozenStdout(t *testing.T) {
 
 	metrics := collectRunMetrics(request, 25*time.Millisecond, 42, frozen)
 	if !metrics.UsageAvailable || metrics.InputTokens == nil || *metrics.InputTokens != 30 ||
-		metrics.OutputTokens == nil || *metrics.OutputTokens != 7 {
+		metrics.OutputTokens == nil || *metrics.OutputTokens != 7 || metrics.CachedInputTokens == nil ||
+		*metrics.CachedInputTokens != 20 || !metrics.CachedInputTokensAvailable || metrics.CachedInputTokensError != "" ||
+		metrics.SchemaVersion != 2 || metrics.Stage != "NATIVE" || metrics.Attempt != 1 {
 		t.Fatalf("metrics escaped frozen stdout: %#v", metrics)
+	}
+}
+
+func TestCollectRunMetricsExplainsMissingCachedInputCounter(t *testing.T) {
+	_, request := nativeFixture(t)
+	input, output := int64(10), int64(2)
+	metrics := collectRunMetrics(request, time.Millisecond, 1, frozenNativeArtifacts{InputTokens: &input, OutputTokens: &output})
+	if !metrics.UsageAvailable || metrics.CachedInputTokensAvailable || metrics.CachedInputTokens != nil || metrics.CachedInputTokensError == "" {
+		t.Fatalf("metrics = %#v", metrics)
 	}
 }
 

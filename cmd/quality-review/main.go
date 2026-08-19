@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	bundle "github.com/Fueav/code-quality"
 	evalrunner "github.com/Fueav/code-quality/internal/eval"
@@ -24,6 +27,7 @@ var version = "dev"
 var codexBinary = "codex"
 var claudeBinary = "claude"
 var runNativeReview = nativereview.RunTransaction
+var resumeRestrictedReview = nativereview.ResumeRestricted
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -71,6 +75,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runDoctor(args[1:], stdout, stderr)
 	case "plan":
 		return runPlan(args[1:], stdout, stderr)
+	case "resume-restricted":
+		return runResumeRestricted(args[1:], stdout, stderr)
 	}
 	policy, err := loadPolicy()
 	if err != nil {
@@ -108,6 +114,7 @@ func printHelp(writer io.Writer) {
 	fmt.Fprintln(writer, "  quality-review plan --host <codex|claude-code> [flags]")
 	fmt.Fprintln(writer, "  quality-review run-codex [flags]")
 	fmt.Fprintln(writer, "  quality-review run-claude [flags]")
+	fmt.Fprintln(writer, "  quality-review resume-restricted --session <absolute-session-dir>")
 	fmt.Fprintln(writer, "  quality-review version")
 }
 
@@ -151,6 +158,9 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	reasoningEffort := flags.String("reasoning-effort", "max", config.effortHelp)
 	executionProfile := flags.String("execution-profile", quality.ExecutionProfilePersonal, "execution profile: personal or production-ci")
 	outputRoot := flags.String("output-root", "", "absolute session output root outside the repository (default: private system temp directory)")
+	nativeTimeout := flags.Duration("native-timeout", 45*time.Minute, "Native Review deadline")
+	restrictedTimeout := flags.Duration("restricted-timeout", 15*time.Minute, "Restricted Adjudication deadline")
+	heartbeatInterval := flags.Duration("heartbeat-interval", 45*time.Second, "safe progress heartbeat interval")
 	if err := flags.Parse(args); err != nil {
 		return flagParseExitCode(err)
 	}
@@ -158,7 +168,13 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		fmt.Fprintf(stderr, "quality-review: %s accepts flags only\n", config.name)
 		return 2
 	}
-	transaction, err := runNativeReview(context.Background(), nativereview.TransactionOptions{
+	if *nativeTimeout <= 0 || *restrictedTimeout <= 0 || *heartbeatInterval <= 0 {
+		fmt.Fprintln(stderr, "quality-review: timeouts and heartbeat interval must be positive")
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	transaction, err := runNativeReview(ctx, nativereview.TransactionOptions{
 		RepositoryPath:     *repository,
 		Base:               *base,
 		Target:             *target,
@@ -173,6 +189,10 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		ExecutionProfile:   *executionProfile,
 		OutputRoot:         *outputRoot,
 		Provider:           config.provider(),
+		NativeTimeout:      *nativeTimeout,
+		RestrictedTimeout:  *restrictedTimeout,
+		HeartbeatInterval:  *heartbeatInterval,
+		ProgressWriter:     stderr,
 	})
 	if errors.Is(err, nativereview.ErrNativeReviewActive) {
 		fmt.Fprintln(stderr, "quality-review: another native review is active for this user; retry after it finishes or review directly in the current host agent")
@@ -189,6 +209,13 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		}
 		return transaction.ExitCode
 	}
+	if transaction.Status.State != nativereview.StatePublished {
+		if err := quality.EncodeJSON(stdout, transaction.Status); err != nil {
+			fmt.Fprintf(stderr, "quality-review: encode native review session status: %v\n", err)
+			return 2
+		}
+		return transaction.ExitCode
+	}
 	if transaction.DirtyWorktree {
 		fmt.Fprintln(stderr, "quality-review: working tree changes are not included; review covers committed base and target only")
 	}
@@ -197,6 +224,49 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	}
 	if err := quality.EncodeJSON(stdout, transaction.Summary); err != nil {
 		fmt.Fprintf(stderr, "quality-review: encode native review summary: %v\n", err)
+		return 2
+	}
+	return transaction.ExitCode
+}
+
+func runResumeRestricted(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("resume-restricted", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	sessionDir := flags.String("session", "", "absolute v0.5.8 review session directory")
+	restrictedTimeout := flags.Duration("restricted-timeout", 15*time.Minute, "Restricted Adjudication deadline")
+	heartbeatInterval := flags.Duration("heartbeat-interval", 45*time.Second, "safe progress heartbeat interval")
+	if err := flags.Parse(args); err != nil {
+		return flagParseExitCode(err)
+	}
+	if flags.NArg() != 0 || strings.TrimSpace(*sessionDir) == "" {
+		fmt.Fprintln(stderr, "usage: quality-review resume-restricted --session <absolute-session-dir>")
+		return 2
+	}
+	if !filepath.IsAbs(*sessionDir) || *restrictedTimeout <= 0 || *heartbeatInterval <= 0 {
+		fmt.Fprintln(stderr, "quality-review: resume session must be absolute and timing values must be positive")
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	transaction, err := resumeRestrictedReview(ctx, nativereview.ResumeOptions{
+		SessionDir: filepath.Clean(*sessionDir), RestrictedTimeout: *restrictedTimeout,
+		HeartbeatInterval: *heartbeatInterval, ProgressWriter: stderr,
+	})
+	if errors.Is(err, nativereview.ErrNativeReviewActive) || errors.Is(err, nativereview.ErrRestrictedResumeActive) {
+		fmt.Fprintln(stderr, "quality-review: another review owns the Provider or this session; retry after it finishes")
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: %v\n", err)
+		return nativereview.TransactionExitCode(err)
+	}
+	if transaction.Status.State == nativereview.StatePublished {
+		if err := quality.EncodeJSON(stdout, transaction.Summary); err != nil {
+			fmt.Fprintf(stderr, "quality-review: encode resumed review summary: %v\n", err)
+			return 2
+		}
+	} else if err := quality.EncodeJSON(stdout, transaction.Status); err != nil {
+		fmt.Fprintf(stderr, "quality-review: encode resumed session status: %v\n", err)
 		return 2
 	}
 	return transaction.ExitCode

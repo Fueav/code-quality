@@ -1,16 +1,19 @@
 package nativereview
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Fueav/code-quality/internal/reviewplan"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
@@ -18,15 +21,18 @@ import (
 )
 
 type nativeRunOptions struct {
-	Session          reviewsession.NativeSession
-	Plan             reviewplan.Decision
-	Goal             string
-	Model            string
-	ReasoningEffort  string
-	ExecutionProfile string
-	Provider         Provider
-	LeaseFile        *os.File
-	OutputSchema     []byte
+	Session           reviewsession.NativeSession
+	Plan              reviewplan.Decision
+	Goal              string
+	Model             string
+	ReasoningEffort   string
+	ExecutionProfile  string
+	Provider          Provider
+	LeaseFile         *os.File
+	SessionLockFile   *os.File
+	OutputSchema      []byte
+	HeartbeatInterval time.Duration
+	ProgressWriter    io.Writer
 }
 
 func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.NativeOutcome, error) {
@@ -130,12 +136,18 @@ func normalizeRunOptions(options *nativeRunOptions) error {
 }
 
 func buildReviewInvocation(options nativeRunOptions) reviewInvocation {
-	return options.Provider.buildInvocation(providerInvocationOptions{
+	invocation := options.Provider.buildInvocation(providerInvocationOptions{
 		Session: options.Session, Plan: options.Plan, Goal: options.Goal, Model: options.Model,
 		ReasoningEffort: options.ReasoningEffort, ExecutionProfile: options.ExecutionProfile,
-		LeaseFile:    options.LeaseFile,
-		OutputSchema: options.OutputSchema,
+		LeaseFile:       options.LeaseFile,
+		SessionLockFile: options.SessionLockFile,
+		OutputSchema:    options.OutputSchema,
 	})
+	invocation.stage = string(StateNativeRunning)
+	invocation.attempt = 1
+	invocation.heartbeatInterval = options.HeartbeatInterval
+	invocation.progress = options.ProgressWriter
+	return invocation
 }
 
 func buildReviewPrompt(request quality.ReviewRequest, goal string, reportOnlyBoundary bool) string {
@@ -152,6 +164,10 @@ func buildReviewPrompt(request quality.ReviewRequest, goal string, reportOnlyBou
 }
 
 func buildPlanReviewPrompt(plan reviewplan.Decision, goal string, reportOnlyBoundary bool) string {
+	return buildPlanReviewPromptWithPrevious(plan, goal, reportOnlyBoundary, plan.PreviousBlockingFindings())
+}
+
+func buildPlanReviewPromptWithPrevious(plan reviewplan.Decision, goal string, reportOnlyBoundary bool, previous []quality.NativeFinding) string {
 	if plan.ReviewScope != quality.ReviewScopeIncremental {
 		return buildReviewPrompt(plan.ProviderRequest, goal, reportOnlyBoundary)
 	}
@@ -163,7 +179,7 @@ func buildPlanReviewPrompt(plan reviewplan.Decision, goal string, reportOnlyBoun
 	if reportOnlyBoundary {
 		prompt.WriteString("Report actionable findings only. Do not modify files, commit, push, deploy, or change external state.\n")
 	}
-	previous := plan.PreviousBlockingFindings()
+	previous = append([]quality.NativeFinding{}, previous...)
 	sort.Slice(previous, func(i, j int) bool { return previous[i].ID < previous[j].ID })
 	encoded, _ := json.Marshal(previous)
 	fmt.Fprintf(&prompt, "Re-evaluate every previous P0/P1 finding below against the current head and return exactly one RESOLVED or UNRESOLVED resolution for each finding_id:\n%s\n", encoded)
@@ -172,24 +188,123 @@ func buildPlanReviewPrompt(plan reviewplan.Decision, goal string, reportOnlyBoun
 	return prompt.String()
 }
 
-func publishNativeOutcome(session reviewsession.NativeSession, outcome quality.NativeOutcome) error {
+type publicationArtifact struct {
+	path     string
+	contents []byte
+}
+
+func publishNativeOutcome(session reviewsession.NativeSession, outcome quality.NativeOutcome, compatible ...quality.NativeOutcome) error {
 	if err := outcome.ValidatePublication(); err != nil {
 		return err
 	}
-	artifacts := session.Artifacts()
-	if err := writeExclusiveEncoded(artifacts.ResultPath(), outcome.EncodeJSON); err != nil {
-		return fmt.Errorf("write native review result: %w", err)
+	expected, err := renderPublicationArtifacts(session, outcome)
+	if err != nil {
+		return err
 	}
-	if err := writeExclusiveFile(artifacts.MarkdownPath(), []byte(outcome.Markdown())); err != nil {
-		return fmt.Errorf("write native review markdown: %w", err)
+	allowed := make([][]publicationArtifact, 0, len(compatible))
+	for _, candidate := range compatible {
+		if err := candidate.ValidatePublication(); err != nil {
+			return err
+		}
+		artifacts, err := renderPublicationArtifacts(session, candidate)
+		if err != nil {
+			return err
+		}
+		allowed = append(allowed, artifacts)
 	}
-	if err := writeExclusiveJSON(artifacts.SummaryJSONPath(), outcome.Summary()); err != nil {
-		return fmt.Errorf("write native review summary: %w", err)
-	}
-	if err := writeExclusiveFile(artifacts.SummaryMarkdownPath(), []byte(outcome.Markdown())); err != nil {
-		return fmt.Errorf("write native review summary markdown: %w", err)
+	for index, artifact := range expected {
+		previous := make([][]byte, 0, len(allowed))
+		for _, candidate := range allowed {
+			previous = append(previous, candidate[index].contents)
+		}
+		if err := writeOrReplacePublicationFile(artifact.path, artifact.contents, previous...); err != nil {
+			return fmt.Errorf("write %s: %w", filepath.Base(artifact.path), err)
+		}
 	}
 	return nil
+}
+
+func renderPublicationArtifacts(session reviewsession.NativeSession, outcome quality.NativeOutcome) ([]publicationArtifact, error) {
+	var resultJSON bytes.Buffer
+	if err := outcome.EncodeJSON(&resultJSON); err != nil {
+		return nil, err
+	}
+	var summaryJSON bytes.Buffer
+	if err := quality.EncodeJSON(&summaryJSON, outcome.Summary()); err != nil {
+		return nil, err
+	}
+	artifacts := session.Artifacts()
+	markdown := []byte(outcome.Markdown())
+	return []publicationArtifact{
+		{path: artifacts.ResultPath(), contents: resultJSON.Bytes()},
+		{path: artifacts.MarkdownPath(), contents: markdown},
+		{path: artifacts.SummaryJSONPath(), contents: summaryJSON.Bytes()},
+		{path: artifacts.SummaryMarkdownPath(), contents: markdown},
+	}, nil
+}
+
+func writeOrReplacePublicationFile(path string, expected []byte, compatible ...[]byte) error {
+	if err := writeExclusiveFile(path, expected); err == nil {
+		return syncDirectory(filepath.Dir(path))
+	} else if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if err := validatePrivateRegularFile(info); err != nil || info.Mode().Perm() != 0o600 {
+		if err != nil {
+			return err
+		}
+		return errors.New("existing publication artifact is not owner-only mode 0600")
+	}
+	raw, err := reviewsession.ReadRegularFile(path, 16<<20)
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(raw, expected) {
+		return nil
+	}
+	matched := false
+	for _, previous := range compatible {
+		if bytes.Equal(raw, previous) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return errors.New("existing publication artifact does not match the recovered result")
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".publication-")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	installed := false
+	defer func() {
+		_ = temporary.Close()
+		if !installed {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := temporary.Write(expected); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	installed = true
+	return syncDirectory(filepath.Dir(path))
 }
 
 func writeExclusiveFile(path string, contents []byte) error {
@@ -211,6 +326,10 @@ func writeExclusiveEncoded(path string, encode func(io.Writer) error) error {
 		return err
 	}
 	if err := encode(file); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
 		_ = file.Close()
 		return err
 	}

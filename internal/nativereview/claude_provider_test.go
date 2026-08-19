@@ -109,14 +109,15 @@ func TestClaudeTranscriptExtractsFinalResultAndUsage(t *testing.T) {
 	raw := strings.Join([]string{
 		`{"type":"system","subtype":"init","tools":["Read","Grep"],"mcp_servers":[{"name":"github","status":"connected"}]}`,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}`,
-		`{"type":"result","subtype":"success","is_error":false,"result":"No findings.","usage":{"input_tokens":321,"output_tokens":54}}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"No findings.","usage":{"input_tokens":321,"output_tokens":54,"cache_read_input_tokens":210}}`,
 	}, "\n") + "\n"
 	transcript, err := decodeClaudeTranscript(strings.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(transcript.FinalMessage) != "No findings." || transcript.InputTokens == nil || *transcript.InputTokens != 321 ||
-		transcript.OutputTokens == nil || *transcript.OutputTokens != 54 || transcript.UsageError != nil {
+		transcript.OutputTokens == nil || *transcript.OutputTokens != 54 || transcript.CachedInputTokens == nil ||
+		*transcript.CachedInputTokens != 210 || transcript.UsageError != nil {
 		t.Fatalf("Claude transcript = %#v", transcript)
 	}
 }

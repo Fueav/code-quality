@@ -9,13 +9,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"syscall"
 
 	bundle "github.com/Fueav/code-quality"
 	"github.com/Fueav/code-quality/quality"
 )
 
 const maxDiffBytes = int64(2 << 20)
+
+var ErrTargetCommitUnavailable = errors.New("frozen target commit is unavailable")
 
 type CheckoutMode string
 
@@ -130,6 +134,7 @@ func (artifacts NativeArtifacts) RestrictedMetricsPath() string {
 // native provider review. Cleanup removes only its checkout.
 type NativeSession struct {
 	repositoryRoot string
+	providerHost   string
 	layout         Layout
 	checkoutMode   CheckoutMode
 	dirtyWorktree  bool
@@ -137,11 +142,18 @@ type NativeSession struct {
 	artifacts      NativeArtifacts
 }
 
-func (session NativeSession) Directory() string           { return session.layout.SessionDir }
-func (session NativeSession) RepositoryDirectory() string { return session.layout.RepositoryDir }
-func (session NativeSession) DirtyWorktree() bool         { return session.dirtyWorktree }
-func (session NativeSession) Artifacts() NativeArtifacts  { return session.artifacts }
-func (session NativeSession) OutputSchemaPath() string    { return session.layout.NativeSchemaPath }
+func (session NativeSession) Directory() string            { return session.layout.SessionDir }
+func (session NativeSession) RepositoryDirectory() string  { return session.layout.RepositoryDir }
+func (session NativeSession) SourceRepositoryRoot() string { return session.repositoryRoot }
+func (session NativeSession) ProviderHost() string         { return session.providerHost }
+func (session NativeSession) InputDirectory() string       { return session.layout.InputDir }
+func (session NativeSession) OutputDirectory() string      { return session.layout.OutputDir }
+func (session NativeSession) TrustedDiffPath() string      { return session.layout.DiffPath }
+func (session NativeSession) RequestPath() string          { return session.layout.RequestPath }
+func (session NativeSession) MetadataPath() string         { return session.layout.MetadataPath }
+func (session NativeSession) DirtyWorktree() bool          { return session.dirtyWorktree }
+func (session NativeSession) Artifacts() NativeArtifacts   { return session.artifacts }
+func (session NativeSession) OutputSchemaPath() string     { return session.layout.NativeSchemaPath }
 func (session NativeSession) RestrictedAdjudicationPolicyPath() string {
 	return filepath.Join(session.layout.InputDir, "restricted-adjudication-policy.md")
 }
@@ -254,12 +266,158 @@ func PrepareNative(ctx context.Context, options Options) (NativeSession, error) 
 	}
 	return NativeSession{
 		repositoryRoot: options.RepositoryRoot,
+		providerHost:   options.Host,
 		layout:         preparation.layout,
 		checkoutMode:   preparation.checkoutMode,
 		dirtyWorktree:  options.DirtyWorktree,
 		request:        copyReviewRequest(options.Request),
 		artifacts:      newNativeArtifacts(preparation.layout),
 	}, nil
+}
+
+// ReopenNative validates a retained v0.5.8 session and rebuilds its exact
+// detached target checkout. It never fetches or changes the source checkout.
+func ReopenNative(ctx context.Context, sessionDir string) (NativeSession, error) {
+	if !filepath.IsAbs(sessionDir) {
+		return NativeSession{}, errors.New("session directory must be absolute")
+	}
+	layout := NewLayout(filepath.Clean(sessionDir))
+	for name, path := range map[string]string{
+		"session": layout.SessionDir,
+		"input":   layout.InputDir,
+		"output":  layout.OutputDir,
+	} {
+		if err := validatePrivateDirectory(path); err != nil {
+			return NativeSession{}, fmt.Errorf("validate %s directory: %w", name, err)
+		}
+	}
+	metadataRaw, err := ReadRegularFile(layout.MetadataPath, 1<<20)
+	if err != nil {
+		return NativeSession{}, fmt.Errorf("read session metadata: %w", err)
+	}
+	metadata, err := quality.DecodeStrict[Metadata](bytes.NewReader(metadataRaw))
+	if err != nil {
+		return NativeSession{}, fmt.Errorf("decode session metadata: %w", err)
+	}
+	expectedRuntime := strings.ReplaceAll(metadata.Host, "-", "_") + "_native_review"
+	if metadata.SchemaVersion != 1 || metadata.SkillVersion != quality.SkillVersion ||
+		(metadata.Host != "codex" && metadata.Host != "claude-code") || metadata.RuntimeMode != expectedRuntime ||
+		(metadata.CheckoutMode != CheckoutModeWorktree && metadata.CheckoutMode != CheckoutModeClone) || !filepath.IsAbs(metadata.RepositoryRoot) {
+		return NativeSession{}, errors.New("session metadata is not a current native review contract")
+	}
+	if err := validateOwnerDirectory(metadata.RepositoryRoot); err != nil {
+		return NativeSession{}, fmt.Errorf("%w: validate source repository object store: %v", ErrTargetCommitUnavailable, err)
+	}
+	requestRaw, err := ReadRegularFile(layout.RequestPath, 8<<20)
+	if err != nil {
+		return NativeSession{}, fmt.Errorf("read session request: %w", err)
+	}
+	request, err := quality.DecodeStrict[quality.ReviewRequest](bytes.NewReader(requestRaw))
+	if err != nil {
+		return NativeSession{}, fmt.Errorf("decode session request: %w", err)
+	}
+	if problems := quality.ValidateRequest(request); len(problems) > 0 {
+		return NativeSession{}, fmt.Errorf("session request is invalid: %s", strings.Join(problems, "; "))
+	}
+	if err := ensureLocalCommit(ctx, metadata.RepositoryRoot, request.TargetCommit); err != nil {
+		return NativeSession{}, err
+	}
+	removeWorktree(metadata.RepositoryRoot, layout.RepositoryDir)
+	if _, err := os.Lstat(layout.RepositoryDir); err == nil {
+		if err := removeCloneCheckout(layout.SessionDir, layout.RepositoryDir); err != nil {
+			return NativeSession{}, fmt.Errorf("remove retained checkout: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return NativeSession{}, fmt.Errorf("inspect retained checkout: %w", err)
+	}
+	allowCloneFallback := metadata.Host != "claude-code"
+	mode, err := prepareCheckout(ctx, metadata.RepositoryRoot, request.TargetCommit, layout, allowCloneFallback)
+	if err != nil {
+		return NativeSession{}, fmt.Errorf("rebuild detached target checkout: %w", err)
+	}
+	valid := false
+	defer func() {
+		if !valid {
+			_ = cleanupCheckout(metadata.RepositoryRoot, layout.SessionDir, layout.RepositoryDir, mode)
+		}
+	}()
+	head, err := gitOutput(ctx, layout.RepositoryDir, "rev-parse", "HEAD")
+	if err != nil || strings.TrimSpace(head) != request.TargetCommit {
+		return NativeSession{}, errors.New("rebuilt checkout does not match the frozen target commit")
+	}
+	if _, err := gitOutput(ctx, layout.RepositoryDir, "symbolic-ref", "-q", "HEAD"); err == nil {
+		return NativeSession{}, errors.New("rebuilt checkout is not detached")
+	}
+	valid = true
+	return NativeSession{
+		repositoryRoot: metadata.RepositoryRoot, providerHost: metadata.Host, layout: layout, checkoutMode: mode,
+		request: copyReviewRequest(request), artifacts: newNativeArtifacts(layout),
+	}, nil
+}
+
+// VerifyTrustedDiff recomputes the exact committed diff from the retained Git
+// object store and compares it with the frozen session input.
+func (session NativeSession) VerifyTrustedDiff(ctx context.Context) error {
+	var recomputed bytes.Buffer
+	if err := writeGitOutputLimited(ctx, session.repositoryRoot, &recomputed, maxDiffBytes,
+		"diff", "--no-ext-diff", "--unified=6", session.request.BaseCommit, session.request.TargetCommit, "--",
+	); err != nil {
+		return fmt.Errorf("recompute trusted diff: %w", err)
+	}
+	frozen, err := session.ReadTrustedDiff(maxDiffBytes)
+	if err != nil {
+		return fmt.Errorf("read frozen trusted diff: %w", err)
+	}
+	if !bytes.Equal(recomputed.Bytes(), frozen) {
+		return errors.New("frozen trusted diff does not match the exact Git object range")
+	}
+	return nil
+}
+
+func validatePrivateDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 || !ok || stat.Uid != uint32(os.Getuid()) {
+		return errors.New("directory must be owner-controlled mode 0700 and not a symlink")
+	}
+	return nil
+}
+
+func validateOwnerDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || !ok || stat.Uid != uint32(os.Getuid()) {
+		return errors.New("directory must be owner-controlled and not a symlink")
+	}
+	return nil
+}
+
+var gitCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}(?:[0-9a-f]{24})?$`)
+
+func ensureLocalCommit(ctx context.Context, repositoryRoot, commit string) error {
+	if !gitCommitPattern.MatchString(commit) {
+		return fmt.Errorf("%w: object ID is not a full Git hash", ErrTargetCommitUnavailable)
+	}
+	command := exec.CommandContext(ctx, "git", "-C", repositoryRoot, "cat-file", "-e", commit+"^{commit}")
+	if output, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %v: %s", ErrTargetCommitUnavailable, err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func gitOutput(ctx context.Context, root string, arguments ...string) (string, error) {
+	command := exec.CommandContext(ctx, "git", append([]string{"-C", root}, arguments...)...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
 }
 
 type preparation struct {

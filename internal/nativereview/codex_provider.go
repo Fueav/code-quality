@@ -67,28 +67,37 @@ func (provider codexProvider) buildInvocation(options providerInvocationOptions)
 	if options.LeaseFile != nil {
 		invocation.extraFiles = append(invocation.extraFiles, options.LeaseFile)
 	}
+	if options.SessionLockFile != nil {
+		invocation.extraFiles = append(invocation.extraFiles, options.SessionLockFile)
+	}
 	return invocation
 }
 
 func (provider codexProvider) buildRestrictedInvocation(options restrictedInvocationOptions) reviewInvocation {
-	artifacts := options.Session.Artifacts()
+	paths := options.CapturePaths
+	if paths.finalMessage == "" {
+		paths = restrictedCapturePathsFromSession(options.Session)
+	}
 	args := []string{
 		"exec", "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--disable", "hooks",
 		"--model", options.Model,
 		"--output-schema", options.Session.RestrictedAdjudicationSchemaPath(),
 		"--config", "model_reasoning_effort=" + strconv.Quote(options.ReasoningEffort),
 		"--config", "developer_instructions=" + strconv.Quote(string(options.Policy)),
-		"--json", "--output-last-message", artifacts.RestrictedFinalMessagePath(), "-",
+		"--json", "--output-last-message", paths.finalMessage, "-",
 	}
 	invocation := reviewInvocation{
 		executable: provider.binary,
 		args:       args,
 		directory:  options.Session.RepositoryDirectory(),
 		stdin:      buildRestrictedAdjudicationPrompt(options.Plan, options.Findings),
-		paths:      restrictedCapturePathsFromSession(options.Session),
+		paths:      paths,
 	}
 	if options.LeaseFile != nil {
 		invocation.extraFiles = append(invocation.extraFiles, options.LeaseFile)
+	}
+	if options.SessionLockFile != nil {
+		invocation.extraFiles = append(invocation.extraFiles, options.SessionLockFile)
 	}
 	return invocation
 }
@@ -99,8 +108,9 @@ type codexEvent struct {
 }
 
 type codexUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens       int64  `json:"input_tokens"`
+	OutputTokens      int64  `json:"output_tokens"`
+	CachedInputTokens *int64 `json:"cached_input_tokens,omitempty"`
 }
 
 func (provider codexProvider) decodeTranscript(reader io.Reader) (decodedTranscript, error) {
@@ -129,7 +139,7 @@ func (provider codexProvider) decodeTranscript(reader io.Reader) (decodedTranscr
 		transcript.UsageError = errors.New("Codex JSONL has no turn.completed usage event")
 		return transcript, nil
 	}
-	if latest.InputTokens < 0 || latest.OutputTokens < 0 {
+	if latest.InputTokens < 0 || latest.OutputTokens < 0 || (latest.CachedInputTokens != nil && *latest.CachedInputTokens < 0) {
 		transcript.UsageError = errors.New("Codex usage tokens must be non-negative")
 		return transcript, nil
 	}
@@ -141,5 +151,9 @@ func (provider codexProvider) decodeTranscript(reader io.Reader) (decodedTranscr
 	outputTokens := latest.OutputTokens
 	transcript.InputTokens = &inputTokens
 	transcript.OutputTokens = &outputTokens
+	if latest.CachedInputTokens != nil {
+		cachedInputTokens := *latest.CachedInputTokens
+		transcript.CachedInputTokens = &cachedInputTokens
+	}
 	return transcript, nil
 }

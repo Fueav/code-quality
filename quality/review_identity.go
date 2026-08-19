@@ -17,7 +17,7 @@ const (
 	findingIDPrefix      = "finding-v1:sha256:"
 )
 
-var sha256ValuePattern = regexp.MustCompile(`^(?:sha256:|contract-v1:sha256:|review-v1:sha256:|finding-v1:sha256:)[0-9a-f]{64}$`)
+var sha256ValuePattern = regexp.MustCompile(`^(?:sha256:|contract-v1:sha256:|review-v1:sha256:|finding-v1:sha256:|session-v1:sha256:)[0-9a-f]{64}$`)
 
 type NativeReviewContract struct {
 	ToolVersion             string `json:"tool_version"`
@@ -25,6 +25,9 @@ type NativeReviewContract struct {
 	ProviderOutputSchema    string `json:"provider_output_schema"`
 	PromptContractVersion   string `json:"prompt_contract_version"`
 	EvaluationRubricVersion string `json:"evaluation_rubric_version"`
+	EvaluationRubricDigest  string `json:"evaluation_rubric_digest"`
+	RestrictedPolicyDigest  string `json:"restricted_policy_digest"`
+	RestrictedSchemaDigest  string `json:"restricted_schema_digest"`
 	ProviderHost            string `json:"provider_host"`
 	Model                   string `json:"model"`
 	ReasoningEffort         string `json:"reasoning_effort"`
@@ -202,6 +205,9 @@ func validateNativeReviewContract(contract NativeReviewContract) []string {
 		"tool_version": contract.ToolVersion, "provider_output_schema": contract.ProviderOutputSchema,
 		"prompt_contract_version":   contract.PromptContractVersion,
 		"evaluation_rubric_version": contract.EvaluationRubricVersion,
+		"evaluation_rubric_digest":  contract.EvaluationRubricDigest,
+		"restricted_policy_digest":  contract.RestrictedPolicyDigest,
+		"restricted_schema_digest":  contract.RestrictedSchemaDigest,
 		"provider_host":             contract.ProviderHost, "model": contract.Model,
 		"reasoning_effort": contract.ReasoningEffort, "execution_profile": contract.ExecutionProfile,
 	} {
@@ -214,6 +220,15 @@ func validateNativeReviewContract(contract NativeReviewContract) []string {
 	}
 	if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(contract.ProviderOutputSchema) {
 		problems = append(problems, "contract provider_output_schema must be a SHA-256 digest")
+	}
+	for name, value := range map[string]string{
+		"evaluation_rubric_digest": contract.EvaluationRubricDigest,
+		"restricted_policy_digest": contract.RestrictedPolicyDigest,
+		"restricted_schema_digest": contract.RestrictedSchemaDigest,
+	} {
+		if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(value) {
+			problems = append(problems, "contract "+name+" must be a SHA-256 digest")
+		}
 	}
 	if contract.ProviderHost != "codex" && contract.ProviderHost != "claude-code" {
 		problems = append(problems, "contract provider_host is unsupported")

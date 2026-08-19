@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
 
@@ -28,12 +29,13 @@ type NativeFreezeManifest struct {
 }
 
 type frozenNativeArtifacts struct {
-	FinalMessage  []byte
-	Manifest      NativeFreezeManifest
-	InputTokens   *int64
-	OutputTokens  *int64
-	UsageError    error
-	ProtocolError error
+	FinalMessage      []byte
+	Manifest          NativeFreezeManifest
+	InputTokens       *int64
+	OutputTokens      *int64
+	CachedInputTokens *int64
+	UsageError        error
+	ProtocolError     error
 }
 
 type rawArtifactSpec struct {
@@ -133,6 +135,7 @@ func freezeNativeArtifacts(paths capturePaths, providers ...Provider) (frozenNat
 		}
 		frozen.InputTokens = transcript.InputTokens
 		frozen.OutputTokens = transcript.OutputTokens
+		frozen.CachedInputTokens = transcript.CachedInputTokens
 		frozen.UsageError = transcript.UsageError
 		if provider.finalMessageFromTranscript() {
 			switch {
@@ -143,6 +146,95 @@ func freezeNativeArtifacts(paths capturePaths, providers ...Provider) (frozenNat
 			}
 		}
 		break
+	}
+	if provider.finalMessageFromTranscript() && errors.Is(frozen.UsageError, os.ErrNotExist) {
+		frozen.ProtocolError = errors.New("provider transcript is absent from frozen evidence")
+	}
+	return frozen, nil
+}
+
+// loadFrozenNativeArtifacts verifies an already installed freeze manifest and
+// reconstructs only the evidence needed for deterministic crash recovery.
+func loadFrozenNativeArtifacts(paths capturePaths, provider Provider) (frozenNativeArtifacts, error) {
+	if err := validateProvider(provider); err != nil {
+		return frozenNativeArtifacts{}, err
+	}
+	rawManifest, err := readCheckpointFile(paths.freezeManifest, 1<<20, 0o400)
+	if err != nil {
+		return frozenNativeArtifacts{}, fmt.Errorf("read raw freeze manifest: %w", err)
+	}
+	manifest, err := quality.DecodeStrict[NativeFreezeManifest](bytes.NewReader(rawManifest))
+	if err != nil {
+		return frozenNativeArtifacts{}, fmt.Errorf("decode raw freeze manifest: %w", err)
+	}
+	expected := []struct {
+		name    string
+		path    string
+		capture bool
+	}{
+		{name: "final_message", path: paths.finalMessage, capture: true},
+		{name: "jsonl_stdout", path: paths.jsonl},
+		{name: "stderr", path: paths.stderr},
+	}
+	if manifest.SchemaVersion != 1 || len(manifest.Artifacts) != len(expected) {
+		return frozenNativeArtifacts{}, errors.New("raw freeze manifest shape is invalid")
+	}
+	frozen := frozenNativeArtifacts{Manifest: manifest, UsageError: os.ErrNotExist}
+	for index, value := range expected {
+		entry := manifest.Artifacts[index]
+		if entry.Name != value.name || entry.Path != filepath.Base(value.path) || entry.Bytes < 0 {
+			return frozenNativeArtifacts{}, errors.New("raw freeze manifest artifact identity is invalid")
+		}
+		if !entry.Present {
+			if entry.Bytes != 0 || entry.SHA256 != "" {
+				return frozenNativeArtifacts{}, errors.New("absent raw artifact has a digest")
+			}
+			if _, err := os.Lstat(value.path); !errors.Is(err, os.ErrNotExist) {
+				if err != nil {
+					return frozenNativeArtifacts{}, err
+				}
+				return frozenNativeArtifacts{}, errors.New("raw artifact appeared after freeze")
+			}
+			continue
+		}
+		info, err := os.Lstat(value.path)
+		if err != nil {
+			return frozenNativeArtifacts{}, err
+		}
+		if err := validatePrivateRegularFile(info); err != nil || info.Mode().Perm() != 0o400 {
+			if err != nil {
+				return frozenNativeArtifacts{}, err
+			}
+			return frozenNativeArtifacts{}, errors.New("frozen raw artifact is not read-only")
+		}
+		raw, err := reviewsession.ReadRegularFile(value.path, 64<<20)
+		if err != nil {
+			return frozenNativeArtifacts{}, err
+		}
+		digest := sha256.Sum256(raw)
+		if int64(len(raw)) != entry.Bytes || hex.EncodeToString(digest[:]) != entry.SHA256 {
+			return frozenNativeArtifacts{}, errors.New("raw artifact no longer matches freeze manifest")
+		}
+		if value.capture {
+			frozen.FinalMessage = raw
+		}
+		if value.name == "jsonl_stdout" {
+			transcript, decodeErr := provider.decodeTranscript(bytes.NewReader(raw))
+			if decodeErr != nil {
+				frozen.UsageError = decodeErr
+				if provider.finalMessageFromTranscript() {
+					frozen.ProtocolError = fmt.Errorf("decode frozen provider transcript: %w", decodeErr)
+				}
+				continue
+			}
+			frozen.InputTokens = transcript.InputTokens
+			frozen.OutputTokens = transcript.OutputTokens
+			frozen.CachedInputTokens = transcript.CachedInputTokens
+			frozen.UsageError = transcript.UsageError
+			if provider.finalMessageFromTranscript() && !bytes.Equal(frozen.FinalMessage, transcript.FinalMessage) {
+				frozen.ProtocolError = errors.New("provider final message does not match the frozen transcript result")
+			}
+		}
 	}
 	if provider.finalMessageFromTranscript() && errors.Is(frozen.UsageError, os.ErrNotExist) {
 		frozen.ProtocolError = errors.New("provider transcript is absent from frozen evidence")

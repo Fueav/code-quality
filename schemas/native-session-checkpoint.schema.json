@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "tool_version", "sequence", "state", "checkpoint_digest", "session_digest",
+    "repository_root", "review_goal", "plan", "previous_blocking_findings", "contract_artifacts",
+    "input_artifacts", "native_evidence", "native_outcome", "frozen_blocking_findings",
+    "restricted_attempts", "adopted_restricted_attempt", "resumed", "resumed_session_digest",
+    "last_failure", "publication"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "tool_version": {"const": "0.5.8"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "state": {"enum": ["PLANNED", "NATIVE_RUNNING", "NATIVE_FROZEN", "RESTRICTED_RUNNING", "RESTRICTED_RETRYABLE", "PUBLISHED", "MANUAL_REQUIRED", "TERMINAL_ERROR"]},
+    "checkpoint_digest": {"type": "string", "pattern": "^checkpoint-v1:sha256:[0-9a-f]{64}$"},
+    "session_digest": {"type": "string", "pattern": "^session-v1:sha256:[0-9a-f]{64}$"},
+    "repository_root": {"type": "string", "pattern": "^/"},
+    "review_goal": {"type": "string", "maxLength": 4000},
+    "plan": {"$ref": "#/$defs/plan"},
+    "previous_blocking_findings": {"type": "array", "items": {"$ref": "review-result-v10.schema.json#/$defs/blocking_finding"}},
+    "contract_artifacts": {"$ref": "#/$defs/contract_artifacts"},
+    "input_artifacts": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"$ref": "#/$defs/artifact"}},
+    "native_evidence": {"type": "array", "maxItems": 5, "items": {"$ref": "#/$defs/artifact"}},
+    "native_outcome": {"oneOf": [{"$ref": "review-result-v10.schema.json"}, {"type": "null"}]},
+    "frozen_blocking_findings": {"type": "array", "items": {"$ref": "review-result-v10.schema.json#/$defs/blocking_finding"}},
+    "restricted_attempts": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/checkpoint_attempt"}},
+    "adopted_restricted_attempt": {"type": ["integer", "null"], "minimum": 1, "maximum": 2},
+    "resumed": {"type": "boolean"},
+    "resumed_session_digest": {"type": ["string", "null"], "pattern": "^session-v1:sha256:[0-9a-f]{64}$"},
+    "last_failure": {"oneOf": [{"$ref": "#/$defs/failure"}, {"type": "null"}]},
+    "publication": {"$ref": "#/$defs/publication"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"resumed": {"const": true}}},
+      "then": {"properties": {"resumed_session_digest": {"type": "string"}}},
+      "else": {"properties": {"resumed_session_digest": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"state": {"enum": ["NATIVE_FROZEN", "RESTRICTED_RUNNING", "RESTRICTED_RETRYABLE", "PUBLISHED", "MANUAL_REQUIRED"]}}},
+      "then": {
+        "properties": {
+          "native_outcome": {"$ref": "review-result-v10.schema.json"},
+          "native_evidence": {"minItems": 5, "maxItems": 5},
+          "contract_artifacts": {"required": ["restricted_prompt_sha256"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"state": {"const": "NATIVE_FROZEN"}}},
+      "then": {"properties": {"restricted_attempts": {"maxItems": 0}, "publication": {"properties": {"status": {"const": "UNPUBLISHED"}}}}}
+    },
+    {
+      "if": {"properties": {"state": {"const": "RESTRICTED_RUNNING"}}},
+      "then": {"properties": {"restricted_attempts": {"minItems": 1}, "publication": {"properties": {"status": {"const": "UNPUBLISHED"}}}}}
+    },
+    {
+      "if": {"properties": {"state": {"const": "RESTRICTED_RETRYABLE"}}},
+      "then": {"properties": {"restricted_attempts": {"minItems": 1, "maxItems": 1}, "last_failure": {"$ref": "#/$defs/failure"}}}
+    },
+    {
+      "if": {"properties": {"state": {"const": "MANUAL_REQUIRED"}}},
+      "then": {"properties": {"restricted_attempts": {"minItems": 2, "maxItems": 2}, "last_failure": {"$ref": "#/$defs/failure"}}}
+    },
+    {
+      "if": {"properties": {"state": {"const": "PUBLISHED"}}},
+      "then": {"properties": {"publication": {"properties": {"status": {"const": "PUBLISHED"}, "artifacts": {"minItems": 4, "maxItems": 4}}}}}
+    }
+  ],
+  "$defs": {
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_key", "contract_digest", "review_scope", "base_ref", "head_ref", "base_tip_commit", "merge_base",
+        "parent_review_key", "previous_head", "current_head", "delta_changed_files", "contract", "schema_version",
+        "status", "full_required_reasons", "manual_required_reasons", "request", "provider_request",
+        "provider_invocations", "dirty_worktree", "detection_source"
+      ],
+      "properties": {
+        "review_key": {"type": "string", "pattern": "^review-v1:sha256:[0-9a-f]{64}$"},
+        "contract_digest": {"type": "string", "pattern": "^contract-v1:sha256:[0-9a-f]{64}$"},
+        "review_scope": {"enum": ["FULL", "INCREMENTAL"]},
+        "base_ref": {"type": "string", "minLength": 1},
+        "head_ref": {"type": "string", "minLength": 1},
+        "base_tip_commit": {"type": "string", "minLength": 1},
+        "merge_base": {"type": "string", "minLength": 1},
+        "parent_review_key": {"type": ["string", "null"], "pattern": "^review-v1:sha256:[0-9a-f]{64}$"},
+        "previous_head": {"type": ["string", "null"], "minLength": 1},
+        "current_head": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+        "delta_changed_files": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "contract": {"$ref": "review-result-v10.schema.json#/$defs/contract"},
+        "schema_version": {"const": 1},
+        "status": {"const": "READY"},
+        "full_required_reasons": {"type": "array", "maxItems": 0},
+        "manual_required_reasons": {"type": "array", "maxItems": 0},
+        "request": {"$ref": "review-result-v10.schema.json#/$defs/request"},
+        "provider_request": {"$ref": "review-result-v10.schema.json#/$defs/request"},
+        "provider_invocations": {"const": 0},
+        "dirty_worktree": {"type": "boolean"},
+        "detection_source": {"type": "string", "minLength": 1}
+      }
+    },
+    "contract_artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["native_prompt_sha256", "rubric_sha256", "restricted_policy_sha256", "restricted_schema_sha256", "provider_schema_sha256", "result_schema_sha256"],
+      "properties": {
+        "native_prompt_sha256": {"$ref": "#/$defs/digest"},
+        "restricted_prompt_sha256": {"$ref": "#/$defs/digest"},
+        "rubric_sha256": {"$ref": "#/$defs/digest"},
+        "restricted_policy_sha256": {"$ref": "#/$defs/digest"},
+        "restricted_schema_sha256": {"$ref": "#/$defs/digest"},
+        "provider_schema_sha256": {"$ref": "#/$defs/digest"},
+        "result_schema_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "checkpoint_attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "attempt", "resumed", "status", "started_at", "failure", "artifacts", "attempt_digest"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "attempt": {"type": "integer", "minimum": 1, "maximum": 2},
+        "resumed": {"type": "boolean"},
+        "status": {"enum": ["RUNNING", "SUCCEEDED", "FAILED"]},
+        "started_at": {"type": "string", "format": "date-time"},
+        "finished_at": {"type": "string", "format": "date-time"},
+        "failure": {"oneOf": [{"$ref": "#/$defs/failure"}, {"type": "null"}]},
+        "artifacts": {"type": "array", "maxItems": 5, "items": {"$ref": "#/$defs/artifact"}},
+        "attempt_digest": {"type": "string", "pattern": "^(attempt-v1:sha256:[0-9a-f]{64})?$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "RUNNING"}}},
+          "then": {
+            "not": {"required": ["finished_at"]},
+            "properties": {"failure": {"type": "null"}, "artifacts": {"maxItems": 0}, "attempt_digest": {"const": ""}}
+          }
+        },
+        {
+          "if": {"properties": {"status": {"enum": ["SUCCEEDED", "FAILED"]}}},
+          "then": {"required": ["finished_at"], "properties": {"artifacts": {"minItems": 5, "maxItems": 5}, "attempt_digest": {"pattern": "^attempt-v1:sha256:[0-9a-f]{64}$"}}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "SUCCEEDED"}}},
+          "then": {"properties": {"failure": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "FAILED"}}},
+          "then": {"properties": {"failure": {"$ref": "#/$defs/failure"}}}
+        }
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "retryable", "reason"],
+      "properties": {
+        "class": {"enum": ["PROVIDER_QUOTA", "PROVIDER_CAPACITY", "PROVIDER_RATE_LIMIT", "DEADLINE_EXCEEDED", "PROCESS_INTERRUPTED", "PROVIDER_PROCESS_ERROR", "PROVIDER_PROTOCOL_ERROR", "ARTIFACT_INTEGRITY", "CONTRACT_MISMATCH", "TARGET_COMMIT_UNAVAILABLE"]},
+        "retryable": {"type": "boolean"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "artifacts"],
+      "properties": {
+        "status": {"enum": ["UNPUBLISHED", "PUBLISHED"]},
+        "artifacts": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/artifact"}}
+      }
+    },
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "present", "bytes"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/].*$",
+          "not": {"pattern": "(^|/)\\.\\.(/|$)"}
+        },
+        "present": {"type": "boolean"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/digest"}
+      },
+      "allOf": [
+        {"if": {"properties": {"present": {"const": true}}}, "then": {"required": ["sha256"]}},
+        {"if": {"properties": {"present": {"const": false}}}, "then": {"not": {"required": ["sha256"]}, "properties": {"bytes": {"const": 0}}}}
+      ]
+    }
+  }
+}

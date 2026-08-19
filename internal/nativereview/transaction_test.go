@@ -3,6 +3,7 @@ package nativereview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -387,7 +388,7 @@ func TestRestrictedAdjudicationSilentlyFiltersHardToTriggerBlocker(t *testing.T)
 		t.Fatalf("frozen native evidence = %q, err = %v", rawNative, err)
 	}
 	for _, name := range []string{"restricted-adjudication.json", "restricted-adjudication-freeze.json", "restricted-adjudication-metrics.json"} {
-		if _, err := os.Stat(filepath.Join(transaction.Summary.EvidenceDir, "output", name)); err != nil {
+		if _, err := os.Stat(filepath.Join(transaction.Summary.EvidenceDir, "output", "restricted-attempts", "0001", name)); err != nil {
 			t.Fatalf("restricted evidence %s is missing: %v", name, err)
 		}
 	}
@@ -416,21 +417,19 @@ func TestRestrictedAdjudicationProtocolFailureHoldsWithoutFindingProse(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if transaction.ExitCode != 1 || transaction.Summary.Result != quality.ResultError || transaction.Summary.Release != "HOLD" {
+	if transaction.ExitCode != 1 || transaction.Status.State != StateTerminalError || transaction.Status.ProviderAttemptsTotal != 2 {
 		t.Fatalf("transaction = %#v", transaction)
 	}
-	resultPath := filepath.Join(transaction.Summary.EvidenceDir, "output", "review-result.json")
-	result := readTransactionResult(t, resultPath)
-	if result.Execution.ProviderInvocations != 2 || len(result.Findings) != 0 {
-		t.Fatalf("error result = %#v", result)
+	resultPath := filepath.Join(transaction.Status.SessionDir, "output", "review-result.json")
+	if _, err := os.Lstat(resultPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("terminal protocol failure published a formal result: %v", err)
 	}
-	for _, path := range []string{resultPath, transaction.Summary.SummaryPath} {
-		raw, readErr := os.ReadFile(path)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if strings.Contains(string(raw), "Candidate must stay private") || strings.Contains(string(raw), "changed path may fail") {
-			t.Fatalf("failure surface leaked native candidate: %s", raw)
+	if transaction.Status.Failure == nil || transaction.Status.Failure.Class != FailureProviderProtocol || transaction.Status.Failure.Retryable {
+		t.Fatalf("terminal failure classification = %#v", transaction.Status.Failure)
+	}
+	for _, name := range []string{"attempt.json", "restricted-adjudication-freeze.json", "restricted-adjudication-metrics.json"} {
+		if _, err := os.Lstat(filepath.Join(transaction.Status.SessionDir, "output", "restricted-attempts", "0001", name)); err != nil {
+			t.Fatalf("terminal attempt evidence %s is missing: %v", name, err)
 		}
 	}
 }

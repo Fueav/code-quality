@@ -255,7 +255,10 @@ func v8IdentityInput(scope string) ReviewIdentityInput {
 			ToolVersion: SkillVersion, ResultSchemaVersion: NativeResultSchemaVersion,
 			ProviderOutputSchema:  "sha256:" + strings.Repeat("3", 64),
 			PromptContractVersion: "3", EvaluationRubricVersion: EvaluationRubricVersion,
-			ProviderHost: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "max",
+			EvaluationRubricDigest: "sha256:" + strings.Repeat("7", 64),
+			RestrictedPolicyDigest: "sha256:" + strings.Repeat("8", 64),
+			RestrictedSchemaDigest: "sha256:" + strings.Repeat("9", 64),
+			ProviderHost:           "codex", Model: "gpt-5.6-sol", ReasoningEffort: "max",
 			ExecutionProfile: ExecutionProfileProductionCI,
 		},
 		Request: ReviewRequest{

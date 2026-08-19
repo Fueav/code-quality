@@ -1,0 +1,73 @@
+{
+  "schema_version": 3,
+  "result_source": "EXECUTED",
+  "lifecycle_status": "CURRENT",
+  "review_result": {
+    "review_key": "review-v1:sha256:336dbb3a9ecc3f0c4a9c801b0c0834678789a40aded3baef5bbae3c0fedaf3f9",
+    "contract_digest": "contract-v1:sha256:4cf37716faea032c1b13b9b3f928bdb89472130f0baaa3029bd246262c1d7ca9",
+    "review_scope": "FULL",
+    "base_ref": "production",
+    "head_ref": "deploy",
+    "base_tip_commit": "1111111111111111111111111111111111111111",
+    "merge_base": "1111111111111111111111111111111111111111",
+    "parent_review_key": null,
+    "previous_head": null,
+    "current_head": "2222222222222222222222222222222222222222",
+    "delta_changed_files": [],
+    "contract": {
+      "tool_version": "0.5.8",
+      "result_schema_version": 10,
+      "provider_output_schema": "sha256:47bc3df29c976c0f042a2aa49bd5216f0cf50f49f62e840a5c904383d30125e2",
+      "prompt_contract_version": "3",
+      "evaluation_rubric_version": "1.2.0",
+      "evaluation_rubric_digest": "sha256:330efa75d2f4fac5999c3738f7892afbe1b2369eb1339325dac87a7f89581351",
+      "restricted_policy_digest": "sha256:b055a94c4ac32d356dc2469923936cc4ddae32f906132b51c9662e8cadc774a6",
+      "restricted_schema_digest": "sha256:df70444ad8e8d14c9740a000de9f7eb59cf4205b77b841ef4b7dbc2ed7d6f39f",
+      "provider_host": "codex",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "max",
+      "execution_profile": "production-ci"
+    },
+    "schema_version": 10,
+    "evaluation_rubric_version": "1.2.0",
+    "request": {
+      "repository": "github.com/Fueav/code-quality",
+      "target_branch": "production",
+      "base_commit": "1111111111111111111111111111111111111111",
+      "target_commit": "2222222222222222222222222222222222222222",
+      "diff_selection_reason": "explicit_ref_range",
+      "changed_files": ["main.go"],
+      "affected_entries": []
+    },
+    "findings": [],
+    "previous_blocking_findings": [],
+    "previous_finding_resolutions": [],
+    "new_findings": [],
+    "execution": {
+      "host": "codex",
+      "review_mode": "native_review",
+      "execution_profile": "production-ci",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "max",
+      "provider_invocations": 3,
+      "native_attempts": 1,
+      "restricted_attempts": 2,
+      "provider_attempts_total": 3,
+      "adopted_restricted_attempt": 2,
+      "resumed": true,
+      "resumed_session_digest": "session-v1:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "adapter_drops": [
+        {
+          "index": 0,
+          "reason": "finding did not meet the restricted production floor"
+        }
+      ]
+    },
+    "adjudication": {
+      "semantic_result": "PASS",
+      "rollout_mode": "release_gate",
+      "ci_action": "continue_release",
+      "reasons": ["no P0/P1 blocking issue was reported after restricted adjudication"]
+    }
+  }
+}

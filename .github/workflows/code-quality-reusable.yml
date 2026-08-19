@@ -73,11 +73,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify quality-review v0.5.7
+      - name: Verify quality-review v0.5.8
         run: |
           set -eu
           review_bin=$(command -v quality-review)
-          test "$("$review_bin" version)" = 'quality-review v0.5.7'
+          test "$("$review_bin" version)" = 'quality-review v0.5.8'
           printf 'QUALITY_REVIEW_BIN=%s\n' "$review_bin" >> "$GITHUB_ENV"
           printf 'QUALITY_REVIEW_OUTPUT_ROOT=%s\n' "$RUNNER_TEMP/code-quality" >> "$GITHUB_ENV"
 

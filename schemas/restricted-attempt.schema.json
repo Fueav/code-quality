@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attempt", "resumed", "status", "started_at", "finished_at", "failure", "artifacts", "attempt_digest"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 2},
+    "resumed": {"type": "boolean"},
+    "status": {"enum": ["SUCCEEDED", "FAILED"]},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": "string", "format": "date-time"},
+    "failure": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "retryable", "reason"],
+          "properties": {
+            "class": {"enum": ["PROVIDER_QUOTA", "PROVIDER_CAPACITY", "PROVIDER_RATE_LIMIT", "DEADLINE_EXCEEDED", "PROCESS_INTERRUPTED", "PROVIDER_PROCESS_ERROR", "PROVIDER_PROTOCOL_ERROR", "ARTIFACT_INTEGRITY", "CONTRACT_MISMATCH", "TARGET_COMMIT_UNAVAILABLE"]},
+            "retryable": {"type": "boolean"},
+            "reason": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "artifacts": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"$ref": "#/$defs/artifact"}},
+    "attempt_digest": {"type": "string", "pattern": "^attempt-v1:sha256:[0-9a-f]{64}$"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "SUCCEEDED"}}},
+      "then": {"properties": {"failure": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "FAILED"}}},
+      "then": {"properties": {"failure": {"type": "object"}}}
+    }
+  ],
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "present", "bytes"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "present": {"type": "boolean"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      },
+      "allOf": [
+        {"if": {"properties": {"present": {"const": true}}}, "then": {"required": ["sha256"]}},
+        {"if": {"properties": {"present": {"const": false}}}, "then": {"not": {"required": ["sha256"]}, "properties": {"bytes": {"const": 0}}}}
+      ]
+    }
+  }
+}
