@@ -103,6 +103,42 @@ func TestNativeResultV9SchemaCarriesRestrictedAdjudication(t *testing.T) {
 	}
 }
 
+func TestNativeResultV10SchemaCarriesStageAttemptAccounting(t *testing.T) {
+	raw, err := Schema("review-result-v10.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{
+		`"schema_version": {"const": 10}`,
+		`"result_schema_version": {"const": 10}`,
+		`"provider_invocations": {"type": "integer", "minimum": 1, "maximum": 3}`,
+		`"native_attempts"`, `"restricted_attempts"`, `"provider_attempts_total"`,
+		`"adopted_restricted_attempt"`, `"resumed"`, `"resumed_session_digest"`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("v10 schema is missing %s", required)
+		}
+	}
+}
+
+func TestV8V9AndEnvelopeV1V2SchemasRemainByteFrozen(t *testing.T) {
+	for path, want := range map[string]string{
+		"schemas/review-result-v8.schema.json":          "034f02916ddbee27d1bc6b9f6172ca7bff98dad751ddf73a02791388570efa9c",
+		"schemas/review-result-v9.schema.json":          "bb0f8a7ee38a417e1c41b7011306ba01daf96406e371901e6ba959f2c7913eba",
+		"schemas/review-result-envelope-v1.schema.json": "8cb3e7dad7e2b1c40fa1ade197572fdd910de505d9e6d90f508c59bb75a23145",
+		"schemas/review-result-envelope-v2.schema.json": "6f1aa665add1489cdbec4b28594119292d0d8c2a25644ebf533c7f0b3b0a4936",
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != want {
+			t.Fatalf("immutable schema %s changed: %s", path, got)
+		}
+	}
+}
+
 func TestReviewSummarySchemaV3CarriesIdentityAndIncrementalCounts(t *testing.T) {
 	raw, err := Schema("review-summary.schema.json")
 	if err != nil {
@@ -194,6 +230,22 @@ func TestCompanyCIEnvelopeV2KeepsLifecycleOutsideImmutableResult(t *testing.T) {
 	}
 }
 
+func TestCompanyCIEnvelopeV3ReferencesOnlyResultV10(t *testing.T) {
+	raw, err := Schema("review-result-envelope-v3.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{`"schema_version": {"const": 3}`, `"EXECUTED"`, `"REUSED"`, `"CURRENT"`, `"SUPERSEDED"`, `"$ref": "review-result-v10.schema.json"`} {
+		if !strings.Contains(text, required) {
+			t.Errorf("company CI envelope v3 is missing %s", required)
+		}
+	}
+	if strings.Contains(text, "review-result-v9.schema.json") {
+		t.Fatal("company CI envelope v3 still references result v9")
+	}
+}
+
 func TestEmbeddedPolicyMatchesV12Contract(t *testing.T) {
 	raw, err := PolicyManifest()
 	if err != nil {
@@ -264,8 +316,10 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-result-v7.schema.json",
 		"review-result-v8.schema.json",
 		"review-result-v9.schema.json",
+		"review-result-v10.schema.json",
 		"review-result-envelope-v1.schema.json",
 		"review-result-envelope-v2.schema.json",
+		"review-result-envelope-v3.schema.json",
 		"native-review-output.schema.json",
 		"native-review-incremental-output.schema.json",
 		"restricted-adjudication-output.schema.json",
@@ -273,6 +327,9 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"review-summary.schema.json",
 		"native-review-freeze.schema.json",
 		"native-run-metrics.schema.json",
+		"native-stage-metrics-v2.schema.json",
+		"native-session-checkpoint.schema.json",
+		"restricted-attempt.schema.json",
 	} {
 		schema, err := Schema(name)
 		if err != nil || len(schema) == 0 {
