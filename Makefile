@@ -1,3 +1,6 @@
+SHELL := /usr/bin/env bash
+PATH := $(CURDIR)/.tools/bin:$(PATH)
+
 BIN := quality-review
 PKG := ./cmd/quality-review
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -10,6 +13,7 @@ LIVE_WATCH_CRON ?= 17 2 * * *
 LIVE_ADJUDICATE_CRON ?= 43 3 * * 1
 
 .PHONY: build test qualification-test live-test mining-test release-check live-install live-uninstall dist clean
+.PHONY: install-tools verify-change verify-candidate verify-release verify-suite
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
@@ -39,6 +43,21 @@ release-check: test
 	git diff --check
 	git diff --cached --check
 	@if [ -n "$(VERIFY_COMPARE_REF)" ]; then git diff --check "$(VERIFY_COMPARE_REF)..HEAD"; fi
+
+install-tools:
+	scripts/harnessctl.sh install-tools
+
+verify-change:
+	harness/repository_verification.py verify change
+
+verify-candidate:
+	harness/repository_verification.py verify candidate
+
+verify-release:
+	harness/repository_verification.py verify release
+
+verify-suite:
+	scripts/verify_suite.sh
 
 live-install:
 	CODE_QUALITY_LIVE_ROOT="$(LIVE_DATA_ROOT)" \

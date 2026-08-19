@@ -1,0 +1,9 @@
+{
+  "version": 3,
+  "workflow_classes": [
+    "HARNESS-FOCUSED-CHANGE",
+    "HARNESS-MAINTENANCE",
+    "HARNESS-SPEC-FIRST-FEATURE",
+    "HARNESS-VERIFICATION-INCIDENT"
+  ]
+}

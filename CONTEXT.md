@@ -41,3 +41,12 @@ This file defines the project-specific language used by the review-scope, integr
 - `internal/session` owns the detached current-head checkout and materialized provider-range diff.
 - Harness owns fix/test/commit/review loops.
 - Company CI owns trusted reuse, attestation, compare-and-swap publication, and lifecycle envelopes.
+
+## Harness handoff language
+
+- **Scaffold Source**: the canonical `ai-first-go-template` repository root from which one Template Delivery begins.
+- **Target Repository**: this repository while it receives the Repository Contract and retains ownership of all Code Quality facts and extensions.
+- **Template Delivery**: one explicit bootstrap or upgrade that begins in the Scaffold Source and ends after this clean Target Repository proves convergence.
+- **Repository Contract**: the target-local instructions, workflows, profiles, gates, locks, and verification interfaces required for Daily Harness Work.
+- **Daily Harness Work**: normal product, incident, maintenance, release, and deployment work after Template Delivery.
+- **Suite Conformance**: release evidence that exact Scaffold Source, Harness Template Sync, and Harness Driven Development revisions honor the same handoff contract.

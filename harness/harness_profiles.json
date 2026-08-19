@@ -1,0 +1,102 @@
+{
+  "schema_version": 3,
+  "custom_gates": {
+    "project_test": {"run": "harness/gates/test.sh"},
+    "project_release_check": {"run": "harness/gates/release_check.sh"},
+    "repository_modules": {"run": "harness/repository_modules_test.py"},
+    "suite_conformance": {"run": "scripts/verify_suite.sh"}
+  },
+  "symlinks": [
+    {"link": "CLAUDE.md", "target": "AGENTS.md"}
+  ],
+  "coverage_threshold": 0,
+  "unsealed_artifacts": ["gates.tsv"],
+  "gate_sets": {
+    "change": [
+      "change_scope",
+      "ai_boundaries",
+      "project_test",
+      "repository_modules"
+    ],
+    "release": [
+      "change_scope",
+      "release_context_before",
+      "symlinks",
+      "ai_boundaries",
+      "project_release_check",
+      "repository_modules",
+      "suite_conformance",
+      "release_context_after"
+    ]
+  },
+  "profiles": {
+    "change": {
+      "evidence_modes": ["change"],
+      "gate_set": "change",
+      "skippable_gates": []
+    },
+    "pull_request": {
+      "evidence_modes": ["candidate"],
+      "gate_set": "release",
+      "skippable_gates": []
+    },
+    "release": {
+      "evidence_modes": ["release"],
+      "gate_set": "release",
+      "skippable_gates": []
+    }
+  },
+  "conditional_gates": {
+    "test_race": {
+      "always_profiles": [],
+      "path_prefixes": [],
+      "skip_reason": "race coverage is owned by the native project gate"
+    },
+    "benchmarks": {
+      "always_profiles": [],
+      "path_prefixes": [],
+      "benchmark_file_suffix": "_test.go",
+      "benchmark_declaration": "func Benchmark",
+      "explicit_request": false,
+      "skip_reason": "benchmarks require an explicit project contract"
+    },
+    "suite_conformance": {
+      "always_profiles": [],
+      "path_prefixes": [
+        ".ai-boundaries.yml",
+        "AGENTS.md",
+        "BLUEPRINT.md",
+        "CONTEXT.md",
+        "Makefile",
+        "docs/branch-collaboration.md",
+        "docs/harness-workflows.json",
+        "docs/harness-workflows.md",
+        "harness/",
+        "scripts/"
+      ],
+      "skip_reason": "no suite contract or delivery interface paths changed"
+    }
+  },
+  "evidence_sets": {
+    "change": {
+      "artifacts": ["gates.tsv", "change_scope.json", "ai_boundaries.json"]
+    },
+    "release": {
+      "artifacts": ["gates.tsv", "change_scope.json", "ai_boundaries.json"]
+    }
+  },
+  "evidence": {
+    "change": "change",
+    "candidate": "release",
+    "release": "release"
+  },
+  "gate_artifacts": {},
+  "machine_status_artifacts": ["ai_boundaries.json"],
+  "trusted_approval_runtime": [
+    ".ai-boundaries.yml",
+    "harness/harness.lock",
+    "harness/harness_profiles.json",
+    "harness/gates/test.sh",
+    "harness/gates/release_check.sh"
+  ]
+}

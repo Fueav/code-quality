@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "module": "github.com/Fueav/harnessctl",
+  "version": "v0.4.0"
+}
