@@ -1,0 +1,57 @@
+allowed:
+  - README.md
+  - BLUEPRINT.md
+  - docs/
+  - pilot/
+  - '*.md'
+  - '*.html'
+
+approval_required:
+  - .ai-boundaries.yml
+  - .agents/
+  - .claude/
+  - .claude-plugin/
+  - .codex/
+  - .github/
+  - .gitattributes
+  - .gitignore
+  - AGENTS.md
+  - CLAUDE.md
+  - CONTEXT.md
+  - Makefile
+  - docs/branch-collaboration.md
+  - docs/company-ci-review-result-envelope.md
+  - docs/harness-workflows.md
+  - docs/jenkins-production-ci.md
+  - evals/
+  - go.mod
+  - go.sum
+  - harness/
+  - scripts/
+  - cmd/
+  - internal/
+  - plugins/
+  - policy/
+  - quality/
+  - reports/
+  - schemas/
+  - install.sh
+  - '*.go'
+  - '*.json'
+  - '*.py'
+  - '*.sh'
+  - '*.yml'
+  - '*.yaml'
+
+forbidden:
+  - .git/
+  - .artifacts/
+  - .code-quality/
+  - .tools/
+  - .env
+  - '.env.*'
+  - secrets/
+  - production-dumps/
+  - private-keys/
+  - '*.pem'
+  - '*.key'
