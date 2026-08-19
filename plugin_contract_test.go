@@ -174,6 +174,33 @@ func TestMakefileReleaseGateCoversShippedComponents(t *testing.T) {
 	}
 }
 
+func TestHarnessReleaseGateUsesNamespacedProductVersion(t *testing.T) {
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "make-arguments")
+	fakeMake := filepath.Join(tempDir, "make")
+	if err := os.WriteFile(fakeMake, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$OUTPUT\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command("bash", "harness/gates/release_check.sh")
+	command.Env = []string{
+		"PATH=" + tempDir + ":/usr/bin:/bin",
+		"OUTPUT=" + outputPath,
+		"VERSION=v0.4.0",
+		"CODE_QUALITY_RELEASE_VERSION=v0.5.8",
+	}
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("release gate failed: %v\n%s", err, output)
+	}
+	arguments, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(arguments)), "release-check VERSION=v0.5.8"; got != want {
+		t.Fatalf("make arguments = %q, want %q", got, want)
+	}
+}
+
 func TestReadmeProvidesCopyPastePluginInstallCommands(t *testing.T) {
 	raw, err := os.ReadFile("README.md")
 	if err != nil {
