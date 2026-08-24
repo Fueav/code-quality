@@ -306,7 +306,7 @@ func loadAndVerifyCheckpoint(sessionDir string) (SessionCheckpoint, error) {
 		return SessionCheckpoint{}, fmt.Errorf("decode checkpoint: %w", err)
 	}
 	if checkpoint.SchemaVersion != 1 || checkpoint.ToolVersion != quality.SkillVersion || checkpoint.Sequence < 1 {
-		return SessionCheckpoint{}, errors.New("checkpoint is not a current v0.5.8 session")
+		return SessionCheckpoint{}, errors.New("checkpoint is not a current v0.5.9 session")
 	}
 	wantCheckpointDigest := checkpoint.CheckpointDigest
 	checkpoint.CheckpointDigest = ""

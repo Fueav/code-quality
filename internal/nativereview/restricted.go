@@ -59,6 +59,8 @@ type restrictedRunOptions struct {
 	StartedAt         string
 	HeartbeatInterval time.Duration
 	ProgressWriter    io.Writer
+	ProgressFormat    ProgressFormat
+	Progress          *progressReporter
 }
 
 type restrictedAttemptResult struct {
@@ -67,6 +69,14 @@ type restrictedAttemptResult struct {
 }
 
 func runRestrictedAttempt(ctx context.Context, options restrictedRunOptions, outcome quality.NativeOutcome) (restrictedAttemptResult, error) {
+	if options.Progress == nil {
+		reporter, err := newProgressReporter(options.ProgressWriter, options.ProgressFormat, time.Now)
+		if err != nil {
+			return restrictedAttemptResult{}, err
+		}
+		reporter.bind(options.Plan.ReviewKey, options.Plan.ReviewScope)
+		options.Progress = reporter
+	}
 	findings := outcome.BlockingFindings()
 	if len(findings) == 0 {
 		return restrictedAttemptResult{}, errors.New("restricted attempt requires frozen P0/P1 findings")
@@ -94,7 +104,7 @@ func runRestrictedAttempt(ctx context.Context, options restrictedRunOptions, out
 	invocation.stage = string(StateRestrictedRunning)
 	invocation.attempt = options.Attempt
 	invocation.heartbeatInterval = options.HeartbeatInterval
-	invocation.progress = options.ProgressWriter
+	invocation.progress = options.Progress
 	trustedDiff, err := options.Session.ReadTrustedDiff(maxNativeOutputBytes)
 	if err != nil {
 		return restrictedAttemptResult{}, fmt.Errorf("read trusted diff for restricted adjudication: %w", err)
@@ -104,8 +114,10 @@ func runRestrictedAttempt(ctx context.Context, options restrictedRunOptions, out
 		return restrictedAttemptResult{}, errors.New("restricted attempt start time is required")
 	}
 	record.StartedAt = options.StartedAt
+	options.Progress.transition(ProgressRestrictedStarted, ProgressStageRestricted, options.Attempt)
 	started := time.Now()
 	processErr := runNativeProcess(ctx, invocation)
+	options.Progress.transition(ProgressRestrictedFreezing, ProgressStageRestrictedFreeze, options.Attempt)
 	materializeErr := materializeProviderFinalMessage(options.Provider, invocation.paths)
 	frozen, err := freezeNativeArtifacts(invocation.paths, options.Provider)
 	if err != nil {
@@ -157,6 +169,7 @@ func runRestrictedAttempt(ctx context.Context, options restrictedRunOptions, out
 	if err := writeAttemptRecord(options.Session.Directory(), &record); err != nil {
 		return restrictedAttemptResult{}, err
 	}
+	options.Progress.transition(ProgressRestrictedCompleted, ProgressStageRestrictedFreeze, options.Attempt)
 	return restrictedAttemptResult{Outcome: adjudicated, Record: record}, nil
 }
 

@@ -11,7 +11,7 @@
   ],
   "properties": {
     "schema_version": {"const": 1},
-    "tool_version": {"const": "0.5.8"},
+    "tool_version": {"const": "0.5.9"},
     "sequence": {"type": "integer", "minimum": 1},
     "state": {"enum": ["PLANNED", "NATIVE_RUNNING", "NATIVE_FROZEN", "RESTRICTED_RUNNING", "RESTRICTED_RETRYABLE", "PUBLISHED", "MANUAL_REQUIRED", "TERMINAL_ERROR"]},
     "checkpoint_digest": {"type": "string", "pattern": "^checkpoint-v1:sha256:[0-9a-f]{64}$"},

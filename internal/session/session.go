@@ -275,7 +275,7 @@ func PrepareNative(ctx context.Context, options Options) (NativeSession, error) 
 	}, nil
 }
 
-// ReopenNative validates a retained v0.5.8 session and rebuilds its exact
+// ReopenNative validates a retained current-version session and rebuilds its exact
 // detached target checkout. It never fetches or changes the source checkout.
 func ReopenNative(ctx context.Context, sessionDir string) (NativeSession, error) {
 	if !filepath.IsAbs(sessionDir) {

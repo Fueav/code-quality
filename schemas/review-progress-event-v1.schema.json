@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sequence", "event", "stage", "occurred_at", "elapsed_ms"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "sequence": {"type": "integer", "minimum": 1},
+    "event": {
+      "enum": [
+        "PLAN_STARTED", "PLAN_READY", "FULL_REQUIRED", "RECOVERY_STARTED", "RECOVERY_READY",
+        "NATIVE_STARTED", "NATIVE_HEARTBEAT", "NATIVE_FREEZING", "NATIVE_FROZEN",
+        "RESTRICTED_STARTED", "RESTRICTED_HEARTBEAT", "RESTRICTED_FREEZING",
+        "RESTRICTED_COMPLETED", "RESTRICTED_RETRYABLE", "FINALIZING", "PUBLISHED",
+        "MANUAL_REQUIRED", "FAILED"
+      ]
+    },
+    "stage": {"enum": ["PLAN", "RECOVERY", "NATIVE", "NATIVE_FREEZE", "RESTRICTED", "RESTRICTED_FREEZE", "FINALIZE"]},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "elapsed_ms": {"type": "integer", "minimum": 0},
+    "review_key": {"type": "string", "pattern": "^review-v1:sha256:[0-9a-f]{64}$"},
+    "review_scope": {"enum": ["FULL", "INCREMENTAL"]},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 2},
+    "last_activity_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"event": {"enum": ["NATIVE_HEARTBEAT", "RESTRICTED_HEARTBEAT"]}}},
+      "then": {"required": ["attempt", "last_activity_at"]}
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "enum": [
+              "NATIVE_STARTED", "NATIVE_FREEZING", "NATIVE_FROZEN", "RESTRICTED_STARTED",
+              "RESTRICTED_FREEZING", "RESTRICTED_COMPLETED", "RESTRICTED_RETRYABLE"
+            ]
+          }
+        }
+      },
+      "then": {"required": ["attempt"]}
+    }
+  ]
+}

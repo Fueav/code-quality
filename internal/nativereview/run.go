@@ -33,6 +33,8 @@ type nativeRunOptions struct {
 	OutputSchema      []byte
 	HeartbeatInterval time.Duration
 	ProgressWriter    io.Writer
+	ProgressFormat    ProgressFormat
+	Progress          *progressReporter
 }
 
 func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.NativeOutcome, error) {
@@ -51,6 +53,13 @@ func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.Na
 }
 
 func normalizeRunOptions(options *nativeRunOptions) error {
+	if options.Progress == nil {
+		reporter, err := newProgressReporter(options.ProgressWriter, options.ProgressFormat, time.Now)
+		if err != nil {
+			return err
+		}
+		options.Progress = reporter
+	}
 	request := options.Session.Request()
 	if problems := quality.ValidateRequest(request); len(problems) > 0 {
 		return fmt.Errorf("review request is invalid: %s", strings.Join(problems, "; "))
@@ -122,6 +131,7 @@ func normalizeRunOptions(options *nativeRunOptions) error {
 	if options.Plan.Status != reviewplan.StatusReady {
 		return errors.New("native provider requires a READY review plan")
 	}
+	options.Progress.bind(options.Plan.ReviewKey, options.Plan.ReviewScope)
 	if !reflect.DeepEqual(options.Session.Request(), options.Plan.ProviderRequest) {
 		return errors.New("native session request does not match the provider plan")
 	}
@@ -146,7 +156,7 @@ func buildReviewInvocation(options nativeRunOptions) reviewInvocation {
 	invocation.stage = string(StateNativeRunning)
 	invocation.attempt = 1
 	invocation.heartbeatInterval = options.HeartbeatInterval
-	invocation.progress = options.ProgressWriter
+	invocation.progress = options.Progress
 	return invocation
 }
 

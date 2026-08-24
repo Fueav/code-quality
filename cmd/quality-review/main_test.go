@@ -96,7 +96,7 @@ func TestEverySubcommandHelpSucceeds(t *testing.T) {
 	}
 }
 
-func TestResumeRestrictedCLIExposesOnlySessionAndTimingContract(t *testing.T) {
+func TestResumeRestrictedCLIExposesOnlySessionTimingAndProgressContract(t *testing.T) {
 	previous := resumeRestrictedReview
 	called := 0
 	var observed nativereview.ResumeOptions
@@ -122,15 +122,65 @@ func TestResumeRestrictedCLIExposesOnlySessionAndTimingContract(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := run([]string{"resume-restricted", "--session", sessionDir}, &stdout, &stderr); code != 1 {
+	if code := run([]string{"resume-restricted", "--session", sessionDir, "--progress-format", "jsonl"}, &stdout, &stderr); code != 1 {
 		t.Fatalf("resume code=%d stderr=%q", code, stderr.String())
 	}
-	if called != 1 || observed.SessionDir != sessionDir || observed.RestrictedTimeout <= 0 || observed.HeartbeatInterval <= 0 || observed.ProgressWriter == nil {
+	if called != 1 || observed.SessionDir != sessionDir || observed.RestrictedTimeout <= 0 || observed.HeartbeatInterval <= 0 || observed.ProgressWriter == nil || observed.ProgressFormat != nativereview.ProgressFormatJSONL {
 		t.Fatalf("resume options = %#v, called=%d", observed, called)
 	}
 	var status nativereview.SessionStatus
 	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil || status.State != nativereview.StateRestrictedRetryable {
 		t.Fatalf("resume status=%#v err=%v stdout=%q", status, err, stdout.String())
+	}
+}
+
+func TestResumeRestrictedCLIRejectsUnknownProgressFormatBeforeReview(t *testing.T) {
+	previous := resumeRestrictedReview
+	called := false
+	resumeRestrictedReview = func(context.Context, nativereview.ResumeOptions) (nativereview.TransactionResult, error) {
+		called = true
+		return nativereview.TransactionResult{}, nil
+	}
+	t.Cleanup(func() { resumeRestrictedReview = previous })
+
+	var stdout, stderr bytes.Buffer
+	sessionDir := filepath.Join(t.TempDir(), "review-session")
+	if code := run([]string{"resume-restricted", "--session", sessionDir, "--progress-format", "json"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if called || stdout.Len() != 0 || !strings.Contains(stderr.String(), "use text or jsonl") {
+		t.Fatalf("called=%t stdout=%q stderr=%q", called, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunProviderCLIForwardsJSONLProgressFormat(t *testing.T) {
+	previous := runNativeReview
+	called := 0
+	var observed nativereview.TransactionOptions
+	runNativeReview = func(_ context.Context, options nativereview.TransactionOptions) (nativereview.TransactionResult, error) {
+		called++
+		observed = options
+		return nativereview.TransactionResult{
+			Plan:     reviewplan.Decision{SchemaVersion: 1, Status: reviewplan.StatusFullRequired},
+			ExitCode: 4,
+		}, nil
+	}
+	t.Cleanup(func() { runNativeReview = previous })
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"run-codex", "--progress-format", "jsonl"}, &stdout, &stderr); code != 4 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if called != 1 || observed.ProgressFormat != nativereview.ProgressFormatJSONL || observed.ProgressWriter == nil {
+		t.Fatalf("called=%d options=%#v", called, observed)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"run-claude", "--progress-format", "yaml"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("invalid format code=%d stderr=%q", code, stderr.String())
+	}
+	if called != 1 || !strings.Contains(stderr.String(), "use text or jsonl") {
+		t.Fatalf("called=%d stderr=%q", called, stderr.String())
 	}
 }
 

@@ -122,6 +122,29 @@ func TestNativeResultV10SchemaCarriesStageAttemptAccounting(t *testing.T) {
 	}
 }
 
+func TestReviewProgressEventV1SchemaIsSafeAndVersioned(t *testing.T) {
+	raw, err := Schema("review-progress-event-v1.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{
+		`"schema_version": {"const": 1}`,
+		`"additionalProperties": false`,
+		`"PLAN_STARTED"`, `"NATIVE_HEARTBEAT"`, `"RESTRICTED_RETRYABLE"`, `"PUBLISHED"`, `"FAILED"`,
+		`"last_activity_at"`, `"review_key"`, `"review_scope"`, `"elapsed_ms"`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("progress schema is missing %s", required)
+		}
+	}
+	for _, forbidden := range []string{`"finding"`, `"prompt"`, `"path"`, `"token"`, `"provider_output"`} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("progress schema exposes forbidden field %s", forbidden)
+		}
+	}
+}
+
 func TestV8V9AndEnvelopeV1V2SchemasRemainByteFrozen(t *testing.T) {
 	for path, want := range map[string]string{
 		"schemas/review-result-v8.schema.json":          "034f02916ddbee27d1bc6b9f6172ca7bff98dad751ddf73a02791388570efa9c",
@@ -378,6 +401,7 @@ func TestEmbeddedArtifactsAreAvailable(t *testing.T) {
 		"native-review-freeze.schema.json",
 		"native-run-metrics.schema.json",
 		"native-stage-metrics-v2.schema.json",
+		"review-progress-event-v1.schema.json",
 		"native-session-checkpoint.schema.json",
 		"restricted-attempt.schema.json",
 	} {

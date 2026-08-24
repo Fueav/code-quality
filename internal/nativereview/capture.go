@@ -37,11 +37,7 @@ type reviewInvocation struct {
 	stage             string
 	attempt           int
 	heartbeatInterval time.Duration
-	progress          io.Writer
-}
-
-type processOutputWriter struct {
-	io.Writer
+	progress          *progressReporter
 }
 
 type capturedNativeEvidence struct {
@@ -82,8 +78,10 @@ func captureNativeEvidence(ctx context.Context, options nativeRunOptions) (captu
 		return capturedNativeEvidence{}, fmt.Errorf("read trusted diff: %w", err)
 	}
 	invocation := buildReviewInvocation(options)
+	invocation.progress.transition(ProgressNativeStarted, ProgressStageNative, 1)
 	started := time.Now()
 	processErr := runNativeProcess(ctx, invocation)
+	invocation.progress.transition(ProgressNativeFreezing, ProgressStageNativeFreeze, 1)
 	materializeErr := materializeProviderFinalMessage(options.Provider, invocation.paths)
 	frozen, err := freezeNativeArtifacts(invocation.paths, options.Provider)
 	if err != nil {
@@ -109,11 +107,13 @@ func runNativeProcess(ctx context.Context, invocation reviewInvocation) error {
 	}
 	defer stderr.Close()
 
+	started := time.Now().UTC()
+	activity := newProcessActivity(started)
 	command := exec.CommandContext(ctx, invocation.executable, invocation.args...)
 	command.Dir = invocation.directory
 	command.Stdin = strings.NewReader(invocation.stdin)
-	command.Stdout = processOutputWriter{Writer: stdout}
-	command.Stderr = processOutputWriter{Writer: stderr}
+	command.Stdout = processOutputWriter{Writer: stdout, activity: activity, now: time.Now}
+	command.Stderr = processOutputWriter{Writer: stderr, activity: activity, now: time.Now}
 	command.ExtraFiles = invocation.extraFiles
 	command.WaitDelay = processOutputDrainTimeout
 	if err := command.Start(); err != nil {
@@ -123,12 +123,11 @@ func runNativeProcess(ctx context.Context, invocation reviewInvocation) error {
 	go func() { done <- command.Wait() }()
 	var ticker *time.Ticker
 	var heartbeats <-chan time.Time
-	if invocation.progress != nil && invocation.heartbeatInterval > 0 {
+	if invocation.progress.enabled() && invocation.heartbeatInterval > 0 {
 		ticker = time.NewTicker(invocation.heartbeatInterval)
 		heartbeats = ticker.C
 		defer ticker.Stop()
 	}
-	started := time.Now()
 	for {
 		select {
 		case err := <-done:
@@ -137,7 +136,11 @@ func runNativeProcess(ctx context.Context, invocation reviewInvocation) error {
 			}
 			return nil
 		case <-heartbeats:
-			fmt.Fprintf(invocation.progress, "quality-review: heartbeat stage=%s attempt=%d elapsed=%s\n", invocation.stage, invocation.attempt, time.Since(started).Round(time.Second))
+			stage := ProgressStageNative
+			if invocation.stage == string(StateRestrictedRunning) {
+				stage = ProgressStageRestricted
+			}
+			invocation.progress.heartbeat(stage, invocation.attempt, activity.latest())
 		}
 	}
 }

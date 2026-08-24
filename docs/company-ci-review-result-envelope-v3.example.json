@@ -3,8 +3,8 @@
   "result_source": "EXECUTED",
   "lifecycle_status": "CURRENT",
   "review_result": {
-    "review_key": "review-v1:sha256:336dbb3a9ecc3f0c4a9c801b0c0834678789a40aded3baef5bbae3c0fedaf3f9",
-    "contract_digest": "contract-v1:sha256:4cf37716faea032c1b13b9b3f928bdb89472130f0baaa3029bd246262c1d7ca9",
+    "review_key": "review-v1:sha256:9a80635bbb4ec9bc616f0507b765dbd7143b6d8c760048c45906bdf86a6ec3b3",
+    "contract_digest": "contract-v1:sha256:5e944f7d6fc7d856da227fc800b73b359f6596d7146a9fe7059848b2e7c9d9bc",
     "review_scope": "FULL",
     "base_ref": "production",
     "head_ref": "deploy",
@@ -15,7 +15,7 @@
     "current_head": "2222222222222222222222222222222222222222",
     "delta_changed_files": [],
     "contract": {
-      "tool_version": "0.5.8",
+      "tool_version": "0.5.9",
       "result_schema_version": 10,
       "provider_output_schema": "sha256:47bc3df29c976c0f042a2aa49bd5216f0cf50f49f62e840a5c904383d30125e2",
       "prompt_contract_version": "3",

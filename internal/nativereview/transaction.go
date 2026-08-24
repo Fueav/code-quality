@@ -47,6 +47,7 @@ type TransactionOptions struct {
 	RestrictedTimeout time.Duration
 	HeartbeatInterval time.Duration
 	ProgressWriter    io.Writer
+	ProgressFormat    ProgressFormat
 }
 
 type TransactionResult struct {
@@ -65,6 +66,7 @@ type ResumeOptions struct {
 	RestrictedTimeout time.Duration
 	HeartbeatInterval time.Duration
 	ProgressWriter    io.Writer
+	ProgressFormat    ProgressFormat
 }
 
 type transactionError struct {
@@ -93,6 +95,16 @@ func TransactionExitCode(err error) int {
 // acquired before discovery and remains held until report publication and
 // isolated-checkout cleanup have both completed.
 func RunTransaction(ctx context.Context, options TransactionOptions) (transaction TransactionResult, returnErr error) {
+	progress, err := newProgressReporter(options.ProgressWriter, options.ProgressFormat, time.Now)
+	if err != nil {
+		return TransactionResult{}, atStage("configure review progress", 2, err)
+	}
+	progress.transition(ProgressPlanStarted, ProgressStagePlan, 0)
+	defer func() {
+		if returnErr != nil {
+			progress.failed()
+		}
+	}()
 	provider := options.Provider
 	if provider == nil {
 		provider = NewCodexProvider(options.CodexBinary)
@@ -144,12 +156,16 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	if err != nil {
 		return TransactionResult{}, atStage("resolve review scope", 1, err)
 	}
+	progress.bind(plan.ReviewKey, plan.ReviewScope)
 	if plan.Status == reviewplan.StatusFullRequired {
+		progress.transition(ProgressFullRequired, ProgressStagePlan, 0)
 		return TransactionResult{Plan: plan, DirtyWorktree: plan.DirtyWorktree, Warnings: []string{}, ExitCode: 4}, nil
 	}
 	if plan.Status == reviewplan.StatusManualRequired {
+		progress.transition(ProgressManualRequired, ProgressStagePlan, 0)
 		return TransactionResult{Plan: plan, DirtyWorktree: plan.DirtyWorktree, Warnings: []string{}, ExitCode: 5}, nil
 	}
+	progress.transition(ProgressPlanReady, ProgressStagePlan, 0)
 	outputRoot, err := resolveTransactionOutputRoot(options.OutputRoot, plan.RepositoryRoot())
 	if err != nil {
 		return TransactionResult{}, atStage("output root", 2, err)
@@ -195,6 +211,7 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 		ReasoningEffort: contract.Contract.ReasoningEffort, ExecutionProfile: contract.Contract.ExecutionProfile,
 		Provider: provider, LeaseFile: leaseFile, SessionLockFile: sessionLock.inheritedFile(),
 		HeartbeatInterval: options.HeartbeatInterval, ProgressWriter: options.ProgressWriter,
+		ProgressFormat: options.ProgressFormat, Progress: progress,
 	})
 	cancelNative()
 	if err != nil {
@@ -206,8 +223,9 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	if err := writeCheckpoint(session.Directory(), &checkpoint); err != nil {
 		return TransactionResult{}, atStage("write native-frozen checkpoint", 1, err)
 	}
+	progress.transition(ProgressNativeFrozen, ProgressStageNativeFreeze, 1)
 	if len(outcome.BlockingFindings()) == 0 {
-		return publishTransaction(session, plan, &checkpoint, outcome, 1, 0)
+		return publishTransaction(session, plan, &checkpoint, outcome, 1, 0, progress)
 	}
 
 	record := newAttemptRecord(1, false)
@@ -222,6 +240,7 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 		ReasoningEffort: contract.Contract.ReasoningEffort, LeaseFile: leaseFile, SessionLockFile: sessionLock.inheritedFile(),
 		Attempt: 1, Resumed: false, StartedAt: record.StartedAt,
 		HeartbeatInterval: options.HeartbeatInterval, ProgressWriter: options.ProgressWriter,
+		ProgressFormat: options.ProgressFormat, Progress: progress,
 	}, outcome)
 	cancelRestricted()
 	if err != nil {
@@ -231,12 +250,22 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 		return TransactionResult{}, atStage("run restricted adjudication", 1, err)
 	}
 	checkpoint.RestrictedAttempts[0] = attempt.Record
-	return finishRestrictedAttempt(session, plan, &checkpoint, attempt, false, 1, 1)
+	return finishRestrictedAttempt(session, plan, &checkpoint, attempt, false, 1, 1, progress)
 }
 
 // ResumeRestricted is the only production entry point for continuing a
 // verified Native-frozen session. It never runs Native review or changes scope.
 func ResumeRestricted(ctx context.Context, options ResumeOptions) (transaction TransactionResult, returnErr error) {
+	progress, progressErr := newProgressReporter(options.ProgressWriter, options.ProgressFormat, time.Now)
+	if progressErr != nil {
+		return TransactionResult{}, atStage("configure review progress", 2, progressErr)
+	}
+	progress.transition(ProgressRecoveryStarted, ProgressStageRecovery, 0)
+	defer func() {
+		if returnErr != nil {
+			progress.failed()
+		}
+	}()
 	if !filepath.IsAbs(options.SessionDir) {
 		return TransactionResult{Status: SessionStatus{SchemaVersion: 1, SessionDir: options.SessionDir}},
 			atStage("resume restricted adjudication", 2, errors.New("session directory must be absolute"))
@@ -252,14 +281,19 @@ func ResumeRestricted(ctx context.Context, options ResumeOptions) (transaction T
 		return TransactionResult{Status: SessionStatus{SchemaVersion: 1, SessionDir: sessionDir}},
 			atStage("verify restricted resume checkpoint", 1, err)
 	}
+	progress.bind(checkpoint.Plan.ReviewKey, checkpoint.Plan.ReviewScope)
+	progress.transition(ProgressRecoveryReady, ProgressStageRecovery, 0)
 	terminal := statusFromCheckpoint(checkpoint, sessionDir, 0, 0)
 	recoverRunning := false
 	switch checkpoint.State {
 	case StatePublished:
+		progress.transition(ProgressPublished, ProgressStageFinalize, 0)
 		return publishedTransactionFromCheckpoint(sessionDir, checkpoint, terminal)
 	case StateManualRequired:
+		progress.transition(ProgressManualRequired, ProgressStageRecovery, 0)
 		return TransactionResult{Plan: checkpoint.Plan, Status: terminal, ExitCode: 5}, nil
 	case StateTerminalError:
+		progress.transition(ProgressFailed, ProgressStageRecovery, 0)
 		return TransactionResult{Plan: checkpoint.Plan, Status: terminal, ExitCode: 1}, nil
 	case StateNativeFrozen, StateRestrictedRetryable:
 	case StateRestrictedRunning:
@@ -288,6 +322,7 @@ func ResumeRestricted(ctx context.Context, options ResumeOptions) (transaction T
 		if err := writeCheckpoint(sessionDir, &checkpoint); err != nil {
 			return TransactionResult{}, err
 		}
+		progress.transition(ProgressManualRequired, ProgressStageRecovery, 0)
 		return TransactionResult{Plan: checkpoint.Plan, Status: statusFromCheckpoint(checkpoint, sessionDir, 0, 0), ExitCode: 5}, nil
 	}
 	acquireLease := options.AcquireLease
@@ -368,7 +403,7 @@ func ResumeRestricted(ctx context.Context, options ResumeOptions) (transaction T
 		}
 		checkpoint.RestrictedAttempts[len(checkpoint.RestrictedAttempts)-1] = attempt.Record
 		if attempt.Record.Status == "SUCCEEDED" {
-			return finishRestrictedAttempt(session, checkpoint.Plan, &checkpoint, attempt, true, 0, 0)
+			return finishRestrictedAttempt(session, checkpoint.Plan, &checkpoint, attempt, true, 0, 0, progress)
 		}
 		checkpoint.LastFailure = cloneFailure(attempt.Record.Failure)
 		switch {
@@ -386,15 +421,20 @@ func ResumeRestricted(ctx context.Context, options ResumeOptions) (transaction T
 			exitCode := 1
 			if checkpoint.State == StateManualRequired {
 				exitCode = 5
+				progress.transition(ProgressManualRequired, ProgressStageRecovery, attempt.Record.Attempt)
+			} else {
+				progress.transition(ProgressFailed, ProgressStageRecovery, attempt.Record.Attempt)
 			}
 			return TransactionResult{Plan: checkpoint.Plan, Status: statusFromCheckpoint(checkpoint, sessionDir, 0, 0), ExitCode: exitCode}, nil
 		}
+		progress.transition(ProgressRestrictedRetryable, ProgressStageRecovery, attempt.Record.Attempt)
 	}
 	if len(checkpoint.RestrictedAttempts) >= 2 {
 		checkpoint.State = StateManualRequired
 		if err := writeCheckpoint(sessionDir, &checkpoint); err != nil {
 			return TransactionResult{}, err
 		}
+		progress.transition(ProgressManualRequired, ProgressStageRecovery, 0)
 		return TransactionResult{Plan: checkpoint.Plan, Status: statusFromCheckpoint(checkpoint, sessionDir, 0, 0), ExitCode: 5}, nil
 	}
 	attemptNumber := len(checkpoint.RestrictedAttempts) + 1
@@ -411,6 +451,7 @@ func ResumeRestricted(ctx context.Context, options ResumeOptions) (transaction T
 		ReasoningEffort: checkpoint.Plan.Contract.ReasoningEffort, LeaseFile: leaseFile, SessionLockFile: lock.inheritedFile(),
 		Attempt: attemptNumber, Resumed: true, StartedAt: record.StartedAt,
 		HeartbeatInterval: options.HeartbeatInterval, ProgressWriter: options.ProgressWriter,
+		ProgressFormat: options.ProgressFormat, Progress: progress,
 	}, outcome)
 	cancelRestricted()
 	if err != nil {
@@ -420,7 +461,7 @@ func ResumeRestricted(ctx context.Context, options ResumeOptions) (transaction T
 		return TransactionResult{}, atStage("run resumed restricted adjudication", 1, err)
 	}
 	checkpoint.RestrictedAttempts[len(checkpoint.RestrictedAttempts)-1] = attempt.Record
-	return finishRestrictedAttempt(session, checkpoint.Plan, &checkpoint, attempt, true, 0, 1)
+	return finishRestrictedAttempt(session, checkpoint.Plan, &checkpoint, attempt, true, 0, 1, progress)
 }
 
 func revalidateFrozenNativeOutcome(session reviewsession.NativeSession, provider Provider, checkpoint SessionCheckpoint) (quality.NativeOutcome, error) {
@@ -446,7 +487,7 @@ func revalidateFrozenNativeOutcome(session reviewsession.NativeSession, provider
 	return rebuilt, nil
 }
 
-func finishRestrictedAttempt(session reviewsession.NativeSession, plan reviewplan.Decision, checkpoint *SessionCheckpoint, attempt restrictedAttemptResult, resumed bool, nativeThisRun, restrictedThisRun int) (TransactionResult, error) {
+func finishRestrictedAttempt(session reviewsession.NativeSession, plan reviewplan.Decision, checkpoint *SessionCheckpoint, attempt restrictedAttemptResult, resumed bool, nativeThisRun, restrictedThisRun int, progress *progressReporter) (TransactionResult, error) {
 	if attempt.Record.Status == "SUCCEEDED" {
 		adopted := attempt.Record.Attempt
 		checkpoint.AdoptedRestrictedAttempt = &adopted
@@ -455,7 +496,7 @@ func finishRestrictedAttempt(session reviewsession.NativeSession, plan reviewpla
 		if err != nil {
 			return TransactionResult{}, atStage("record restricted attempt audit", 1, err)
 		}
-		return publishTransaction(session, plan, checkpoint, outcome, nativeThisRun, restrictedThisRun, compatible...)
+		return publishTransaction(session, plan, checkpoint, outcome, nativeThisRun, restrictedThisRun, progress, compatible...)
 	}
 	checkpoint.LastFailure = cloneFailure(attempt.Record.Failure)
 	if len(checkpoint.RestrictedAttempts) >= 2 {
@@ -471,6 +512,11 @@ func finishRestrictedAttempt(session reviewsession.NativeSession, plan reviewpla
 	exitCode := 1
 	if checkpoint.State == StateManualRequired {
 		exitCode = 5
+		progress.transition(ProgressManualRequired, ProgressStageRestrictedFreeze, attempt.Record.Attempt)
+	} else if checkpoint.State == StateRestrictedRetryable {
+		progress.transition(ProgressRestrictedRetryable, ProgressStageRestrictedFreeze, attempt.Record.Attempt)
+	} else {
+		progress.transition(ProgressFailed, ProgressStageRestrictedFreeze, attempt.Record.Attempt)
 	}
 	return TransactionResult{
 		Plan: plan, Status: statusFromCheckpoint(*checkpoint, session.Directory(), nativeThisRun, restrictedThisRun),
@@ -514,7 +560,8 @@ func outcomeForPublication(session reviewsession.NativeSession, checkpoint *Sess
 	return quality.NativeOutcome{}, nil, errors.New("partial publication result does not match the completed restricted attempt")
 }
 
-func publishTransaction(session reviewsession.NativeSession, plan reviewplan.Decision, checkpoint *SessionCheckpoint, outcome quality.NativeOutcome, nativeThisRun, restrictedThisRun int, compatible ...quality.NativeOutcome) (TransactionResult, error) {
+func publishTransaction(session reviewsession.NativeSession, plan reviewplan.Decision, checkpoint *SessionCheckpoint, outcome quality.NativeOutcome, nativeThisRun, restrictedThisRun int, progress *progressReporter, compatible ...quality.NativeOutcome) (TransactionResult, error) {
+	progress.transition(ProgressFinalizing, ProgressStageFinalize, 0)
 	if err := publishNativeOutcome(session, outcome, compatible...); err != nil {
 		return TransactionResult{}, atStage("publish native review", 1, err)
 	}
@@ -527,6 +574,7 @@ func publishTransaction(session reviewsession.NativeSession, plan reviewplan.Dec
 	exitCode := outcomeExitCode(outcome.SemanticResult())
 	artifacts := session.Artifacts()
 	status := statusFromCheckpoint(*checkpoint, session.Directory(), nativeThisRun, restrictedThisRun)
+	progress.transition(ProgressPublished, ProgressStageFinalize, 0)
 	return TransactionResult{
 		Plan:          plan,
 		Summary:       NativeRunSummary{NativeReleaseSummary: outcome.Summary(), SummaryPath: artifacts.SummaryMarkdownPath(), EvidenceDir: session.Directory(), Session: status},

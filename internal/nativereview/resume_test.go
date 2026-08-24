@@ -46,7 +46,7 @@ func TestRestrictedResumeStartsFromColdNativeFrozenCheckpoint(t *testing.T) {
 
 func TestSessionDigestExcludesCheckpointClockAndState(t *testing.T) {
 	checkpoint := SessionCheckpoint{
-		ToolVersion: "0.5.8", State: StateRestrictedRetryable,
+		ToolVersion: quality.SkillVersion, State: StateRestrictedRetryable,
 		RestrictedAttempts: []RestrictedAttemptRecord{{
 			SchemaVersion: 1, Attempt: 1, Status: "FAILED",
 			StartedAt: "2026-08-19T00:00:00Z", FinishedAt: "2026-08-19T00:01:00Z",

@@ -8,16 +8,16 @@
 
 在需要审查的仓库中，把下面整句话交给 Codex 或 Claude Code：
 
-> 请为当前仓库安装并运行 Fueav code-quality v0.5.8；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.8/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只读审查，只展示简明结论、必须修复的问题和非阻断 advisory，不修改代码、Git、CI、远端或部署状态。
+> 请为当前仓库安装并运行 Fueav code-quality v0.5.9；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.9/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只读审查，只展示简明结论、必须修复的问题和非阻断 advisory，不修改代码、Git、CI、远端或部署状态。
 
 Agent 会根据当前宿主执行下面一个固定版本入口：
 
 ```sh
 # Codex
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.8/bootstrap.sh | sh -s -- v0.5.8 codex
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.9/bootstrap.sh | sh -s -- v0.5.9 codex
 
 # Claude Code
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.8/bootstrap.sh | sh -s -- v0.5.8 claude
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.9/bootstrap.sh | sh -s -- v0.5.9 claude
 ```
 
 bootstrap 会同时安装 CLI 和对应插件，并输出 `QUALITY_REVIEW_BIN=<绝对路径>` 及下一条 doctor 命令。首次运行使用这个绝对路径，不依赖当前 shell 是否已包含 `~/.local/bin`；bootstrap 不会修改 shell profile。
@@ -86,20 +86,20 @@ INCREMENTAL 只审 `previous_head..current_head`，同时复核上一轮未解�
 CLI 安装器会判断平台、校验 SHA-256，并安装到 `~/.local/bin`（可用 `INSTALL_DIR` 覆盖）：
 
 ```sh
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.8/install.sh | sh -s -- v0.5.8
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.9/install.sh | sh -s -- v0.5.9
 ```
 
 Codex plugin：
 
 ```sh
-codex plugin marketplace add Fueav/code-quality --ref v0.5.8
+codex plugin marketplace add Fueav/code-quality --ref v0.5.9
 codex plugin add code-quality@fueav-code-quality
 ```
 
 Claude Code plugin 使用 HTTPS 和固定 Tag，不要求 GitHub SSH：
 
 ```sh
-claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.8
+claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.9
 claude plugin install code-quality@fueav-code-quality --scope user
 ```
 
@@ -119,7 +119,7 @@ claude plugin install code-quality@fueav-code-quality --scope user
 
 本节的 `jobs: uses:` 配置只适用于 GitHub Actions。使用 Jenkins 的团队请直接阅读 [Jenkins 生产 CI 接入](docs/jenkins-production-ci.md)。
 
-这个入口面向一台受控的 self-hosted Linux runner。运行 GitHub Actions Runner 的同一个系统用户必须已经安装 `quality-review v0.5.8`，并安装、登录 Codex 或 Claude Code；workflow 不接收 Provider API key，不安装任何 CLI，也不创建临时登录。`quality-review run-codex` 会直接复用该用户的登录态启动原生发现；只有发现 P0/P1 时，才会用同一 Provider 做受限裁决。首次受限调用若为明确可重试的运行故障，可用 `resume-restricted` 对同一冻结会话最多续跑一次；不会重跑 Native。Claude Code 路径相同。
+这个入口面向一台受控的 self-hosted Linux runner。运行 GitHub Actions Runner 的同一个系统用户必须已经安装 `quality-review v0.5.9`，并安装、登录 Codex 或 Claude Code；workflow 不接收 Provider API key，不安装任何 CLI，也不创建临时登录。`quality-review run-codex` 会直接复用该用户的登录态启动原生发现；只有发现 P0/P1 时，才会用同一 Provider 做受限裁决。首次受限调用若为明确可重试的运行故障，可用 `resume-restricted` 对同一冻结会话最多续跑一次；不会重跑 Native。Claude Code 路径相同。
 
 CI 不需要安装 Codex 或 Claude Code 插件。reusable workflow 只验证预装的 `quality-review` 版本，然后以同一组合同参数执行 `plan → doctor → 原生发现 → 必要时受限裁决 → 发布简报与证据`。生产路径以 PR 为审查单元：套件从 GitHub PR 事件读取 base tip 与 head，计算真实 `merge-base → head` 范围，并把 PR 身份冻结到 schema v10 结果中。每轮固定一个 Provider，原生调用恒为 1，受限裁决最多 2 次，默认 `reasoning_effort: max`；它不会写 PR 评论，只有通过生产下限裁决的 P0/P1 才返回 `BLOCK`，P2/P3-only 结果保持 `PASS`。
 
@@ -131,17 +131,29 @@ CI 不需要安装 Codex 或 Claude Code 插件。reusable workflow 只验证预
 quality-review resume-restricted --session /absolute/path/to/review-session
 ```
 
-恢复前会重新验证 checkpoint、冻结证据、contract/policy/schema/prompt digest 和 target commit，然后只执行一次 Restricted；Native invocation 为 0。命令只接受 `--session`、`--restricted-timeout` 和 `--heartbeat-interval`，不允许覆盖 repo、scope、model 或 goal。第二次 Restricted 仍失败时进入 `MANUAL_REQUIRED`、exit 5；已发布或已要求人工处理的 session 再次执行都是零 Provider 调用的幂等返回。公司级持久化、CAS/分布式锁、GitHub rerun 和 envelope-v3 规则见 [公司 CI 结果 envelope 与受限恢复合同](docs/company-ci-review-result-envelope.md)。
+恢复前会重新验证 checkpoint、冻结证据、contract/policy/schema/prompt digest 和 target commit，然后只执行一次 Restricted；Native invocation 为 0。命令只接受 `--session`、`--restricted-timeout`、`--heartbeat-interval` 和 `--progress-format`，不允许覆盖 repo、scope、model 或 goal。第二次 Restricted 仍失败时进入 `MANUAL_REQUIRED`、exit 5；已发布或已要求人工处理的 session 再次执行都是零 Provider 调用的幂等返回。公司级持久化、CAS/分布式锁、GitHub rerun 和 envelope-v3 规则见 [公司 CI 结果 envelope 与受限恢复合同](docs/company-ci-review-result-envelope.md)。
+
+### 结构化进度事件
+
+`run-codex`、`run-claude` 和 `resume-restricted` 默认继续向 stderr 输出人类可读 heartbeat。需要由上层 Service 驱动五分钟状态播报时，增加：
+
+```sh
+quality-review run-codex "${review_args[@]}" \
+  --output-root "$CI_TMP_DIR/code-quality" \
+  --progress-format jsonl
+```
+
+stderr 中能按 [review-progress-event-v1 schema](schemas/review-progress-event-v1.schema.json) 解码的 JSON 对象是进度事件；其余行仍是普通诊断日志。stdout 保持只输出最终 result、plan 或 session status。事件只包含 review identity、scope、阶段、attempt、时间和最近输出活动时间，不包含 finding、prompt、Provider 原文、token、路径或凭据。`last_activity_at` 只证明最近有输出，不能解释成完成百分比、ETA 或卡死结论。
 
 ### 1. 准备 Linux runner
 
 创建名为 `code-quality` 的 runner group，只授权给接入的可信私有仓库；给组内 Linux runner 增加 `self-hosted`、`linux`、`code-quality` 标签。先切换到实际运行 Actions Runner 服务的系统用户，安装套件并确保安装目录属于该服务的 `PATH`：
 
 ```sh
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.8/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.8
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.9/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.9
 command -v quality-review
-quality-review version  # 必须精确输出 quality-review v0.5.8
+quality-review version  # 必须精确输出 quality-review v0.5.9
 ```
 
 再验证所选 Provider：
@@ -181,7 +193,7 @@ jobs:
       !github.event.pull_request.draft &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.8
+    uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.9
     with:
       provider: claude
       model: sonnet
@@ -189,7 +201,7 @@ jobs:
       artifact_retention_days: 14
 ```
 
-示例固定引用 `v0.5.8`，不要改为 `main`。公司侧统一使用 `reasoning_effort: max`。改用 Codex 时只需把 `provider` 改为 `codex`、`model` 改为 `gpt-5.6-sol`；两种 Provider 都不传 secrets。job 会被调度到 `code-quality` runner group 内、带对应标签的 self-hosted Linux runner。
+示例固定引用 `v0.5.9`，不要改为 `main`。公司侧统一使用 `reasoning_effort: max`。改用 Codex 时只需把 `provider` 改为 `codex`、`model` 改为 `gpt-5.6-sol`；两种 Provider 都不传 secrets。job 会被调度到 `code-quality` runner group 内、带对应标签的 self-hosted Linux runner。
 
 caller 不传 `base_sha` 或 `target_sha`。reusable workflow 只接受 `pull_request` 事件，完整拉取历史、精确检出 PR head，再由套件计算 merge-base；目标分支在 PR 创建后继续前进，也不会把目标分支自己的新增提交混进本次审查。每次 PR 更新都会取消同一 Provider 的旧 run，避免浪费额度。
 
@@ -226,7 +238,7 @@ Jenkins 使用独立的 [生产接入说明](docs/jenkins-production-ci.md)。Gi
 
 ```sh
 claude auth status --json
-test "$(quality-review version)" = 'quality-review v0.5.8'
+test "$(quality-review version)" = 'quality-review v0.5.9'
 
 review_args=(--repo "$WORKSPACE"
   --base "$BASE_SHA" --target "$TARGET_SHA"
@@ -246,7 +258,7 @@ Codex runner 先以 job 的系统用户运行 `codex login status` 与 `codex ex
 
 CLI 会固定并隔离 committed base-to-target，先启动一次顶层原生 Provider 做发现并冻结原始结果。没有 P0/P1 时立即分类；存在 P0/P1 时，同一 Provider、model 和 reasoning effort 再执行一次受限裁决。第二次调用始终只读、忽略宿主自定义扩展，并把 [V1.2 生产下限 policy](policy/v1.2/restricted-adjudication.md) 作为 Codex developer instructions 或 Claude system prompt 注入。
 
-普通代码严格校验裁决结构、候选 ID、顺序和仓库内证据，再按唯一 [V1.2 生产下限 policy](policy/v1.2/restricted-adjudication.md) 重新计算结论；模型给出的 recommendation 不决定门禁。其余 P0/P1 被静默过滤，格式、Provider、证据或裁决失败返回 `ERROR/HOLD`。完整基线合同见 [v0.5.7 规格](2026-08-14-code-quality-v0.5.7-restricted-adjudication-spec.md)，断点恢复合同见 [v0.5.8 规格](2026-08-19-code-quality-v0.5.8-restricted-resume-spec.md)。同一系统用户同时只允许一个审查事务。
+普通代码严格校验裁决结构、候选 ID、顺序和仓库内证据，再按唯一 [V1.2 生产下限 policy](policy/v1.2/restricted-adjudication.md) 重新计算结论；模型给出的 recommendation 不决定门禁。其余 P0/P1 被静默过滤，格式、Provider、证据或裁决失败返回 `ERROR/HOLD`。完整基线合同见 [v0.5.7 规格](2026-08-14-code-quality-v0.5.7-restricted-adjudication-spec.md)，断点恢复合同见 [v0.5.8 规格](2026-08-19-code-quality-v0.5.8-restricted-resume-spec.md)，进度事件合同见 [v0.5.9 规格](2026-08-24-code-quality-v0.5.9-observable-review-lifecycle-spec.md)。同一系统用户同时只允许一个审查事务。
 
 ## 维护者发布
 

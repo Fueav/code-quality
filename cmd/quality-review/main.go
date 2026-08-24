@@ -161,6 +161,7 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	nativeTimeout := flags.Duration("native-timeout", 45*time.Minute, "Native Review deadline")
 	restrictedTimeout := flags.Duration("restricted-timeout", 15*time.Minute, "Restricted Adjudication deadline")
 	heartbeatInterval := flags.Duration("heartbeat-interval", 45*time.Second, "safe progress heartbeat interval")
+	progressFormatValue := flags.String("progress-format", "text", "progress output format: text or jsonl")
 	if err := flags.Parse(args); err != nil {
 		return flagParseExitCode(err)
 	}
@@ -170,6 +171,11 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	}
 	if *nativeTimeout <= 0 || *restrictedTimeout <= 0 || *heartbeatInterval <= 0 {
 		fmt.Fprintln(stderr, "quality-review: timeouts and heartbeat interval must be positive")
+		return 2
+	}
+	progressFormat, err := nativereview.ParseProgressFormat(*progressFormatValue)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: %v\n", err)
 		return 2
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -193,6 +199,7 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		RestrictedTimeout:  *restrictedTimeout,
 		HeartbeatInterval:  *heartbeatInterval,
 		ProgressWriter:     stderr,
+		ProgressFormat:     progressFormat,
 	})
 	if errors.Is(err, nativereview.ErrNativeReviewActive) {
 		fmt.Fprintln(stderr, "quality-review: another native review is active for this user; retry after it finishes or review directly in the current host agent")
@@ -232,9 +239,10 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 func runResumeRestricted(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("resume-restricted", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	sessionDir := flags.String("session", "", "absolute v0.5.8 review session directory")
+	sessionDir := flags.String("session", "", "absolute current-version review session directory")
 	restrictedTimeout := flags.Duration("restricted-timeout", 15*time.Minute, "Restricted Adjudication deadline")
 	heartbeatInterval := flags.Duration("heartbeat-interval", 45*time.Second, "safe progress heartbeat interval")
+	progressFormatValue := flags.String("progress-format", "text", "progress output format: text or jsonl")
 	if err := flags.Parse(args); err != nil {
 		return flagParseExitCode(err)
 	}
@@ -246,11 +254,16 @@ func runResumeRestricted(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "quality-review: resume session must be absolute and timing values must be positive")
 		return 2
 	}
+	progressFormat, err := nativereview.ParseProgressFormat(*progressFormatValue)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: %v\n", err)
+		return 2
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	transaction, err := resumeRestrictedReview(ctx, nativereview.ResumeOptions{
 		SessionDir: filepath.Clean(*sessionDir), RestrictedTimeout: *restrictedTimeout,
-		HeartbeatInterval: *heartbeatInterval, ProgressWriter: stderr,
+		HeartbeatInterval: *heartbeatInterval, ProgressWriter: stderr, ProgressFormat: progressFormat,
 	})
 	if errors.Is(err, nativereview.ErrNativeReviewActive) || errors.Is(err, nativereview.ErrRestrictedResumeActive) {
 		fmt.Fprintln(stderr, "quality-review: another review owns the Provider or this session; retry after it finishes")

@@ -187,7 +187,7 @@ func TestHarnessReleaseGateUsesNamespacedProductVersion(t *testing.T) {
 		"PATH=" + tempDir + ":/usr/bin:/bin",
 		"OUTPUT=" + outputPath,
 		"VERSION=v0.4.0",
-		"CODE_QUALITY_RELEASE_VERSION=v0.5.8",
+		"CODE_QUALITY_RELEASE_VERSION=v0.5.9",
 	}
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("release gate failed: %v\n%s", err, output)
@@ -196,7 +196,7 @@ func TestHarnessReleaseGateUsesNamespacedProductVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.TrimSpace(string(arguments)), "release-check VERSION=v0.5.8"; got != want {
+	if got, want := strings.TrimSpace(string(arguments)), "release-check VERSION=v0.5.9"; got != want {
 		t.Fatalf("make arguments = %q, want %q", got, want)
 	}
 }

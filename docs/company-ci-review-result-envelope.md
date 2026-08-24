@@ -31,6 +31,14 @@ Service/Runner 可以固定禁用 apps、plugins、web search 或网络，并要
 6. `PUBLISHED` 与 `MANUAL_REQUIRED` 的再次恢复都幂等且 Provider 调用数为 0；第二次 Restricted 失败必须停在 `MANUAL_REQUIRED`。
 7. 发布 required check 前重新读取 PR 当前 base/head，以 compare-and-swap 与计划时冻结值比较，再用 envelope-v3 包装结果。
 
+## 进度事件与五分钟播报
+
+Service 调用 `run-codex`、`run-claude` 或 `resume-restricted` 时传入 `--progress-format jsonl`，逐行读取 stderr。只有能按 `review-progress-event-v1` 解码的对象进入状态库；其他 stderr 行保留为诊断日志，不从 raw Provider transcript 推断阶段。
+
+Service 以自己的 job/invocation identity 加 CLI `sequence` 去重并持久化最新事件。CLI 负责 `PLAN`、`RECOVERY`、`NATIVE`、`NATIVE_FREEZE`、`RESTRICTED`、`RESTRICTED_FREEZE` 和 `FINALIZE` 的事实；Service 负责每五分钟定时更新同一张卡片、进程重启恢复和外部消息幂等。播报只能展示当前阶段、review scope、attempt、已运行时间和最近活动时间，不展示 finding、prompt、Provider 原文、token、凭据或宿主路径，也不虚构百分比和 ETA。
+
+progress writer 或消息发送失败不得改变 CLI 的 PASS/BLOCK、checkpoint 或退出码；Service 将通知故障作为独立运维状态处理。
+
 伪代码：
 
 ```text

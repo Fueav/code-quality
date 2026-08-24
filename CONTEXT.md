@@ -1,6 +1,6 @@
-# code-quality v0.5.8 domain context
+# code-quality v0.5.9 domain context
 
-This file defines the project-specific language used by the review-scope, integration-contract, restricted-adjudication, and stage-recovery implementation. The approved behavior remains authoritative in `2026-08-14-code-quality-review-scope-and-identity-spec.md`, the historical v0.5.6 contract spec, `2026-08-14-code-quality-v0.5.7-restricted-adjudication-spec.md`, and `2026-08-19-code-quality-v0.5.8-restricted-resume-spec.md`.
+This file defines the project-specific language used by the review-scope, integration-contract, restricted-adjudication, stage-recovery, and progress-event implementation. The approved behavior remains authoritative in `2026-08-14-code-quality-review-scope-and-identity-spec.md`, the historical v0.5.6 contract spec, `2026-08-14-code-quality-v0.5.7-restricted-adjudication-spec.md`, `2026-08-19-code-quality-v0.5.8-restricted-resume-spec.md`, and `2026-08-24-code-quality-v0.5.9-observable-review-lifecycle-spec.md`.
 
 ## Core concepts
 
@@ -16,7 +16,7 @@ This file defines the project-specific language used by the review-scope, integr
 - **Stage attempt**: one Provider process in Native or Restricted. Native has exactly one attempt; Restricted has at most an initial attempt and one formal resume attempt.
 - **Previous blocker**: a P0/P1 finding in the immutable parent result. Every previous blocker receives one `RESOLVED`, `UNRESOLVED`, or post-adjudication `DISMISSED` resolution.
 - **Current findings**: advisories plus unresolved/new P0/P1 candidates that survive restricted adjudication. They alone determine the public `PASS` or `BLOCK` result.
-- **External result envelope**: company-CI metadata that states `EXECUTED`/`REUSED` and `CURRENT`/`SUPERSEDED` without modifying the immutable CLI result.
+- **External result envelope**: company-CI metadata that states `EXECUTED`/`REUSED` and `CURRENT`/`SUPERSEDED` without modifying the immutable CLI result. A **progress event** is a safe, advisory observation of one CLI stage; it excludes review content and never participates in identity, evidence integrity, or publication.
 
 ## Invariants
 
@@ -34,16 +34,16 @@ This file defines the project-specific language used by the review-scope, integr
 12. An automatic lineage is at most `FULL → INCREMENTAL`. A further INCREMENTAL returns `MANUAL_REQUIRED` before session creation; callers must not auto-fallback to FULL.
 13. Previous P2/P3 findings are not individually carried forward. P0/P1 findings cannot disappear without one validated resolution or restricted `DISMISSED` record.
 14. Resume validates every bound artifact and the local target object before any Provider call, rebuilds an exact detached checkout without fetching, and never reruns Native.
-15. The CLI is read-only with respect to the reviewed repository, Git history, CI, pull requests, and remote state.
+15. The CLI is read-only with respect to the reviewed repository and external state; progress is side-band, writer failure cannot change review behavior, and `last_activity_at` is never percentage, ETA, health, or permission to retry.
 
 ## Ownership boundaries
 
 - `internal/reviewplan` owns Git discovery, ref normalization, full/incremental range construction, previous-result admission, `READY`/`FULL_REQUIRED`/`MANUAL_REQUIRED`, and pre-provider identity inputs.
 - `quality` owns versioned wire types, canonical hashing, finding identity, native classification, restricted filtering, final-result validation, and summary rendering.
-- `internal/nativereview` owns the Codex/Claude invocation contracts, recovery state machine, attempt ledger, locks, frozen evidence lifecycles, and result publication.
+- `internal/nativereview` owns the Codex/Claude invocation contracts, recovery state machine, attempt ledger, locks, frozen evidence lifecycles, safe progress events, and result publication.
 - `internal/session` owns the owner-controlled session layout, detached current-head checkout, materialized provider-range diff, and exact target checkout rebuild.
 - Harness owns fix/test/commit/review loops.
-- Company CI owns persistent session/object-store indexing, distributed CAS, trusted reuse, attestation, compare-and-swap publication, and lifecycle envelopes.
+- Company CI owns persistent session/object-store indexing, distributed CAS, trusted reuse, attestation, compare-and-swap publication, lifecycle envelopes, five-minute scheduling, and external message idempotency.
 
 ## Harness handoff language
 
