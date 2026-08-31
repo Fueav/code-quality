@@ -19,7 +19,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
 
 test:
-	go test ./...
+	scripts/with_test_resources.sh -- go test ./...
 	$(MAKE) qualification-test
 	$(MAKE) live-test
 	$(MAKE) mining-test

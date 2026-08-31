@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory() as directory:
         "schema_version": 1, "contract_version": 1,
         "scaffold_source": {"repository": "github.com/moss-site/ai-first-go-template", "delivery_intents": ["bootstrap", "upgrade"]},
         "repository_contract": {
-            "required_paths": ["AGENTS.md", "harness/scaffold_manifest.json", "harness/scaffold.lock"], "executable_paths": [],
+            "required_paths": ["AGENTS.md", "harness/scaffold_manifest.json", "harness/scaffold.lock", "harness/dependencies.json"], "executable_paths": [],
             "schema_versions": {
                 "harness/scaffold_manifest.json": {"field": "schema_version", "allowed": [1]},
                 "harness/scaffold.lock": {"field": "schema_version", "allowed": [1]},
@@ -59,7 +59,11 @@ with tempfile.TemporaryDirectory() as directory:
         "resolved_paths": [{"path": "AGENTS.md", "strategy": "manual_merge", "resolution": "merged", "template_sha256": digest(repo / "AGENTS.md"), "target_sha256": digest(repo / "AGENTS.md")}],
     }
     write(repo / "harness/scaffold.lock", lock)
+    write(repo / "harness/dependencies.json", {"schema_version": 1, "enabled": True, "isolation": "database-per-run-v1"})
     ready = call(verify, repo, "ready"); assert ready.returncode == 0 and json.loads(ready.stdout)["status"] == "ready", ready.stderr
+    dependencies = repo / "harness/dependencies.json"; original = dependencies.read_bytes(); dependencies.unlink()
+    missing_dependencies = call(verify, repo, "ready"); assert missing_dependencies.returncode != 0 and "dependencies.json" in missing_dependencies.stderr
+    dependencies.write_bytes(original)
     (repo / "AGENTS.md").write_text("drifted\n"); drifted = call(verify, repo, "ready"); assert drifted.returncode != 0 and "semantic resolution" in drifted.stderr
     (repo / "harness/scaffold.lock").unlink(); missing = call(verify, repo, "ready"); assert missing.returncode != 0 and "template delivery" in missing.stderr
 

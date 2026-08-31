@@ -1,0 +1,1 @@
+{"schema_version":1,"enabled":false,"isolation":"database-per-run-v1","postgres":{"image":"postgres:16-alpine"},"redis":{"image":"redis:7-alpine"},"limits":{"max_runs":4,"max_environments":2,"max_idle_environments":1,"idle_seconds":3600,"max_storage_bytes":8589934592,"min_free_bytes":5368709120}}
