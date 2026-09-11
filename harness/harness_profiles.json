@@ -46,7 +46,7 @@
       "release_context_before",
       "symlinks",
       "ai_boundaries",
-      "project_release_check",
+      "project_test",
       "repository_modules",
       "release_context_after"
     ]
@@ -135,8 +135,20 @@
         "internal/",
         "quality/",
         "pilot/",
+        "policy/",
+        "schemas/",
+        "plugins/",
+        ".github/",
+        "docs/",
+        "scripts/",
+        "harness/gates/",
         "go.mod",
-        "go.sum"
+        "go.sum",
+        "go.work",
+        "go.work.sum",
+        "README.md",
+        "Makefile",
+        "install.sh"
       ],
       "path_suffixes": [
         ".go"
