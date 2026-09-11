@@ -81,6 +81,12 @@ def verify(sync_raw, hdd_raw, output):
             selected = run([str(target / "scripts/harnessctl.sh"), "install-tools", "--profile", "pull_request", "--compare-ref", delivery_base, "--dry-run"], target)
             if selected.returncode or json.loads(selected.stdout)["tools"] != ["gitleaks"]: raise RuntimeError("metadata-only delivery selects unrelated tools: " + selected.stdout + selected.stderr)
             steps.append({"name": "metadata_only_delivery_tools", "status": "passed"})
+            versions = target / "harness/tool_versions.env"; original_versions = versions.read_bytes()
+            versions.write_bytes(original_versions + b"\n# Tool pin selection regression\n")
+            selected = run([str(target / "scripts/harnessctl.sh"), "install-tools", "--profile", "pull_request", "--compare-ref", delivery_base, "--dry-run"], target)
+            versions.write_bytes(original_versions)
+            if selected.returncode or set(json.loads(selected.stdout)["tools"]) != {"gitleaks", "golangci-lint", "govulncheck", "benchstat"}: raise RuntimeError("tool pin update omits pinned tool validation: " + selected.stdout + selected.stderr)
+            steps.append({"name": "tool_pin_update_tools", "status": "passed"})
             probe = "import os; assert os.environ['TEST_DATABASE_DSN'] and int(os.environ['TEST_REDIS_DB']) > 0"
             step("target_resource_environment", [str(target / "scripts/with_test_resources.sh"), "--mode", "fresh", "--", sys.executable, "-c", probe], target, steps)
             dependencies = target / "harness/dependencies.json"; settings = json.loads(dependencies.read_text()); settings["limits"]["max_runs"] = 2
