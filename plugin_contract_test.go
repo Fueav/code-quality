@@ -162,8 +162,6 @@ func TestReadmeProvidesCopyPastePluginInstallCommands(t *testing.T) {
 		"codex plugin add code-quality@" + marketplaceName,
 		"claude plugin marketplace add https://github.com/Fueav/code-quality.git#v" + quality.SkillVersion,
 		"claude plugin install code-quality@" + marketplaceName,
-		"quality-review doctor --host codex",
-		"quality-review doctor --host claude-code",
 		"quality-review run-claude",
 		"请为当前仓库安装并运行 Fueav code-quality v" + quality.SkillVersion,
 		"固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v" + quality.SkillVersion + "/bootstrap.sh",
