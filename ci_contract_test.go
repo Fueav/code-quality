@@ -28,9 +28,7 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 		"command -v quality-review",
-		"quality-review v0.5.9",
-		"plan --host \"$QUALITY_REVIEW_HOST\"",
-		"doctor --host \"$QUALITY_REVIEW_HOST\"",
+		"quality-review v0.5.10",
 		"--execution-profile \"$QUALITY_REVIEW_EXECUTION_PROFILE\"",
 		"--model \"$QUALITY_REVIEW_MODEL\"",
 		"--reasoning-effort \"$QUALITY_REVIEW_REASONING_EFFORT\"",
@@ -53,14 +51,14 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 			t.Errorf("reusable CI workflow is missing %q", required)
 		}
 	}
-	if count := strings.Count(workflow, `--model "$QUALITY_REVIEW_MODEL"`); count != 3 {
-		t.Errorf("reusable CI must pass one resolved model to plan/doctor/run, got %d occurrences", count)
+	if count := strings.Count(workflow, `--model "$QUALITY_REVIEW_MODEL"`); count != 1 {
+		t.Errorf("reusable CI must pass one resolved model to the review transaction, got %d occurrences", count)
 	}
-	if count := strings.Count(workflow, `--reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT"`); count != 3 {
-		t.Errorf("reusable CI must pass one resolved reasoning effort to plan/doctor/run, got %d occurrences", count)
+	if count := strings.Count(workflow, `--reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT"`); count != 1 {
+		t.Errorf("reusable CI must pass one resolved reasoning effort to the review transaction, got %d occurrences", count)
 	}
-	if count := strings.Count(workflow, `--execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE"`); count != 3 {
-		t.Errorf("reusable CI must pass one execution profile to plan/doctor/run, got %d occurrences", count)
+	if count := strings.Count(workflow, `--execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE"`); count != 1 {
+		t.Errorf("reusable CI must pass one execution profile to the review transaction, got %d occurrences", count)
 	}
 	for _, forbidden := range []string{
 		"pull_request_target",
@@ -106,18 +104,16 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		t.Fatalf("README onboarding order is invalid: personal=%d linux_ci=%d", personal, linuxCI)
 	}
 	for _, required := range []string{
-		"请为当前仓库安装并运行 Fueav code-quality v0.5.9",
-		"bootstrap.sh | sh -s -- v0.5.9 codex",
-		"bootstrap.sh | sh -s -- v0.5.9 claude",
-		"quality-review doctor --host codex",
-		"quality-review doctor --host claude-code",
+		"请为当前仓库安装并运行 Fueav code-quality v0.5.10",
+		"bootstrap.sh | sh -s -- v0.5.10 codex",
+		"bootstrap.sh | sh -s -- v0.5.10 claude",
 		"先提交要审查的改动",
 		"self-hosted Linux runner",
 		"运行 GitHub Actions Runner 的同一个系统用户",
 		"codex exec",
 		"不接收 Provider API key",
 		".github/workflows/code-quality-reusable.yml",
-		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.9",
+		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.10",
 		"PR 为审查单元",
 		"merge-base",
 		"schema v10",
@@ -153,20 +149,17 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 	}
 }
 
-func TestJenkinsUsesOneMaxEffortContractForPlanDoctorAndRun(t *testing.T) {
+func TestJenkinsUsesOneReviewTransaction(t *testing.T) {
 	raw, err := os.ReadFile("docs/jenkins-production-ci.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	document := string(raw)
 	for _, required := range []string{
-		"Jenkins 生产 CI 接入（v0.5.9）",
+		"Jenkins 生产 CI 接入（v0.5.10）",
 		"effort=max",
 		"review_args=(",
-		"quality-review plan --host \"$host\" \"${review_args[@]}\"",
-		"quality-review doctor --host \"$host\" \"${review_args[@]}\"",
 		"quality-review \"$command\" \"${review_args[@]}\"",
-		"plan.json",
 	} {
 		if !strings.Contains(document, required) {
 			t.Errorf("Jenkins contract is missing %q", required)

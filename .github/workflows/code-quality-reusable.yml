@@ -73,11 +73,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify quality-review v0.5.9
+      - name: Verify quality-review v0.5.10
         run: |
           set -eu
           review_bin=$(command -v quality-review)
-          test "$("$review_bin" version)" = 'quality-review v0.5.9'
+          test "$("$review_bin" version)" = 'quality-review v0.5.10'
           printf 'QUALITY_REVIEW_BIN=%s\n' "$review_bin" >> "$GITHUB_ENV"
           printf 'QUALITY_REVIEW_OUTPUT_ROOT=%s\n' "$RUNNER_TEMP/code-quality" >> "$GITHUB_ENV"
 
@@ -112,34 +112,8 @@ jobs:
             printf 'DISABLE_AUTOUPDATER=1\n'
           } >> "$GITHUB_ENV"
 
-      - name: Plan frozen review
-        id: review_plan
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          "$QUALITY_REVIEW_BIN" plan --host "$QUALITY_REVIEW_HOST" --repo "$GITHUB_WORKSPACE" \
-            --review-scope full --diff-reason github_pull_request \
-            --model "$QUALITY_REVIEW_MODEL" \
-            --reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT" \
-            --execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE" |
-            tee "$RUNNER_TEMP/quality-review-plan.json"
-
-      - name: Doctor frozen review
-        id: review_doctor
-        if: steps.review_plan.outcome == 'success'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          "$QUALITY_REVIEW_BIN" doctor --host "$QUALITY_REVIEW_HOST" --repo "$GITHUB_WORKSPACE" \
-            --review-scope full --diff-reason github_pull_request \
-            --model "$QUALITY_REVIEW_MODEL" \
-            --reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT" \
-            --execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE" |
-            tee "$RUNNER_TEMP/quality-review-doctor.json"
-
       - name: Run release-gate review
         id: review_run
-        if: steps.review_doctor.outcome == 'success'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -165,7 +139,7 @@ jobs:
               echo
               echo 'Release: `HOLD`'
               echo
-              echo 'The review did not run. Inspect plan/doctor/run evidence.'
+              echo 'The review did not run. Inspect the review execution evidence.'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -179,7 +153,7 @@ jobs:
           artifact_root="$RUNNER_TEMP/code-quality-artifact"
           rm -rf "$artifact_root"
           mkdir -p "$artifact_root"
-          for candidate in "$RUNNER_TEMP"/quality-review-plan.json "$RUNNER_TEMP"/quality-review-doctor.json "$RUNNER_TEMP"/quality-review-run.json; do
+          for candidate in "$RUNNER_TEMP"/quality-review-run.json; do
             if [ -f "$candidate" ]; then cp "$candidate" "$artifact_root/"; fi
           done
           for name in review-summary.md review-summary.json; do
@@ -187,7 +161,7 @@ jobs:
             if [ -n "$candidate" ]; then cp "$candidate" "$artifact_root/$name"; fi
           done
           if [ ! -f "$artifact_root/review-summary.md" ]; then
-            printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect plan/doctor/run evidence.' > "$artifact_root/review-summary.md"
+            printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect the review execution evidence.' > "$artifact_root/review-summary.md"
             printf '%s\n' "{\"schema_version\":3,\"result\":\"ERROR\",\"release\":\"HOLD\",\"review_scope\":\"FULL\",\"review_key\":\"review-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"current_head\":\"$CURRENT_HEAD\",\"blocking_issues\":0,\"advisory_issues\":0,\"resolved_previous_findings\":0,\"unresolved_previous_findings\":0,\"new_findings\":0,\"issues\":[]}" > "$artifact_root/review-summary.json"
           fi
           if [ -d "$output_root" ]; then
@@ -211,11 +185,7 @@ jobs:
       - name: Enforce execution health
         if: always()
         env:
-          PLAN_OUTCOME: ${{ steps.review_plan.outcome }}
-          DOCTOR_OUTCOME: ${{ steps.review_doctor.outcome }}
           RUN_OUTCOME: ${{ steps.review_run.outcome }}
         run: |
           set -eu
-          test "$PLAN_OUTCOME" = success
-          test "$DOCTOR_OUTCOME" = success
           test "$RUN_OUTCOME" = success

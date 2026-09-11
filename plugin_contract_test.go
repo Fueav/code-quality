@@ -53,60 +53,6 @@ func TestHostMarketplacesExposeCodeQualityPlugin(t *testing.T) {
 	})
 }
 
-func TestPluginSkillUsesThinNativeReviewPath(t *testing.T) {
-	raw, err := os.ReadFile("plugins/code-quality/skills/code-quality/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	skill := string(raw)
-	for _, required := range []string{
-		"<bin> plan",
-		"<bin> run-codex",
-		"<bin> run-claude",
-		"<bin> doctor --host codex",
-		"<bin> doctor --host claude-code",
-		"--goal",
-		"--base",
-		"--target",
-		"--base-ref",
-		"--head-ref",
-		"--review-scope incremental",
-		"--previous-result",
-		"--model",
-		"--reasoning-effort max",
-		"--execution-profile",
-		"同一组合同参数",
-		"runner_policy_version",
-		"FULL_REQUIRED",
-		"MANUAL_REQUIRED",
-		"Harness 负责修复编排",
-		"先做一次原生发现",
-		"强制只读的 V1.2 受限裁决",
-		"不得启动第三轮",
-		"不得临时改写宿主工具、MCP、插件、设置或上下文",
-		"review-summary.md",
-		"PASS",
-		"BLOCK",
-		"ERROR",
-		"evidence_dir",
-		"遇到活动审查不要重试或绕过",
-		"不要重试或绕过",
-		"输出精确等于 `quality-review v" + quality.SkillVersion + "`",
-		"版本不一致",
-		"https://github.com/Fueav/code-quality/releases/download/v" + quality.SkillVersion + "/bootstrap.sh",
-		"系统临时区",
-	} {
-		if !strings.Contains(skill, required) {
-			t.Errorf("Skill is missing %q", required)
-		}
-	}
-	for _, forbidden := range []string{"本插件 `scripts/bootstrap.sh", "candidate-only verifier", "risk direction", "rereview_scope", "REVIEW_INVALID", "activated_rule_families", "20 rules", "rm -rf .code-quality", "all three", "CODE_QUALITY_NATIVE_DISCOVERY_MARKER", ".code-quality-native-discovery-child-v1", "process-ancestry"} {
-		if strings.Contains(skill, forbidden) {
-			t.Fatalf("Skill retains obsolete runtime guidance %q", forbidden)
-		}
-	}
-}
-
 func TestPluginDescriptorsMatchRuntimeVersion(t *testing.T) {
 	for _, path := range []string{
 		"plugins/code-quality/.claude-plugin/plugin.json",

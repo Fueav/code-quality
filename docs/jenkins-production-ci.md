@@ -1,4 +1,4 @@
-# Jenkins 生产 CI 接入（v0.5.9）
+# Jenkins 生产 CI 接入（v0.5.10）
 
 适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。CLI 先冻结原生发现，仅在出现 P0/P1 时追加只读受限裁决；第二次 Restricted 只能通过受限恢复入口执行。
 
@@ -13,16 +13,16 @@
 - 标签为 `code-quality`，每个系统用户只设 1 个 executor。
 - 使用专用低权限用户，不保存与审查无关的凭据。
 - 已安装 `bash`、`git`、`curl` 和 `tar`，能够访问 GitHub 与所选 Provider。
-- 同一用户预装 `quality-review v0.5.9` 和一个已登录的 Provider。
+- 同一用户预装 `quality-review v0.5.10` 和一个已登录的 Provider。
 
 ```sh
 command -v bash git curl tar
 
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.9/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.9
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.10/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.10
 
 command -v quality-review
-quality-review version          # 必须是 quality-review v0.5.9
+quality-review version          # 必须是 quality-review v0.5.10
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
@@ -106,7 +106,7 @@ printf 'BASE_REF=%s\nHEAD_REF=%s\n' "$base_ref" "$head_ref" > "$REVIEW_ROOT/rang
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 . "$REVIEW_ROOT/range.env"
-test "$(quality-review version)" = 'quality-review v0.5.9'
+test "$(quality-review version)" = 'quality-review v0.5.10'
 
 case "$CODE_QUALITY_PROVIDER" in
   codex) host=codex; command=run-codex; model=gpt-5.6-sol ;;
@@ -125,8 +125,6 @@ review_args=(
   --execution-profile "$profile"
 )
 
-quality-review plan --host "$host" "${review_args[@]}" | tee "$REVIEW_ROOT/plan.json"
-quality-review doctor --host "$host" "${review_args[@]}" | tee "$REVIEW_ROOT/doctor.json"
 
 set +e
 quality-review "$command" "${review_args[@]}" \
@@ -157,7 +155,7 @@ if [ -n "${REVIEW_ROOT:-}" ] && [ -d "$REVIEW_ROOT" ]; then
   tar -czf "$artifact_root/evidence.tar.gz" -C "$REVIEW_ROOT" .
 fi
 if [ ! -f "$artifact_root/review-summary.md" ]; then
-  printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect plan/doctor/run evidence.' > "$artifact_root/review-summary.md"
+  printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect review execution evidence.' > "$artifact_root/review-summary.md"
   printf '%s\n' '{"schema_version":3,"result":"ERROR","release":"HOLD","review_scope":"FULL","review_key":"review-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000","current_head":"UNAVAILABLE","blocking_issues":0,"advisory_issues":0,"resolved_previous_findings":0,"unresolved_previous_findings":0,"new_findings":0,"issues":[]}' > "$artifact_root/review-summary.json"
 fi
 cat "$artifact_root/review-summary.md"
