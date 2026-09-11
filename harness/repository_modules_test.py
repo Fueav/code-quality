@@ -107,7 +107,7 @@ with tempfile.TemporaryDirectory() as directory:
     engine.write_text("#!/bin/sh\nprintf '%s\\n' '{\"converged\":true,\"target_dirty\":false,\"template_commit\":\"fixture\"}'\n"); engine.chmod(0o755)
     initialize(scaffold, "https://github.com/moss-site/ai-first-go-template.git"); initialize(target)
     checker = target / "harness/repository_verification.py"; checker.parent.mkdir()
-    checker.write_text("import os,sys,subprocess\nfrom pathlib import Path\np=Path(os.environ['DELIVERY_TRACE'])\np.open('a').write(' '.join(sys.argv[1:])+'\\n')\nif os.environ.get('MUTATE_OUTSIDE'): Path('user.txt').write_text('preserve')\nchanged=subprocess.check_output(['git','diff','--name-only',os.environ.get('VERIFY_COMPARE_REF','HEAD'),'HEAD'],text=True).strip()\nraise SystemExit(7 if changed and os.environ.get('FAIL_CHANGE') and sys.argv[-1]=='candidate' else 0)\n")
+    checker.write_text("import os,sys,subprocess\nfrom pathlib import Path\np=Path(os.environ['DELIVERY_TRACE'])\np.open('a').write(' '.join(sys.argv[1:])+'\\n')\nif os.environ.get('MUTATE_OUTSIDE'): Path('user.txt').write_text('preserve')\nchanged=subprocess.check_output(['git','diff','--name-only',os.environ.get('VERIFY_COMPARE_REF','HEAD'),'HEAD'],text=True).strip() if sys.argv[-1]=='candidate' else ''\nraise SystemExit(7 if changed and os.environ.get('FAIL_CHANGE') and sys.argv[-1]=='candidate' else 0)\n")
     (target / "legacy.txt").write_text("retired shared file\n")
     git(target, "add", "."); git(target, "commit", "-qm", "native verifier")
     git(target, "rm", "legacy.txt")
