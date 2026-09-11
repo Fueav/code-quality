@@ -76,7 +76,11 @@ def verify(sync_raw, hdd_raw, output):
             step("delivery_preflight", [str(delivery), "preflight", "--intent", "bootstrap", "--target", str(target)], root, steps)
             delivery_env = os.environ.copy()
             delivery_env.update(AI_BOUNDARY_APPROVED="1", AI_BOUNDARY_APPROVAL_EVIDENCE="owner-request:suite-fixture")
+            delivery_base = git(target, "rev-parse", "HEAD")
             step("delivery_finish", [str(delivery), "finish", "--intent", "bootstrap", "--target", str(target), "--compare-ref", "HEAD", "--resolution", "CODEOWNERS=adapted"], root, steps, delivery_env)
+            selected = run([str(target / "scripts/harnessctl.sh"), "install-tools", "--profile", "pull_request", "--compare-ref", delivery_base, "--dry-run"], target)
+            if selected.returncode or json.loads(selected.stdout)["tools"] != ["gitleaks"]: raise RuntimeError("metadata-only delivery selects unrelated tools: " + selected.stdout + selected.stderr)
+            steps.append({"name": "metadata_only_delivery_tools", "status": "passed"})
             probe = "import os; assert os.environ['TEST_DATABASE_DSN'] and int(os.environ['TEST_REDIS_DB']) > 0"
             step("target_resource_environment", [str(target / "scripts/with_test_resources.sh"), "--mode", "fresh", "--", sys.executable, "-c", probe], target, steps)
             dependencies = target / "harness/dependencies.json"; settings = json.loads(dependencies.read_text()); settings["limits"]["max_runs"] = 2
