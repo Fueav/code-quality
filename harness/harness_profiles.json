@@ -154,6 +154,19 @@
         ".go"
       ],
       "skip_reason": "no native test inputs changed"
+    },
+    "repository_modules": {
+      "always_profiles": [
+        "release"
+      ],
+      "path_prefixes": [
+        "harness/template_delivery.py",
+        "harness/repository_verification.py",
+        "harness/repository_modules_test.py",
+        "harness/suite_contract.json",
+        "harness/scaffold_manifest.json"
+      ],
+      "skip_reason": "no related inputs changed"
     }
   },
   "evidence_sets": {

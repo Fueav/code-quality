@@ -30,4 +30,18 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(checks.python_groups({'pilot/mining/aggregate.py'}), ['mining-test'])
         self.assertEqual(set(checks.python_groups({'pilot/qualification_run.py'})), {'qualification-test','live-test','mining-test'})
 
+    def test_cli_consumer_selects_python_integration(self):
+        packages = [{'ImportPath':'m/core','Dir':'/repo/core'}, {'ImportPath':'m/cmd/quality-review','Dir':'/repo/cmd/quality-review','Deps':['m/core']}]
+        selected = checks.go_packages({'core/a.go'}, packages, Path('/repo'))
+        self.assertIn('qualification-test', checks.python_groups({'core/a.go'}, any(name.endswith('/cmd/quality-review') for name in selected)))
+
+    def test_release_script_selects_root_contract(self):
+        self.assertEqual(checks.go_packages({'harness/gates/release_check.sh'}, [{'ImportPath':'m','Dir':'/repo'}], Path('/repo')), ['m'])
+
+    def test_existing_zsh_script_uses_its_interpreter(self):
+        root = Path(__file__).resolve().parents[2]
+        command = checks.shell_check('pilot/live/live_watch.sh', root)
+        self.assertEqual(command[0], 'zsh')
+        checks.subprocess.run(command, cwd=root, check=True)
+
 if __name__ == '__main__': unittest.main()
