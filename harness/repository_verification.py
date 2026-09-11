@@ -47,7 +47,7 @@ def digest(path):
 
 def readiness():
     contract = load("harness/suite_contract.json", True)
-    if set(contract) != {"schema_version", "contract_version", "scaffold_source", "repository_contract"} or (contract.get("schema_version"), contract.get("contract_version")) != (1, 1): fail("template delivery is incomplete: unsupported suite contract")
+    if set(contract) != {"schema_version", "contract_version", "scaffold_source", "repository_contract"} or contract.get("schema_version") != 1 or contract.get("contract_version") not in (1, 2): fail("template delivery is incomplete: unsupported suite contract")
     if contract.get("scaffold_source") != {"repository": "github.com/moss-site/ai-first-go-template", "delivery_intents": ["bootstrap", "upgrade"]}: fail("template delivery is incomplete: invalid Scaffold Source contract")
     repository = contract.get("repository_contract")
     if not isinstance(repository, dict) or set(repository) != {"required_paths", "executable_paths", "schema_versions"}: fail("template delivery is incomplete: invalid repository contract")
@@ -91,7 +91,7 @@ def readiness():
     for relative in manifest["retired_paths"]:
         path = safe(relative)
         if path.exists() or path.is_symlink(): fail(f"template delivery is incomplete: retired path remains {relative}")
-    print(json.dumps({"contract_version": 1, "status": "ready", "template_commit": lock["template_commit"]}, sort_keys=True))
+    print(json.dumps({"contract_version": contract["contract_version"], "status": "ready", "template_commit": lock["template_commit"]}, sort_keys=True))
 
 
 arguments = sys.argv[1:]

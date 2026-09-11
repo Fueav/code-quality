@@ -29,11 +29,13 @@ if [[ -n "${HARNESSCTL_BIN:-}" ]]; then
   exec "$HARNESSCTL_BIN" "$@"
 fi
 
-if command -v harnessctl >/dev/null 2>&1 && [[ "$(harnessctl version)" == "$EXPECTED" ]]; then
-  exec harnessctl "$@"
-fi
-
 INSTALL_DIR="${GOBIN:-$ROOT_DIR/.tools/bin}"
+for candidate in "$INSTALL_DIR/harnessctl" "$(command -v harnessctl || true)"; do
+  if [[ -x "$candidate" && "$("$candidate" version)" == "$EXPECTED" ]]; then exec "$candidate" "$@"; fi
+done
+[[ "${1:-}" == install-tools ]] || {
+  printf 'missing %s; run make install-tools to install explicitly\n' "$EXPECTED" >&2; exit 2;
+}
 mkdir -p "$INSTALL_DIR"
 GOBIN="$INSTALL_DIR" go install "$MODULE/cmd/harnessctl@$VERSION"
 [[ "$($INSTALL_DIR/harnessctl version)" == "$EXPECTED" ]] || { printf 'installed harnessctl version does not match %s\n' "$VERSION" >&2; exit 2; }

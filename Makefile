@@ -86,3 +86,6 @@ dist: release-check
 
 clean:
 	rm -rf dist $(BIN)
+
+.PHONY: verify
+verify: verify-change

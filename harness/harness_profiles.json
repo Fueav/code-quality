@@ -1,16 +1,29 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "custom_gates": {
-    "project_test": {"run": "harness/gates/test.sh"},
-    "project_release_check": {"run": "harness/gates/release_check.sh"},
-    "repository_modules": {"run": "harness/repository_modules_test.py"},
-    "suite_conformance": {"run": "scripts/verify_suite.sh"}
+    "project_test": {
+      "run": "harness/gates/test.sh"
+    },
+    "project_release_check": {
+      "run": "harness/gates/release_check.sh"
+    },
+    "repository_modules": {
+      "run": "harness/repository_modules_test.py"
+    },
+    "suite_conformance": {
+      "run": "scripts/verify_suite.sh"
+    }
   },
   "symlinks": [
-    {"link": "CLAUDE.md", "target": "AGENTS.md"}
+    {
+      "link": "CLAUDE.md",
+      "target": "AGENTS.md"
+    }
   ],
   "coverage_threshold": 0,
-  "unsealed_artifacts": ["gates.tsv"],
+  "unsealed_artifacts": [
+    "gates.tsv"
+  ],
   "gate_sets": {
     "change": [
       "change_scope",
@@ -27,21 +40,36 @@
       "repository_modules",
       "suite_conformance",
       "release_context_after"
+    ],
+    "candidate": [
+      "change_scope",
+      "release_context_before",
+      "symlinks",
+      "ai_boundaries",
+      "project_release_check",
+      "repository_modules",
+      "release_context_after"
     ]
   },
   "profiles": {
     "change": {
-      "evidence_modes": ["change"],
+      "evidence_modes": [
+        "change"
+      ],
       "gate_set": "change",
       "skippable_gates": []
     },
     "pull_request": {
-      "evidence_modes": ["candidate"],
-      "gate_set": "release",
+      "evidence_modes": [
+        "candidate"
+      ],
+      "gate_set": "candidate",
       "skippable_gates": []
     },
     "release": {
-      "evidence_modes": ["release"],
+      "evidence_modes": [
+        "release"
+      ],
       "gate_set": "release",
       "skippable_gates": []
     }
@@ -69,20 +97,67 @@
         "CONTEXT.md",
         "Makefile",
         "docs/branch-collaboration.md",
-        "docs/harness-workflows.json",
         "docs/harness-workflows.md",
         "harness/",
         "scripts/"
       ],
       "skip_reason": "no suite contract or delivery interface paths changed"
+    },
+    "project_release_check": {
+      "always_profiles": [
+        "release"
+      ],
+      "path_prefixes": [
+        "cmd/",
+        "internal/",
+        "quality/",
+        "pilot/",
+        "policy/",
+        "schemas/",
+        "scripts/",
+        "harness/gates/",
+        "plugins/",
+        "go.mod",
+        "go.sum",
+        "Makefile",
+        "install.sh",
+        "VERSION"
+      ],
+      "path_suffixes": [
+        ".go"
+      ],
+      "skip_reason": "no native code or release-contract inputs changed"
+    },
+    "project_test": {
+      "always_profiles": [],
+      "path_prefixes": [
+        "cmd/",
+        "internal/",
+        "quality/",
+        "pilot/",
+        "go.mod",
+        "go.sum"
+      ],
+      "path_suffixes": [
+        ".go"
+      ],
+      "skip_reason": "no native test inputs changed"
     }
   },
   "evidence_sets": {
     "change": {
-      "artifacts": ["gates.tsv", "change_scope.json", "ai_boundaries.json"]
+      "artifacts": [
+        "gates.tsv",
+        "change_scope.json",
+        "ai_boundaries.json"
+      ]
     },
     "release": {
-      "artifacts": ["gates.tsv", "change_scope.json", "ai_boundaries.json"]
+      "artifacts": [
+        "gates.tsv",
+        "change_scope.json",
+        "ai_boundaries.json"
+      ]
     }
   },
   "evidence": {
@@ -91,7 +166,9 @@
     "release": "release"
   },
   "gate_artifacts": {},
-  "machine_status_artifacts": ["ai_boundaries.json"],
+  "machine_status_artifacts": [
+    "ai_boundaries.json"
+  ],
   "trusted_approval_runtime": [
     ".ai-boundaries.yml",
     "harness/harness.lock",

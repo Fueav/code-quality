@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cold-start or upgrade one target from the canonical Scaffold Source."""
 
-import json, os, re, subprocess, sys
+import argparse, json, os, re, subprocess, sys
 from pathlib import Path, PurePosixPath
 
 root = Path(os.environ.get("HARNESS_PROJECT_ROOT", Path(__file__).resolve().parent.parent)).resolve()
@@ -23,7 +23,7 @@ def run(command, cwd=root, env=None):
 def git(repo, *arguments):
     result = run(["git", "-C", str(repo), *arguments], repo)
     if result.returncode: fail(result.stderr.strip() or "Git command failed")
-    return result.stdout.strip()
+    return result.stdout if "-z" in arguments else result.stdout.strip()
 
 
 def load(path, label):
@@ -43,7 +43,7 @@ def normalized(value):
 def source_contract():
     contract = load(root / "harness/suite_contract.json", "suite contract")
     source = contract.get("scaffold_source", {})
-    if contract.get("schema_version") != 1 or contract.get("contract_version") != 1: fail("unsupported suite contract")
+    if contract.get("schema_version") != 1 or contract.get("contract_version") not in (1, 2): fail("unsupported suite contract")
     if source.get("delivery_intents") != ["bootstrap", "upgrade"]: fail("invalid delivery intents")
     if Path.cwd().resolve() != root or Path(git(root, "rev-parse", "--show-toplevel")).resolve() != root: fail("run from the exact scaffold root")
     remote = run(["git", "-C", str(root), "remote", "get-url", "origin"], root)
@@ -113,6 +113,48 @@ def complete(arguments):
     print(json.dumps({"contract_version": contract["contract_version"], "intent": intent, "status": "delivered", "target": str(target), "template_commit": report["template_commit"]}, sort_keys=True))
 
 
+def finish(arguments):
+    parser = argparse.ArgumentParser(description="Record, verify and commit an explicitly scoped delivery")
+    parser.add_argument("--intent", required=True, choices=("bootstrap", "upgrade"))
+    parser.add_argument("--target", required=True)
+    parser.add_argument("--compare-ref", required=True)
+    parser.add_argument("--profile", choices=("candidate", "release"), default="candidate")
+    parser.add_argument("--resolution", action="append", default=[])
+    args = parser.parse_args(arguments)
+    source_contract(); target = target_root(args.target, False)
+    has_lock = bool(git(target, "ls-files", "--", "harness/scaffold.lock"))
+    if (args.intent == "bootstrap" and has_lock) or (args.intent == "upgrade" and not has_lock):
+        fail(f"{args.intent} intent does not match the target delivery record")
+    manifest = load(root / "harness/scaffold_manifest.json", "scaffold manifest")
+    allowed = {item["path"] for item in manifest["managed_paths"]} | set(manifest["retired_paths"]) | {"harness/scaffold.lock"}
+    def changed_paths():
+        changed = set()
+        for command in (("diff", "--no-renames", "--name-only", "-z"), ("diff", "--cached", "--no-renames", "--name-only", "-z"), ("ls-files", "--others", "--exclude-standard", "-z")):
+            changed.update(filter(None, git(target, *command).split("\0")))
+        return changed
+    changed = changed_paths()
+    if changed - allowed: fail("changes outside delivery scope: " + ", ".join(sorted(changed - allowed)))
+    base = git(target, "rev-parse", "--verify", "--end-of-options", args.compare_ref + "^{commit}")
+    before = git(target, "rev-parse", "HEAD")
+    common = ["--intent", args.intent, "--target", str(target)]
+    resolutions = [value for item in args.resolution for value in ("--resolution", item)]
+    record(common + resolutions)
+    runtime = os.environ.copy(); runtime.update(HARNESS_PROJECT_ROOT=str(target), VERIFY_COMPARE_REF=base)
+    verifier = target / "harness/repository_verification.py"
+    if git(target, "rev-parse", "HEAD") != before: fail("target HEAD changed during delivery")
+    changed = changed_paths()
+    if changed - allowed: fail("verification changed paths outside delivery scope: " + ", ".join(sorted(changed - allowed)))
+    tracked = set(git(target, "ls-files", "-z").split("\0"))
+    stageable = [path for path in changed | {"harness/scaffold.lock"}
+                 if path in tracked or (target / path).exists() or (target / path).is_symlink()]
+    if stageable: git(target, "add", "--", *sorted(stageable))
+    if git(target, "diff", "--cached", "--name-only"):
+        git(target, "commit", "-m", f"chore(harness): {args.intent} repository contract")
+    checked = run([sys.executable, str(verifier), "verify", args.profile], target, runtime)
+    if checked.returncode: fail(checked.stdout + checked.stderr)
+    complete(common)
+
+
 def initialize(arguments):
     if arguments == ["--help"]: print("usage: scripts/init_project.sh --module MODULE --service SERVICE --owner OWNER"); return
     if len(arguments) != 6 or arguments[::2] != ["--module", "--service", "--owner"]: fail("init requires --module, --service, and --owner")
@@ -135,10 +177,11 @@ def initialize(arguments):
 
 
 arguments = sys.argv[1:]
-if not arguments: fail("expected init, preflight, record, or complete")
+if not arguments: fail("expected init, preflight, finish, record, or complete")
 command = arguments.pop(0)
 if command == "init": initialize(arguments)
 elif command == "preflight": preflight(arguments)
 elif command == "record": record(arguments)
 elif command == "complete": complete(arguments)
+elif command == "finish": finish(arguments)
 else: fail("unknown command")

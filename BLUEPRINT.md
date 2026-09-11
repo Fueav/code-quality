@@ -7,7 +7,7 @@ This repository uses a compact Harness contract around the `quality-review` CLI.
 | Layer | Source of truth | Mechanical proof |
 | --- | --- | --- |
 | Repository guidance | `AGENTS.md`, `CONTEXT.md`, `.ai-boundaries.yml`, branch rules | Boundary, symlink, and Git-state checks |
-| Task routing | `docs/harness-workflows.md` | `docs/harness-workflows.json` and repository-module tests |
+| Task routing | `docs/harness-workflows.md` | `harness/harness_profiles.json` and repository-module tests |
 | Review semantics | Approved root `*-spec.md` files and `CONTEXT.md` | Go/Python tests and contract fixtures |
 | Policy and wire contracts | `policy/v1.2/`, `schemas/` | Validation, compatibility, and adjudication tests |
 | Product implementation | `cmd/quality-review`, `internal/`, `quality/` | Native `make test` and `make release-check` |
@@ -29,4 +29,4 @@ This repository uses a compact Harness contract around the `quality-review` CLI.
 
 ## Template Boundary
 
-`ai-first-go-template` supplies the shared Repository Contract and verification interfaces. Code Quality retains its root specification convention, domain glossary, policy, schemas, release workflow, plugin surfaces, and evidence corpus. After delivery, daily product and Harness work uses Harness Driven Development and does not call Template Sync.
+`ai-first-go-template` supplies the shared Repository Contract and verification interfaces. Code Quality retains its root specification convention, domain glossary, policy, schemas, release workflow, plugin surfaces, and evidence corpus. After delivery, work directly with repository commands. Template Sync is used only for explicit upgrades.

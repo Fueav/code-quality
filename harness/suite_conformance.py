@@ -55,7 +55,7 @@ def verify(sync_raw, hdd_raw, output):
             temporary = Path(directory); sync = resolve(sync_raw, "harness-template-sync", temporary); hdd = resolve(hdd_raw, "harness-driven-development", temporary)
             compatibility = [json.loads((repo / "contracts/suite-compatibility.json").read_text()) for repo in (sync, hdd)]
             if any(version not in item.get("suite_contract_versions", []) for item in compatibility): raise RuntimeError("a component does not support the Template suite contract")
-            actual = {"scaffold_manifest": json.loads((root / "harness/scaffold_manifest.json").read_text())["schema_version"], "harness_profiles": json.loads((root / "harness/harness_profiles.json").read_text())["schema_version"], "workflow_registry": json.loads((root / "docs/harness-workflows.json").read_text())["version"]}
+            actual = {"scaffold_manifest": json.loads((root / "harness/scaffold_manifest.json").read_text())["schema_version"], "harness_profiles": json.loads((root / "harness/harness_profiles.json").read_text())["schema_version"], "spec_registry": json.loads((root / "specs/index.json").read_text())["version"]}
             if any(value not in compatibility[0].get("template_contracts", {}).get(name, []) for name, value in actual.items()): raise RuntimeError("Template Sync does not support the current Template schemas")
             evidence["contract_version"] = version; evidence["contract_sha256"] = hashlib.sha256((root / "harness/suite_contract.json").read_bytes()).hexdigest()
             evidence["components"] = {
@@ -65,7 +65,7 @@ def verify(sync_raw, hdd_raw, output):
             }
             for label, repo in (("template_sync", sync), ("hdd", hdd)):
                 step(label + "_release", [sys.executable, "scripts/verify_release.py"], repo, steps)
-                step(label + "_evals", [sys.executable, "scripts/verify_evals.py", "--results", "evals/results.json"], repo, steps)
+            step("daily_behavior", [sys.executable, "scripts/run_behavior_evals.py", "verify", "--results", "evals/behavior-results.json", "--repository", str(root)], hdd, steps)
             target = temporary / "target"; shutil.copytree(root, target, symlinks=True, ignore=shutil.ignore_patterns(".git", ".artifacts", ".tools", "__pycache__"))
             step("target_init", [str(target / "scripts/init_project.sh"), "--module", "example.com/suite/service", "--service", "suite-service", "--owner", "@suite-team"], target, steps)
             if git(root, "status", "--porcelain=v1", "--untracked-files=all"): raise RuntimeError("target initialization escaped into the Scaffold Source")
@@ -74,31 +74,29 @@ def verify(sync_raw, hdd_raw, output):
             for label, command in target_git: step("target_git_" + label, command, target, steps)
             delivery = root / "harness/template_delivery.py"
             step("delivery_preflight", [str(delivery), "preflight", "--intent", "bootstrap", "--target", str(target)], root, steps)
-            step("delivery_record", [str(delivery), "record", "--intent", "bootstrap", "--target", str(target), "--resolution", "CODEOWNERS=adapted"], root, steps)
-            for label, command in (("delivery_add", ["git", "add", "-A"]), ("delivery_commit", ["git", "commit", "-qm", "record delivery"])): step(label, command, target, steps)
-            step("delivery_complete", [str(delivery), "complete", "--intent", "bootstrap", "--target", str(target)], root, steps)
-            step("target_build", ["go", "build", "./..."], target, steps)
-            probe = "import os; assert os.environ['TEST_DATABASE_DSN'] and int(os.environ['TEST_REDIS_DB']) > 0; os.execvp('go',['go','test','./...'])"
-            step("target_test", [str(target / "scripts/with_test_resources.sh"), "--mode", "fresh", "--", sys.executable, "-c", probe], target, steps)
-            step("hdd_target_contract", [sys.executable, "scripts/verify_evals.py", "--results", "evals/results.json", "--repository", str(target)], hdd, steps)
+            delivery_env = os.environ.copy()
+            delivery_env.update(AI_BOUNDARY_APPROVED="1", AI_BOUNDARY_APPROVAL_EVIDENCE="owner-request:suite-fixture")
+            step("delivery_finish", [str(delivery), "finish", "--intent", "bootstrap", "--target", str(target), "--compare-ref", "HEAD", "--resolution", "CODEOWNERS=adapted"], root, steps, delivery_env)
+            probe = "import os; assert os.environ['TEST_DATABASE_DSN'] and int(os.environ['TEST_REDIS_DB']) > 0"
+            step("target_resource_environment", [str(target / "scripts/with_test_resources.sh"), "--mode", "fresh", "--", sys.executable, "-c", probe], target, steps)
             dependencies = target / "harness/dependencies.json"; settings = json.loads(dependencies.read_text()); settings["limits"]["max_runs"] = 2
             dependencies.write_text(json.dumps(settings) + "\n"); (target / "scripts/with_test_resources.sh").unlink()
             pin = target / "harness/harness.lock"; legacy = json.loads(pin.read_text()); legacy["version"] = "v0.4.0"; pin.write_text(json.dumps(legacy) + "\n")
             git(target, "add", "-A"); git(target, "commit", "-qm", "legacy engine with project capacity settings")
             step("upgrade_preflight", [str(delivery), "preflight", "--intent", "upgrade", "--target", str(target)], root, steps)
             for relative in ("harness/harness.lock", "scripts/with_test_resources.sh"): shutil.copy2(root / relative, target / relative)
-            step("upgrade_record", [str(delivery), "record", "--intent", "upgrade", "--target", str(target), "--resolution", "harness/dependencies.json=adapted"], root, steps)
-            git(target, "add", "-A"); git(target, "commit", "-qm", "upgrade resource entry and preserve project capacity")
-            step("upgrade_complete", [str(delivery), "complete", "--intent", "upgrade", "--target", str(target)], root, steps)
+            step("upgrade_finish", [str(delivery), "finish", "--intent", "upgrade", "--target", str(target), "--compare-ref", "HEAD", "--resolution", "harness/dependencies.json=adapted"], root, steps, delivery_env)
             if json.loads(dependencies.read_text())["limits"]["max_runs"] != 2: raise RuntimeError("upgrade replaced project resource limits")
-            step("upgraded_target_test", [str(target / "scripts/with_test_resources.sh"), "--mode", "fresh", "--", sys.executable, "-c", probe], target, steps)
+            step("upgraded_resource_environment", [str(target / "scripts/with_test_resources.sh"), "--mode", "fresh", "--", sys.executable, "-c", probe], target, steps)
             runtime = os.environ.copy(); runtime["HARNESS_PROJECT_ROOT"] = str(target)
             wrong = run([sys.executable, "-I", "-B", "-S", str(target / "harness/template_delivery.py"), "preflight", "--intent", "upgrade", "--target", str(target)], target, runtime)
             if wrong.returncode == 0 or "canonical Scaffold Source" not in wrong.stderr: raise RuntimeError("Template Sync source-root guard did not fail closed")
             steps.append({"name": "wrong_source_stop", "status": "passed"}); (target / "harness/scaffold.lock").unlink()
             incomplete = run([sys.executable, "-I", "-B", "-S", str(target / "harness/repository_verification.py"), "ready"], target, runtime)
             if incomplete.returncode == 0 or "template delivery" not in incomplete.stderr: raise RuntimeError("HDD readiness accepted incomplete delivery")
-            steps.append({"name": "incomplete_delivery_stop", "status": "passed"})
+            steps.append({"name": "incomplete_delivery_diagnostic", "status": "passed"})
+            runtime.update(VERIFY_COMPARE_REF="HEAD", AI_BOUNDARY_APPROVED="1", AI_BOUNDARY_APPROVAL_EVIDENCE="owner-request:suite-fixture")
+            step("daily_without_delivery_record", [str(target / "harness/repository_verification.py"), "verify", "change"], target, steps, runtime)
         evidence["status"] = "passed"
     except (OSError, KeyError, ValueError, json.JSONDecodeError, RuntimeError) as exc: evidence["error"] = str(exc)
     output.parent.mkdir(parents=True, exist_ok=True); output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")

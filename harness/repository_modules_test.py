@@ -84,5 +84,53 @@ with tempfile.TemporaryDirectory() as directory:
     assert wrong_cwd.returncode != 0 and "exact scaffold root" in wrong_cwd.stderr
     write(target / "harness/suite_contract.json", contract); outside = call(deliver, target, "preflight", "--intent", "bootstrap", "--target", str(scaffold))
     assert outside.returncode != 0 and "canonical Scaffold Source" in outside.stderr
+    write(scaffold / "harness/scaffold_manifest.json", {"managed_paths": [{"path": "AGENTS.md"}], "retired_paths": ["legacy.txt"]})
+    git(scaffold, "add", "."); git(scaffold, "commit", "-qm", "manifest")
+    (target / "user-work.txt").write_text("keep me\n")
+    before = git(target, "rev-parse", "HEAD")
+    finish = call(deliver, scaffold, "finish", "--intent", "bootstrap", "--target", str(target), "--compare-ref", "HEAD")
+    assert finish.returncode != 0 and "outside delivery scope" in finish.stderr, finish.stderr
+    assert git(target, "rev-parse", "HEAD") == before and (target / "user-work.txt").read_text() == "keep me\n"
+    (target / "user-work.txt").unlink(); git(target, "add", "."); git(target, "commit", "-qm", "fixture contract")
+    git(target, "mv", "fixture", "AGENTS.md")
+    renamed = call(deliver, scaffold, "finish", "--intent", "bootstrap", "--target", str(target), "--compare-ref", "HEAD")
+    assert renamed.returncode != 0 and "fixture" in renamed.stderr, renamed.stderr
+
+
+with tempfile.TemporaryDirectory() as directory:
+    base = Path(directory); scaffold, target = base / "scaffold", base / "target"; scaffold.mkdir(); target.mkdir()
+    contract = {"schema_version": 1, "contract_version": 2,
+        "scaffold_source": {"repository": "github.com/moss-site/ai-first-go-template", "delivery_intents": ["bootstrap", "upgrade"]}}
+    write(scaffold / "harness/suite_contract.json", contract)
+    write(scaffold / "harness/scaffold_manifest.json", {"managed_paths": [{"path": "AGENTS.md"}], "retired_paths": ["legacy.txt"]})
+    engine = scaffold / "scripts/harnessctl.sh"; engine.parent.mkdir(parents=True)
+    engine.write_text("#!/bin/sh\nprintf '%s\\n' '{\"converged\":true,\"target_dirty\":false,\"template_commit\":\"fixture\"}'\n"); engine.chmod(0o755)
+    initialize(scaffold, "https://github.com/moss-site/ai-first-go-template.git"); initialize(target)
+    checker = target / "harness/repository_verification.py"; checker.parent.mkdir()
+    checker.write_text("import os,sys\nfrom pathlib import Path\np=Path(os.environ['DELIVERY_TRACE'])\np.open('a').write(' '.join(sys.argv[1:])+'\\n')\nif os.environ.get('MUTATE_OUTSIDE'): Path('user.txt').write_text('preserve')\nraise SystemExit(7 if os.environ.get('FAIL_CHANGE') and sys.argv[-1]=='candidate' else 0)\n")
+    (target / "legacy.txt").write_text("retired shared file\n")
+    git(target, "add", "."); git(target, "commit", "-qm", "native verifier")
+    git(target, "rm", "legacy.txt")
+    before = git(target, "rev-parse", "HEAD"); (target / "AGENTS.md").write_text("new shared instructions\n")
+    args = ("finish", "--intent", "bootstrap", "--target", str(target), "--compare-ref", before)
+    trace = base / "trace"; env = {"DELIVERY_TRACE": str(trace)}
+    trace.unlink(missing_ok=True)
+    finished = call(deliver, scaffold, *args, env=env)
+    assert finished.returncode == 0, finished.stdout + finished.stderr
+    assert git(target, "rev-parse", "HEAD") != before and not git(target, "status", "--porcelain")
+    assert trace.read_text().splitlines() == ["verify candidate", "ready"]
+    assert json.loads(finished.stdout.splitlines()[-1])["status"] == "delivered"
+    wrong_intent = call(deliver, scaffold, *args, env=env)
+    assert wrong_intent.returncode != 0 and "intent" in wrong_intent.stderr
+    trace.unlink(); before = git(target, "rev-parse", "HEAD"); (target / "AGENTS.md").write_text("upgraded shared instructions\n")
+    upgraded = call(deliver, scaffold, "finish", "--intent", "upgrade", "--target", str(target), "--compare-ref", before, env=env)
+    assert upgraded.returncode == 0 and not git(target, "status", "--porcelain"), upgraded.stderr
+    trace.unlink(); before = git(target, "rev-parse", "HEAD"); (target / "AGENTS.md").write_text("candidate needing repair\n")
+    failed = call(deliver, scaffold, "finish", "--intent", "upgrade", "--target", str(target), "--compare-ref", before, env=dict(env, FAIL_CHANGE="1"))
+    assert failed.returncode != 0 and '"status": "delivered"' not in failed.stdout
+    assert trace.read_text().splitlines() == ["verify candidate"]
+    escaped = call(deliver, scaffold, "finish", "--intent", "upgrade", "--target", str(target), "--compare-ref", before, env=dict(env, MUTATE_OUTSIDE="1"))
+    assert escaped.returncode != 0 and (target / "user.txt").read_text() == "preserve"
+    assert not git(target, "ls-files", "--", "user.txt")
 
 print("repository_modules: passed")
