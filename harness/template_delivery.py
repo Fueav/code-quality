@@ -122,8 +122,12 @@ def finish(arguments):
     parser.add_argument("--resolution", action="append", default=[])
     args = parser.parse_args(arguments)
     source_contract(); target = target_root(args.target, False)
+    pending_path = Path(git(target, "rev-parse", "--absolute-git-dir")) / "harness-delivery-pending.json"
+    pending = load(pending_path, "unfinished delivery") if pending_path.exists() else None
+    if pending and (pending.get("intent") != args.intent or pending.get("profile") != args.profile):
+        fail("retry unfinished delivery with its original intent and verification profile")
     has_lock = bool(git(target, "ls-files", "--", "harness/scaffold.lock"))
-    if (args.intent == "bootstrap" and has_lock) or (args.intent == "upgrade" and not has_lock):
+    if not pending and ((args.intent == "bootstrap" and has_lock) or (args.intent == "upgrade" and not has_lock)):
         fail(f"{args.intent} intent does not match the target delivery record")
     manifest = load(root / "harness/scaffold_manifest.json", "scaffold manifest")
     allowed = {item["path"] for item in manifest["managed_paths"]} | set(manifest["retired_paths"]) | {"harness/scaffold.lock"}
@@ -136,6 +140,13 @@ def finish(arguments):
     if changed - allowed: fail("changes outside delivery scope: " + ", ".join(sorted(changed - allowed)))
     base = git(target, "rev-parse", "--verify", "--end-of-options", args.compare_ref + "^{commit}")
     before = git(target, "rev-parse", "HEAD")
+    if pending:
+        saved = pending.get("compare_commit", "")
+        if not isinstance(saved, str) or not re.fullmatch(r"[0-9a-f]{40,64}", saved): fail("invalid unfinished delivery comparison")
+        if args.compare_ref != "HEAD" and base != saved: fail("unfinished delivery requires its original comparison commit: " + saved)
+        if run(["git", "merge-base", "--is-ancestor", saved, before], target).returncode:
+            fail("unfinished delivery comparison is not an ancestor of current HEAD")
+        base = saved
     common = ["--intent", args.intent, "--target", str(target)]
     resolutions = [value for item in args.resolution for value in ("--resolution", item)]
     record(common + resolutions)
@@ -147,12 +158,14 @@ def finish(arguments):
     tracked = set(git(target, "ls-files", "-z").split("\0"))
     stageable = [path for path in changed | {"harness/scaffold.lock"}
                  if path in tracked or (target / path).exists() or (target / path).is_symlink()]
+    pending_path.write_text(json.dumps({"intent": args.intent, "profile": args.profile, "compare_commit": base}) + "\n")
     if stageable: git(target, "add", "--", *sorted(stageable))
     if git(target, "diff", "--cached", "--name-only"):
         git(target, "commit", "-m", f"chore(harness): {args.intent} repository contract")
     checked = run([sys.executable, str(verifier), "verify", args.profile], target, runtime)
     if checked.returncode: fail(checked.stdout + checked.stderr)
     complete(common)
+    pending_path.unlink()
 
 
 def initialize(arguments):

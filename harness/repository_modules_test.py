@@ -107,7 +107,7 @@ with tempfile.TemporaryDirectory() as directory:
     engine.write_text("#!/bin/sh\nprintf '%s\\n' '{\"converged\":true,\"target_dirty\":false,\"template_commit\":\"fixture\"}'\n"); engine.chmod(0o755)
     initialize(scaffold, "https://github.com/moss-site/ai-first-go-template.git"); initialize(target)
     checker = target / "harness/repository_verification.py"; checker.parent.mkdir()
-    checker.write_text("import os,sys\nfrom pathlib import Path\np=Path(os.environ['DELIVERY_TRACE'])\np.open('a').write(' '.join(sys.argv[1:])+'\\n')\nif os.environ.get('MUTATE_OUTSIDE'): Path('user.txt').write_text('preserve')\nraise SystemExit(7 if os.environ.get('FAIL_CHANGE') and sys.argv[-1]=='candidate' else 0)\n")
+    checker.write_text("import os,sys,subprocess\nfrom pathlib import Path\np=Path(os.environ['DELIVERY_TRACE'])\np.open('a').write(' '.join(sys.argv[1:])+'\\n')\nif os.environ.get('MUTATE_OUTSIDE'): Path('user.txt').write_text('preserve')\nchanged=subprocess.check_output(['git','diff','--name-only',os.environ.get('VERIFY_COMPARE_REF','HEAD'),'HEAD'],text=True).strip()\nraise SystemExit(7 if changed and os.environ.get('FAIL_CHANGE') and sys.argv[-1]=='candidate' else 0)\n")
     (target / "legacy.txt").write_text("retired shared file\n")
     git(target, "add", "."); git(target, "commit", "-qm", "native verifier")
     git(target, "rm", "legacy.txt")
@@ -126,9 +126,16 @@ with tempfile.TemporaryDirectory() as directory:
     upgraded = call(deliver, scaffold, "finish", "--intent", "upgrade", "--target", str(target), "--compare-ref", before, env=env)
     assert upgraded.returncode == 0 and not git(target, "status", "--porcelain"), upgraded.stderr
     trace.unlink(); before = git(target, "rev-parse", "HEAD"); (target / "AGENTS.md").write_text("candidate needing repair\n")
-    failed = call(deliver, scaffold, "finish", "--intent", "upgrade", "--target", str(target), "--compare-ref", before, env=dict(env, FAIL_CHANGE="1"))
+    retry_args = ("finish", "--intent", "upgrade", "--target", str(target), "--compare-ref", "HEAD")
+    failed = call(deliver, scaffold, *retry_args, env=dict(env, FAIL_CHANGE="1"))
     assert failed.returncode != 0 and '"status": "delivered"' not in failed.stdout
     assert trace.read_text().splitlines() == ["verify candidate"]
+    retried = call(deliver, scaffold, *retry_args, env=dict(env, FAIL_CHANGE="1"))
+    assert retried.returncode != 0 and '"status": "delivered"' not in retried.stdout, retried.stdout
+    pending = target / '.git/harness-delivery-pending.json'
+    assert json.loads(pending.read_text())['compare_commit'] == before
+    repaired = call(deliver, scaffold, *retry_args, env=env)
+    assert repaired.returncode == 0 and not pending.exists(), repaired.stderr
     escaped = call(deliver, scaffold, "finish", "--intent", "upgrade", "--target", str(target), "--compare-ref", before, env=dict(env, MUTATE_OUTSIDE="1"))
     assert escaped.returncode != 0 and (target / "user.txt").read_text() == "preserve"
     assert not git(target, "ls-files", "--", "user.txt")
