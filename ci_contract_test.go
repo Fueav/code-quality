@@ -28,7 +28,7 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 		"command -v quality-review",
-		"quality-review v0.5.10",
+		"quality-review v0.5.11",
 		"--execution-profile \"$QUALITY_REVIEW_EXECUTION_PROFILE\"",
 		"--model \"$QUALITY_REVIEW_MODEL\"",
 		"--reasoning-effort \"$QUALITY_REVIEW_REASONING_EFFORT\"",
@@ -104,16 +104,16 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		t.Fatalf("README onboarding order is invalid: personal=%d linux_ci=%d", personal, linuxCI)
 	}
 	for _, required := range []string{
-		"请为当前仓库安装并运行 Fueav code-quality v0.5.10",
-		"bootstrap.sh | sh -s -- v0.5.10 codex",
-		"bootstrap.sh | sh -s -- v0.5.10 claude",
+		"请为当前仓库安装并运行 Fueav code-quality v0.5.11",
+		"bootstrap.sh | sh -s -- v0.5.11 codex",
+		"bootstrap.sh | sh -s -- v0.5.11 claude",
 		"先提交要审查的改动",
 		"self-hosted Linux runner",
 		"运行 GitHub Actions Runner 的同一个系统用户",
 		"codex exec",
 		"不接收 Provider API key",
 		".github/workflows/code-quality-reusable.yml",
-		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.10",
+		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.11",
 		"PR 为审查单元",
 		"merge-base",
 		"schema v10",
@@ -156,7 +156,7 @@ func TestJenkinsUsesOneReviewTransaction(t *testing.T) {
 	}
 	document := string(raw)
 	for _, required := range []string{
-		"Jenkins 生产 CI 接入（v0.5.10）",
+		"Jenkins 生产 CI 接入（v0.5.11）",
 		"effort=max",
 		"review_args=(",
 		"quality-review \"$command\" \"${review_args[@]}\"",

@@ -5,7 +5,7 @@ description: 审查已提交代码中的可执行缺陷，使用当前宿主的�
 
 # Code Quality
 
-定位 `quality-review`，运行 `<bin> version` 确认版本为 `v0.5.10`。缺失时，仅在已授权安装的范围内使用固定版本 bootstrap；安装入口见仓库 README。
+定位 `quality-review`，运行 `<bin> version` 确认版本为 `v0.5.11`。缺失时，仅在已授权安装的范围内使用固定版本 bootstrap；安装入口见仓库 README。
 
 在 Codex 使用 `<bin> run-codex --repo <repo>`，Claude Code 使用 `<bin> run-claude --repo <repo>`。CLI 内部校验范围并冻结证据，`plan` 和 `doctor` 仅用于诊断。沿用用户选择的 `--model`、`--reasoning-effort` 和 `--execution-profile`；显式比较使用成对的 `--base-ref` / `--head-ref`，或精确 SHA 的 `--base` / `--target`。只有用户给出关注点时添加 `--goal`。
 

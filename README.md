@@ -8,16 +8,16 @@
 
 在需要审查的仓库中，把下面整句话交给 Codex 或 Claude Code：
 
-> 请为当前仓库安装并运行 Fueav code-quality v0.5.10；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.10/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只读审查，只展示简明结论、必须修复的问题和非阻断 advisory，不修改代码、Git、CI、远端或部署状态。
+> 请为当前仓库安装并运行 Fueav code-quality v0.5.11；固定版本安装入口是 https://github.com/Fueav/code-quality/releases/download/v0.5.11/bootstrap.sh。请自动识别当前是 Codex 还是 Claude Code，使用对应的 `codex` 或 `claude` 参数完成 CLI 与插件安装，再检查宿主登录、版本、PATH、Git 基线、已提交差异和未提交文件。预检不通过时不要启动审查，只告诉我一个下一步；通过后执行一次只读审查，只展示简明结论、必须修复的问题和非阻断 advisory，不修改代码、Git、CI、远端或部署状态。
 
 Agent 会根据当前宿主执行下面一个固定版本入口：
 
 ```sh
 # Codex
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.10/bootstrap.sh | sh -s -- v0.5.10 codex
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.11/bootstrap.sh | sh -s -- v0.5.11 codex
 
 # Claude Code
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.10/bootstrap.sh | sh -s -- v0.5.10 claude
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.11/bootstrap.sh | sh -s -- v0.5.11 claude
 ```
 
 bootstrap 会同时安装 CLI 和对应插件，并输出 `QUALITY_REVIEW_BIN=<绝对路径>` 及下一条 doctor 命令。首次运行使用这个绝对路径，不依赖当前 shell 是否已包含 `~/.local/bin`；bootstrap 不会修改 shell profile。
@@ -78,20 +78,20 @@ INCREMENTAL 只审 `previous_head..current_head`，同时复核上一轮未解�
 CLI 安装器会判断平台、校验 SHA-256，并安装到 `~/.local/bin`（可用 `INSTALL_DIR` 覆盖）：
 
 ```sh
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.10/install.sh | sh -s -- v0.5.10
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.11/install.sh | sh -s -- v0.5.11
 ```
 
 Codex plugin：
 
 ```sh
-codex plugin marketplace add Fueav/code-quality --ref v0.5.10
+codex plugin marketplace add Fueav/code-quality --ref v0.5.11
 codex plugin add code-quality@fueav-code-quality
 ```
 
 Claude Code plugin 使用 HTTPS 和固定 Tag，不要求 GitHub SSH：
 
 ```sh
-claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.10
+claude plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.11
 claude plugin install code-quality@fueav-code-quality --scope user
 ```
 
@@ -111,7 +111,7 @@ claude plugin install code-quality@fueav-code-quality --scope user
 
 本节的 `jobs: uses:` 配置只适用于 GitHub Actions。使用 Jenkins 的团队请直接阅读 [Jenkins 生产 CI 接入](docs/jenkins-production-ci.md)。
 
-这个入口面向一台受控的 self-hosted Linux runner。运行 GitHub Actions Runner 的同一个系统用户必须已经安装 `quality-review v0.5.10`，并安装、登录 Codex 或 Claude Code；workflow 不接收 Provider API key，不安装任何 CLI，也不创建临时登录。`quality-review run-codex` 会直接复用该用户的登录态启动原生发现；只有发现 P0/P1 时，才会用同一 Provider 做受限裁决。首次受限调用若为明确可重试的运行故障，可用 `resume-restricted` 对同一冻结会话最多续跑一次；不会重跑 Native。Claude Code 路径相同。
+这个入口面向一台受控的 self-hosted Linux runner。运行 GitHub Actions Runner 的同一个系统用户必须已经安装 `quality-review v0.5.11`，并安装、登录 Codex 或 Claude Code；workflow 不接收 Provider API key，不安装任何 CLI，也不创建临时登录。`quality-review run-codex` 会直接复用该用户的登录态启动原生发现；只有发现 P0/P1 时，才会用同一 Provider 做受限裁决。首次受限调用若为明确可重试的运行故障，可用 `resume-restricted` 对同一冻结会话最多续跑一次；不会重跑 Native。Claude Code 路径相同。
 
 CI 不需要安装 Codex 或 Claude Code 插件。reusable workflow 只验证预装的 `quality-review` 版本，然后以同一组合同参数执行 一次审查事务（范围校验、原生发现、必要时受限裁决、发布简报与证据）。生产路径以 PR 为审查单元：套件从 GitHub PR 事件读取 base tip 与 head，计算真实 `merge-base → head` 范围，并把 PR 身份冻结到 schema v10 结果中。每轮固定一个 Provider，原生调用恒为 1，受限裁决最多 2 次，默认 `reasoning_effort: max`；它不会写 PR 评论，只有通过生产下限裁决的 P0/P1 才返回 `BLOCK`，P2/P3-only 结果保持 `PASS`。
 
@@ -142,10 +142,10 @@ stderr 中能按 [review-progress-event-v1 schema](schemas/review-progress-event
 创建名为 `code-quality` 的 runner group，只授权给接入的可信私有仓库；给组内 Linux runner 增加 `self-hosted`、`linux`、`code-quality` 标签。先切换到实际运行 Actions Runner 服务的系统用户，安装套件并确保安装目录属于该服务的 `PATH`：
 
 ```sh
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.10/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.10
+curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.11/install.sh |
+  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.11
 command -v quality-review
-quality-review version  # 必须精确输出 quality-review v0.5.10
+quality-review version  # 必须精确输出 quality-review v0.5.11
 ```
 
 再验证所选 Provider：
@@ -185,7 +185,7 @@ jobs:
       !github.event.pull_request.draft &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.10
+    uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.11
     with:
       provider: claude
       model: sonnet
@@ -193,7 +193,7 @@ jobs:
       artifact_retention_days: 14
 ```
 
-示例固定引用 `v0.5.10`，不要改为 `main`。公司侧统一使用 `reasoning_effort: max`。改用 Codex 时只需把 `provider` 改为 `codex`、`model` 改为 `gpt-5.6-sol`；两种 Provider 都不传 secrets。job 会被调度到 `code-quality` runner group 内、带对应标签的 self-hosted Linux runner。
+示例固定引用 `v0.5.11`，不要改为 `main`。公司侧统一使用 `reasoning_effort: max`。改用 Codex 时只需把 `provider` 改为 `codex`、`model` 改为 `gpt-5.6-sol`；两种 Provider 都不传 secrets。job 会被调度到 `code-quality` runner group 内、带对应标签的 self-hosted Linux runner。
 
 caller 不传 `base_sha` 或 `target_sha`。reusable workflow 只接受 `pull_request` 事件，完整拉取历史、精确检出 PR head，再由套件计算 merge-base；目标分支在 PR 创建后继续前进，也不会把目标分支自己的新增提交混进本次审查。每次 PR 更新都会取消同一 Provider 的旧 run，避免浪费额度。
 
@@ -230,7 +230,7 @@ Jenkins 使用独立的 [生产接入说明](docs/jenkins-production-ci.md)。Gi
 
 ```sh
 claude auth status --json
-test "$(quality-review version)" = 'quality-review v0.5.10'
+test "$(quality-review version)" = 'quality-review v0.5.11'
 
 review_args=(--repo "$WORKSPACE"
   --base "$BASE_SHA" --target "$TARGET_SHA"

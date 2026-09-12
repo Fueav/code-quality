@@ -1,7 +1,5 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "fueav-code-quality",
-  "description": "Report-only production-floor code review for Claude Code and Codex.",
   "owner": {
     "name": "Fueav"
   },
@@ -10,7 +8,7 @@
       "name": "code-quality",
       "source": "./plugins/code-quality",
       "description": "Reviews a trusted committed Git increment for material correctness, data, reliability, security, and compatibility defects.",
-      "version": "0.5.10",
+      "version": "0.5.11",
       "author": {
         "name": "Fueav"
       },
@@ -23,5 +21,8 @@
       ],
       "strict": false
     }
-  ]
+  ],
+  "metadata": {
+    "description": "Report-only production-floor code review for Claude Code and Codex."
+  }
 }

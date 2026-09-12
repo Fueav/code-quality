@@ -42,16 +42,19 @@ esac
             codex.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             codex.chmod(0o700)
             data = root / "data"
+            # A user's startup file must not replace the fake commands with host tools.
+            (root / ".zshenv").write_text("export PATH=/nonexistent\n", encoding="utf-8")
             environment = os.environ.copy()
             environment.update(
                 {
                     "FAKE_CRONTAB_STORE": str(crontab_store),
                     "PATH": str(fake_bin) + os.pathsep + environment["PATH"],
+                    "ZDOTDIR": str(root),
                 }
             )
 
             subprocess.run(
-                ["/bin/zsh", str(WATCH), "--uninstall", "--data-root", str(data)],
+                ["/bin/zsh", "-f", str(WATCH), "--uninstall", "--data-root", str(data)],
                 check=True,
                 text=True,
                 capture_output=True,
@@ -59,7 +62,7 @@ esac
             )
             crontab_store.write_text("5 4 * * * /usr/bin/true\n", encoding="utf-8")
             subprocess.run(
-                ["/bin/zsh", str(WATCH), "--install", "--data-root", str(data)],
+                ["/bin/zsh", "-f", str(WATCH), "--install", "--data-root", str(data)],
                 check=True,
                 text=True,
                 capture_output=True,
@@ -72,7 +75,7 @@ esac
             self.assertTrue((data / "bin" / "live_adjudicate.py").is_file())
 
             subprocess.run(
-                ["/bin/zsh", str(WATCH), "--uninstall", "--data-root", str(data)],
+                ["/bin/zsh", "-f", str(WATCH), "--uninstall", "--data-root", str(data)],
                 check=True,
                 text=True,
                 capture_output=True,
@@ -197,6 +200,7 @@ esac
         return subprocess.run(
             [
                 "/bin/zsh",
+                "-f",
                 str(WATCH),
                 "--once",
                 "--config",
