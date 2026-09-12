@@ -65,7 +65,7 @@ def verify(sync_raw, hdd_raw, output):
             }
             for label, repo in (("template_sync", sync), ("hdd", hdd)):
                 step(label + "_release", [sys.executable, "scripts/verify_release.py"], repo, steps)
-            step("daily_behavior", [sys.executable, "scripts/run_behavior_evals.py", "verify", "--results", "evals/behavior-results.json", "--repository", str(root)], hdd, steps)
+            step("daily_behavior", [str(root / "evals/run.sh")], root, steps)
             target = temporary / "target"; shutil.copytree(root, target, symlinks=True, ignore=shutil.ignore_patterns(".git", ".artifacts", ".tools", "__pycache__"))
             step("target_init", [str(target / "scripts/init_project.sh"), "--module", "example.com/suite/service", "--service", "suite-service", "--owner", "@suite-team"], target, steps)
             if git(root, "status", "--porcelain=v1", "--untracked-files=all"): raise RuntimeError("target initialization escaped into the Scaffold Source")
