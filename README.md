@@ -253,9 +253,8 @@ CLI 会固定并隔离 committed base-to-target，先启动一次顶层原生 Pr
 ## 维护者发布
 
 ```sh
-make release-check VERSION=vX.Y.Z VERIFY_COMPARE_REF=vPREVIOUS
-git tag -a vX.Y.Z -m "vX.Y.Z"
 make dist VERSION=vX.Y.Z VERIFY_COMPARE_REF=vPREVIOUS
+git tag -a vX.Y.Z -m "vX.Y.Z"
 git push --atomic origin main vX.Y.Z
 gh release create vX.Y.Z dist/* --title vX.Y.Z --notes-file <release-notes>
 ```
