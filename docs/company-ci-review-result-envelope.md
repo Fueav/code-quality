@@ -64,6 +64,6 @@ GitHub Check 只显示 `Native Review reused`、当前阶段、Restricted attemp
 
 `REUSED` 时不产生新的 Provider 调用；`SUPERSEDED` 不是失败或通过结论，而是“这份结果已经不能代表当前 PR”。Restricted stage retry 不创建新的 FULL/INCREMENTAL review round。
 
-INCREMENTAL `plan` 或运行返回 `FULL_REQUIRED` / exit 4 时，外围只能在正常 review-round 语义下重新读取 base/head，移除 `--previous-result`，再以同一合同发起新 FULL；这不是 checkpoint 丢失时的自动回退。
+INCREMENTAL `plan` 或运行返回 `FULL_REQUIRED` / exit 4 只表示前次证据不能用于本次增量审查。项目契约决定是否还需要审查；必需审查须完成可信审查或保持未完成，不能静默跳过或标绿。需要新 FULL 时，重新读取 base/head，移除 `--previous-result`，再以同一合同发起；这不是 checkpoint 丢失时的自动回退。
 
 若上一份结果已经是 INCREMENTAL，CLI 返回 `MANUAL_REQUIRED` / exit 5。外围必须停止自动链并把剩余 blocker 交给人，不能按 `FULL_REQUIRED` 路径自动回退成 FULL。

@@ -1,6 +1,6 @@
 package quality
 
-const SkillVersion = "0.5.11"
+const SkillVersion = "0.5.12"
 
 const (
 	ExecutionProfilePersonal     = "personal"
