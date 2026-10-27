@@ -116,9 +116,12 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	if err != nil {
 		return TransactionResult{}, atStage("freeze native review contract", 2, err)
 	}
-	parentContract, err := ResolveContract(provider, options.Model, options.ReasoningEffort, options.ExecutionProfile, quality.ReviewScopeFull)
-	if err != nil {
-		return TransactionResult{}, atStage("freeze parent review contract", 2, err)
+	parentContract := contract
+	if strings.EqualFold(strings.TrimSpace(options.ReviewScope), quality.ReviewScopeIncremental) {
+		parentContract, err = ResolveContract(provider, options.Model, options.ReasoningEffort, options.ExecutionProfile, quality.ReviewScopeFull)
+		if err != nil {
+			return TransactionResult{}, atStage("freeze parent review contract", 2, err)
+		}
 	}
 	acquireLease := options.AcquireLease
 	if acquireLease == nil {
@@ -220,6 +223,15 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	if err := checkpointNativeFrozen(&checkpoint, session, outcome); err != nil {
 		return TransactionResult{}, atStage("freeze native checkpoint", 1, err)
 	}
+	if err := verifySessionInputs(ctx, session, checkpoint.InputArtifacts); err != nil {
+		checkpoint.State = StateTerminalError
+		checkpoint.LastFailure = &AttemptFailure{Class: FailureArtifactIntegrity, Reason: "Native changed the frozen target checkout or review inputs"}
+		if checkpointErr := writeCheckpoint(session.Directory(), &checkpoint); checkpointErr != nil {
+			err = errors.Join(err, checkpointErr)
+		}
+		return TransactionResult{Plan: plan, Status: statusFromCheckpoint(checkpoint, session.Directory(), 1, 0), ExitCode: 1},
+			atStage("verify Native target integrity", 1, err)
+	}
 	if err := writeCheckpoint(session.Directory(), &checkpoint); err != nil {
 		return TransactionResult{}, atStage("write native-frozen checkpoint", 1, err)
 	}
@@ -227,6 +239,19 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	if len(outcome.BlockingFindings()) == 0 {
 		return publishTransaction(session, plan, &checkpoint, outcome, 1, 0, progress)
 	}
+	// Personal Native review can create build artifacts. Restricted adjudication
+	// always starts from a fresh target checkout, never that mutable workspace.
+	restrictedSession, err := reviewsession.ReopenNative(ctx, session.Directory())
+	if err != nil {
+		checkpoint.State = StateTerminalError
+		checkpoint.LastFailure = &AttemptFailure{Class: FailureArtifactIntegrity, Reason: "the exact target checkout could not be rebuilt for Restricted"}
+		if checkpointErr := writeCheckpoint(session.Directory(), &checkpoint); checkpointErr != nil {
+			err = errors.Join(err, checkpointErr)
+		}
+		return TransactionResult{Plan: plan, Status: statusFromCheckpoint(checkpoint, session.Directory(), 1, 0), ExitCode: 1},
+			atStage("prepare exact restricted target checkout", 1, err)
+	}
+	session = restrictedSession
 
 	record := newAttemptRecord(1, false)
 	checkpoint.RestrictedAttempts = append(checkpoint.RestrictedAttempts, record)
@@ -241,6 +266,7 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 		Attempt: 1, Resumed: false, StartedAt: record.StartedAt,
 		HeartbeatInterval: options.HeartbeatInterval, ProgressWriter: options.ProgressWriter,
 		ProgressFormat: options.ProgressFormat, Progress: progress,
+		InputArtifacts: checkpoint.InputArtifacts,
 	}, outcome)
 	cancelRestricted()
 	if err != nil {
@@ -251,6 +277,15 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	}
 	checkpoint.RestrictedAttempts[0] = attempt.Record
 	return finishRestrictedAttempt(session, plan, &checkpoint, attempt, false, 1, 1, progress)
+}
+
+func verifySessionInputs(ctx context.Context, session reviewsession.NativeSession, inputs []ArtifactDigest) error {
+	for _, artifact := range inputs {
+		if err := verifyArtifact(session.Directory(), artifact); err != nil {
+			return fmt.Errorf("verify frozen input %s: %w", artifact.Name, err)
+		}
+	}
+	return session.VerifyTargetCheckout(ctx)
 }
 
 // ResumeRestricted is the only production entry point for continuing a
@@ -452,6 +487,7 @@ func ResumeRestricted(ctx context.Context, options ResumeOptions) (transaction T
 		Attempt: attemptNumber, Resumed: true, StartedAt: record.StartedAt,
 		HeartbeatInterval: options.HeartbeatInterval, ProgressWriter: options.ProgressWriter,
 		ProgressFormat: options.ProgressFormat, Progress: progress,
+		InputArtifacts: checkpoint.InputArtifacts,
 	}, outcome)
 	cancelRestricted()
 	if err != nil {

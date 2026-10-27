@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full main commit SHA personally reviewed for this release
+        required: true
+        type: string
+      compare_sha:
+        description: Full reviewed comparison commit SHA
+        required: true
+        type: string
+      version:
+        description: Release version (vX.Y.Z)
+        required: true
+        type: string
+      reviewed_source:
+        description: I reviewed these exact source/base SHAs and approve packaging this release
+        required: true
+        default: false
+        type: boolean
+      eval_suite:
+        description: Reviewed frozen suite JSON path committed in source_sha
+        required: true
+        type: string
+      eval_evidence:
+        description: Real model evidence manifest path committed in source_sha
+        required: true
+        type: string
+      eval_contract:
+        description: Expected current FULL production-ci contract digest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: approved release package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      COMPARE_SHA: ${{ inputs.compare_sha }}
+      EVAL_SUITE_PATH: ${{ inputs.eval_suite }}
+      EVAL_EVIDENCE_PATH: ${{ inputs.eval_evidence }}
+      RELEASE_EVAL_CONTRACT: ${{ inputs.eval_contract }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify explicit final source approval
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -I -B -S harness/ci_approval.py release --repository "$REPOSITORY" \
+            --head "$SOURCE_SHA" --compare "$COMPARE_SHA" > "$RUNNER_TEMP/release-approval.json"
+      - name: Select reviewed committed qualification inputs
+        run: |
+          python3 -I -B -S - <<'PY'
+          import os, pathlib, subprocess
+          root = pathlib.Path.cwd().resolve()
+          for source, destination in (("EVAL_SUITE_PATH", "RELEASE_EVAL_SUITE"), ("EVAL_EVIDENCE_PATH", "RELEASE_EVAL_EVIDENCE")):
+              relative = pathlib.Path(os.environ[source])
+              if relative.is_absolute() or ".." in relative.parts or any(c in str(relative) for c in "\r\n"):
+                  raise SystemExit("HOLD: qualification inputs require committed repository-relative paths")
+              path = root / relative
+              if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(root):
+                  raise SystemExit("HOLD: frozen model qualification input is unavailable")
+              subprocess.run(["git", "ls-files", "--error-unmatch", "--", str(relative)], check=True, stdout=subprocess.DEVNULL)
+              with open(os.environ["GITHUB_ENV"], "a") as stream:
+                  stream.write(f"{destination}={path}\n")
+          PY
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install pinned verification engine and selected tools
+        run: scripts/harnessctl.sh install-tools --profile release --compare-ref "$COMPARE_SHA"
+      - name: Verify once and package the approved source
+        run: |
+          set -euo pipefail
+          export AI_BOUNDARY_APPROVED=1
+          export AI_BOUNDARY_APPROVAL_EVIDENCE="$(jq -r .approval_evidence "$RUNNER_TEMP/release-approval.json")"
+          export RELEASE_APPROVED_HEAD_SHA="$SOURCE_SHA"
+          export RELEASE_APPROVED_COMPARE_SHA="$COMPARE_SHA"
+          make dist VERSION="$RELEASE_VERSION" VERIFY_COMPARE_REF="$COMPARE_SHA"
+          python3 -I -B -S harness/ci_approval.py release --repository "$REPOSITORY" \
+            --head "$SOURCE_SHA" --compare "$COMPARE_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ inputs.source_sha }}-${{ inputs.version }}
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: release-verification-${{ github.run_id }}
+          path: |
+            .artifacts/release/
+            .artifacts/release-qualification.json
+          include-hidden-files: true
+          if-no-files-found: warn

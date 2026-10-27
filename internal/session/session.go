@@ -264,7 +264,7 @@ func PrepareNative(ctx context.Context, options Options) (NativeSession, error) 
 		preparation.abort()
 		return NativeSession{}, err
 	}
-	return NativeSession{
+	session := NativeSession{
 		repositoryRoot: options.RepositoryRoot,
 		providerHost:   options.Host,
 		layout:         preparation.layout,
@@ -272,7 +272,12 @@ func PrepareNative(ctx context.Context, options Options) (NativeSession, error) 
 		dirtyWorktree:  options.DirtyWorktree,
 		request:        copyReviewRequest(options.Request),
 		artifacts:      newNativeArtifacts(preparation.layout),
-	}, nil
+	}
+	if err := session.VerifyTargetCheckout(ctx); err != nil {
+		preparation.abort()
+		return NativeSession{}, fmt.Errorf("verify prepared target checkout: %w", err)
+	}
+	return session, nil
 }
 
 // ReopenNative validates a retained current-version session and rebuilds its exact
@@ -341,18 +346,15 @@ func ReopenNative(ctx context.Context, sessionDir string) (NativeSession, error)
 			_ = cleanupCheckout(metadata.RepositoryRoot, layout.SessionDir, layout.RepositoryDir, mode)
 		}
 	}()
-	head, err := gitOutput(ctx, layout.RepositoryDir, "rev-parse", "HEAD")
-	if err != nil || strings.TrimSpace(head) != request.TargetCommit {
-		return NativeSession{}, errors.New("rebuilt checkout does not match the frozen target commit")
-	}
-	if _, err := gitOutput(ctx, layout.RepositoryDir, "symbolic-ref", "-q", "HEAD"); err == nil {
-		return NativeSession{}, errors.New("rebuilt checkout is not detached")
-	}
-	valid = true
-	return NativeSession{
+	session := NativeSession{
 		repositoryRoot: metadata.RepositoryRoot, providerHost: metadata.Host, layout: layout, checkoutMode: mode,
 		request: copyReviewRequest(request), artifacts: newNativeArtifacts(layout),
-	}, nil
+	}
+	if err := session.VerifyTargetCheckout(ctx); err != nil {
+		return NativeSession{}, fmt.Errorf("verify rebuilt target checkout: %w", err)
+	}
+	valid = true
+	return session, nil
 }
 
 // VerifyTrustedDiff recomputes the exact committed diff from the retained Git

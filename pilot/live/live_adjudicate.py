@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import datetime as dt
+import fcntl
 import json
 import os
 import pathlib
@@ -15,11 +17,13 @@ import subprocess
 import tempfile
 from typing import Callable, Iterable
 
+from native_records import adapted_findings, digest, read_json, validate_result
+
 
 LABELS = ("open", "confirmed_by_later_fix", "superseded", "stale_probable_noise")
 FINAL_STATUSES = frozenset({"confirmed_by_later_fix", "superseded", "stale_probable_noise"})
 JUDGMENTS = ("fixes", "touches_only", "unclear")
-DIMENSIONS = ("D1", "D2", "D3", "D4")
+DIMENSIONS = ("D1", "D2", "D3", "D4", "unknown")
 HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
@@ -129,9 +133,34 @@ def write_atomically(destination: pathlib.Path, contents: str) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, destination)
+        directory = os.open(destination.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+@contextlib.contextmanager
+def adjudication_lock(data_root: pathlib.Path):
+    """Serialize cron/manual runs; the kernel releases this lock after a crash."""
+    directory = data_root / "run"
+    directory.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(directory / "live-adjudicate.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("live adjudication is already running") from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def persist_state(path: pathlib.Path, state: dict) -> None:
+    write_atomically(path, json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
 def load_config(source: pathlib.Path) -> dict[str, object]:
@@ -162,30 +191,23 @@ def load_reviews(data_root: pathlib.Path) -> list[dict[str, object]]:
     return [records[key] for key in sorted(records)]
 
 
-def dimension_for_rule(rule_id: str) -> str:
-    prefix = rule_id.split("-", 1)[0]
-    return {"DES": "D1", "COR": "D2", "REL": "D3", "SEC": "D4", "CHG": "D4"}.get(prefix, "D4")
-
-
 def initialize_state(repo: str, sha: str, result: dict[str, object]) -> dict[str, object]:
-    findings = []
-    for wrapped in result.get("findings", []):
-        candidate = wrapped.get("candidate", {})
-        rule_id = str(candidate.get("rule_id", ""))
-        findings.append(
-            {
-                "finding_id": str(candidate.get("id", "")),
-                "rule_id": rule_id,
-                "dimension": dimension_for_rule(rule_id),
-                "code_locations": candidate.get("code_locations", []),
-                "production_impact": str(candidate.get("production_impact", "")),
-                "minimal_fix": str(candidate.get("minimal_fix", "")),
-                "status": "open",
-                "decisions": [],
-                "independent_confirmation": None,
-            }
-        )
-    return {"schema_version": 1, "repo": repo, "sha": sha, "findings": findings}
+    findings = adapted_findings(result)
+    return {"schema_version": 2, "repo": repo, "sha": sha, "review_key": result["review_key"], "findings": findings}
+
+
+def archived_result(review: dict, result_path: pathlib.Path) -> dict:
+    if review.get("schema_version") != 2 or review.get("origin") != "production_cli":
+        raise ValueError("live index requires explicit schema migration")
+    result = read_json(result_path)
+    validate_result(result)
+    if digest(result_path) != review.get("result_sha256"):
+        raise ValueError("archived result digest differs from validated index")
+    if result["current_head"] != review["sha"] or result["review_key"] != review.get("review_key"):
+        raise ValueError("archived result identity differs from validated index")
+    if result["adjudication"]["semantic_result"] == "ERROR":
+        raise ValueError("ERROR is not a completed review")
+    return result
 
 
 def candidate_commits(
@@ -250,7 +272,6 @@ def adjudicate_pair(
     candidate: str,
     finding: dict[str, object],
     codex_bin: pathlib.Path,
-    host_auth: pathlib.Path,
 ) -> dict[str, str]:
     injected = os.environ.get("LIVE_ADJUDICATION_RUNNER")
     if injected:
@@ -262,18 +283,12 @@ def adjudicate_pair(
         )
         decision = json.loads(completed.stdout)
     else:
-        if host_auth.is_symlink() or not host_auth.is_file():
-            raise ValueError("Codex auth must be a regular non-symlink file")
         if not codex_bin.is_file() or not os.access(codex_bin, os.X_OK):
             raise ValueError("Codex binary is not executable")
         with tempfile.TemporaryDirectory(prefix="code-quality-adjudicate.") as temporary:
             root = pathlib.Path(temporary)
             clone = root / "repository"
             hardened_clone(repository, candidate, clone)
-            codex_home = root / "codex-home"
-            codex_home.mkdir(mode=0o700)
-            shutil.copyfile(host_auth, codex_home / "auth.json")
-            (codex_home / "auth.json").chmod(0o600)
             schema = root / "decision.schema.json"
             schema.write_text(
                 json.dumps(
@@ -298,7 +313,6 @@ def adjudicate_pair(
                 + candidate_diff(repository, candidate, list(finding.get("code_locations", [])))
             )
             environment = os.environ.copy()
-            environment["CODEX_HOME"] = str(codex_home)
             completed = subprocess.run(
                 [
                     str(codex_bin),
@@ -308,6 +322,7 @@ def adjudicate_pair(
                     "-C",
                     str(clone),
                     "--ignore-user-config",
+                    "--ignore-rules",
                     "--ephemeral",
                     "--output-schema",
                     str(schema),
@@ -321,7 +336,6 @@ def adjudicate_pair(
                 timeout=int(os.environ.get("LIVE_CODEX_TIMEOUT_SECONDS", "1800")),
                 check=True,
             )
-            (codex_home / "auth.json").unlink(missing_ok=True)
             decision = json.loads(output.read_text(encoding="utf-8"))
     if decision.get("judgment") not in JUDGMENTS or not isinstance(decision.get("reason"), str) or not decision["reason"].strip():
         raise ValueError("invalid adjudication decision")
@@ -339,6 +353,7 @@ def render_summary(summary: dict[str, object]) -> str:
         "# Live Git Forward Adjudication",
         "",
         f"Generated: `{summary['generated_at']}`",
+        f"Status: `{summary.get('status', 'COMPLETE')}`",
         "",
         "## Reports",
         "",
@@ -375,14 +390,23 @@ def main() -> int:
     parser.add_argument("--data-root", type=pathlib.Path, default=pathlib.Path.home() / "AiProject" / "code-quality-live")
     parser.add_argument("--now", help="UTC ISO timestamp for deterministic tests")
     args = parser.parse_args()
+    try:
+        with adjudication_lock(args.data_root):
+            return run_adjudications(args)
+    except (OSError, RuntimeError) as error:
+        print(f"HOLD: {error}", file=os.sys.stderr)
+        return 1
+
+
+def run_adjudications(args: argparse.Namespace) -> int:
     now = parse_time(args.now) if args.now else dt.datetime.now(dt.timezone.utc)
     config = load_config(args.config.resolve())
     repositories = {entry["name"]: pathlib.Path(entry["path"]).resolve() for entry in config["repositories"]}
     refs = {entry["name"]: entry.get("ref", "HEAD") for entry in config["repositories"]}
     codex_bin = pathlib.Path(str(config.get("codex_bin", shutil.which("codex") or "")))
-    host_auth = pathlib.Path(os.environ.get("HOST_CODEX_AUTH", pathlib.Path.home() / ".codex" / "auth.json"))
     reviews = load_reviews(args.data_root)
     all_findings: list[dict[str, object]] = []
+    accepted_reviews = []
     failures = []
 
     for review in reviews:
@@ -392,14 +416,24 @@ def main() -> int:
             failures.append(f"{repo_name}/{sha}: repository is absent from config")
             continue
         result_path = args.data_root / "reviews" / repo_name / sha / "review-result.json"
-        result = json.loads(result_path.read_text(encoding="utf-8"))
-        state_path = args.data_root / "adjudications" / repo_name / f"{sha}.json"
-        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else initialize_state(repo_name, sha, result)
+        try:
+            result = archived_result(review, result_path)
+            state_path = args.data_root / "adjudications" / repo_name / f"{sha}.json"
+            state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else initialize_state(repo_name, sha, result)
+            if state.get("schema_version") != 2 or state.get("review_key") != result["review_key"]:
+                raise ValueError("adjudication state requires explicit schema migration")
+        except (OSError, ValueError, KeyError) as error:
+            failures.append(f"{repo_name}/{sha}: {error}")
+            continue
+        accepted_reviews.append(review)
         repository = repositories[repo_name]
         head = run_git(repository, "rev-parse", f"{refs[repo_name]}^{{commit}}")
         reviewed_at = parse_time(str(review["reviewed_at"]))
         age_days = max(0, (now - reviewed_at).days)
         for finding in state["findings"]:
+            if finding.get("pending_adjudication") is not None:
+                failures.append(f"{repo_name}/{sha}/{finding['finding_id']}: HOLD: prior pair outcome is unknown; inspect {state_path} before authorizing another call")
+                continue
             if finding["status"] in FINAL_STATUSES:
                 continue
             try:
@@ -408,7 +442,14 @@ def main() -> int:
                 for candidate in candidates:
                     if candidate in decided:
                         continue
-                    decision = adjudicate_pair(repository, candidate, finding, codex_bin, host_auth)
+                    finding["pending_adjudication"] = {
+                        "candidate_sha": candidate,
+                        "started_at": now.isoformat().replace("+00:00", "Z"),
+                    }
+                    # Persist intent before the potentially paid call. Any interruption
+                    # after this point is operator-held rather than silently retried.
+                    persist_state(state_path, state)
+                    decision = adjudicate_pair(repository, candidate, finding, codex_bin)
                     finding["decisions"].append(
                         {
                             "candidate_sha": candidate,
@@ -417,6 +458,15 @@ def main() -> int:
                             "adjudicated_at": now.isoformat().replace("+00:00", "Z"),
                         }
                     )
+                    del finding["pending_adjudication"]
+                    finding["status"] = transition_status(
+                        str(finding["status"]),
+                        [str(value["judgment"]) for value in finding["decisions"]],
+                        age_days, True,
+                    )
+                    # Each completed paid pair becomes durable independently of the
+                    # remaining findings and summary publication.
+                    persist_state(state_path, state)
                     if decision["judgment"] in ("fixes", "touches_only"):
                         break
                 finding["status"] = transition_status(
@@ -425,13 +475,15 @@ def main() -> int:
                     age_days,
                     bool(candidates),
                 )
-            except Exception as error:  # keep the finding open so the next weekly run can retry
+            except Exception as error:  # an existing intent holds uncertain paid calls
                 failures.append(f"{repo_name}/{sha}/{finding['finding_id']}: {error}")
-        write_atomically(state_path, json.dumps(state, indent=2, sort_keys=True) + "\n")
+        persist_state(state_path, state)
         for finding in state["findings"]:
             all_findings.append({"repo": repo_name, "sha": sha, **finding})
 
-    summary = build_summary(reviews, all_findings, generated_at=now)
+    summary = build_summary(accepted_reviews, all_findings, generated_at=now)
+    summary["excluded_reviews"] = len(reviews) - len(accepted_reviews)
+    summary["status"] = "HOLD" if failures else "COMPLETE"
     markdown = render_summary(summary)
     write_atomically(args.data_root / "summary.md", markdown)
     iso_year, iso_week, _ = now.isocalendar()

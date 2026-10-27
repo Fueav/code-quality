@@ -28,19 +28,23 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 		"actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 		"command -v quality-review",
-		"quality-review v0.5.12",
+		"quality-review v0.6.0",
 		"--execution-profile \"$QUALITY_REVIEW_EXECUTION_PROFILE\"",
 		"--model \"$QUALITY_REVIEW_MODEL\"",
 		"--reasoning-effort \"$QUALITY_REVIEW_REASONING_EFFORT\"",
 		"run-codex",
 		"run-claude",
-		"--output-root \"$QUALITY_REVIEW_OUTPUT_ROOT\"",
+		"--state-root \"$QUALITY_REVIEW_STATE_ROOT\"",
+		"--runner-policy-version \"$QUALITY_REVIEW_RUNNER_POLICY\"",
+		"--execution-fingerprint \"$QUALITY_REVIEW_FINGERPRINT\"",
+		"--total-timeout 65m --finalize-reserve 5m",
+		"timeout-minutes: 70",
+		"package-evidence",
+		"Verify current PR base and head",
+		"SUPERSEDED",
 		"continue-on-error: true",
 		"GITHUB_STEP_SUMMARY",
 		"review-summary.md",
-		"review-summary.json",
-		"advisory_issues",
-		"evidence.tar.gz",
 		"code-quality-artifact",
 		"retention-days:",
 		"Verify checkout remained unchanged",
@@ -85,6 +89,8 @@ func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testin
 		"actions/setup-node@v",
 		"actions/upload-artifact@v",
 		"default: low",
+		"--output-root ",
+		"find ",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("reusable CI workflow must not contain %q", forbidden)
@@ -104,16 +110,16 @@ func TestReadmeSeparatesPersonalAndLinuxCIOnboarding(t *testing.T) {
 		t.Fatalf("README onboarding order is invalid: personal=%d linux_ci=%d", personal, linuxCI)
 	}
 	for _, required := range []string{
-		"请为当前仓库安装并运行 Fueav code-quality v0.5.12",
-		"bootstrap.sh | sh -s -- v0.5.12 codex",
-		"bootstrap.sh | sh -s -- v0.5.12 claude",
+		"请为当前仓库安装并运行 Fueav code-quality v0.6.0",
+		"bootstrap.sh | sh -s -- v0.6.0 codex",
+		"bootstrap.sh | sh -s -- v0.6.0 claude",
 		"先提交要审查的改动",
 		"self-hosted Linux runner",
 		"运行 GitHub Actions Runner 的同一个系统用户",
 		"codex exec",
 		"不接收 Provider API key",
 		".github/workflows/code-quality-reusable.yml",
-		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.5.12",
+		"uses: Fueav/code-quality/.github/workflows/code-quality-reusable.yml@v0.6.0",
 		"PR 为审查单元",
 		"merge-base",
 		"schema v10",
@@ -156,7 +162,7 @@ func TestJenkinsUsesOneReviewTransaction(t *testing.T) {
 	}
 	document := string(raw)
 	for _, required := range []string{
-		"Jenkins 生产 CI 接入（v0.5.12）",
+		"Jenkins 生产 CI 接入（v0.6.0）",
 		"effort=max",
 		"review_args=(",
 		"quality-review \"$command\" \"${review_args[@]}\"",
@@ -180,7 +186,10 @@ func TestCompanyCIVersionsExternalRunnerPolicyOutsideCLIResults(t *testing.T) {
 	document := string(raw)
 	for _, required := range []string{
 		"runner_policy_version",
-		"(repository, review_key, contract_digest, runner_policy_version)",
+		"(review_key, runner_policy_version, execution_fingerprint)",
+		"--state-root",
+		"持久卷整体丢失",
+		"package-evidence",
 		"强制 FULL",
 		"本地代码读取",
 		"ERROR/HOLD",

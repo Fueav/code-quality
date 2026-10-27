@@ -1,6 +1,8 @@
-# code-quality v0.5.9 domain context
+# code-quality v0.6.0 domain context
 
 This file defines the project-specific language used by the review-scope, integration-contract, restricted-adjudication, stage-recovery, and progress-event implementation. The approved behavior remains authoritative in `2026-08-14-code-quality-review-scope-and-identity-spec.md`, the historical v0.5.6 contract spec, `2026-08-14-code-quality-v0.5.7-restricted-adjudication-spec.md`, `2026-08-19-code-quality-v0.5.8-restricted-resume-spec.md`, and `2026-08-24-code-quality-v0.5.9-observable-review-lifecycle-spec.md`.
+
+`2026-10-27-code-quality-v0.6.0-reliable-review-spec.md` governs current target integrity, invalid-reference failures, trusted runner coordination, current-path evaluation and final-SHA release approval. A durable runner selects actions without changing immutable native outcomes; unknown effective context is not reusable evidence.
 
 ## Core concepts
 
@@ -41,6 +43,7 @@ This file defines the project-specific language used by the review-scope, integr
 - `internal/reviewplan` owns Git discovery, ref normalization, full/incremental range construction, previous-result admission, `READY`/`FULL_REQUIRED`/`MANUAL_REQUIRED`, and pre-provider identity inputs.
 - `quality` owns versioned wire types, canonical hashing, finding identity, native classification, restricted filtering, final-result validation, and summary rendering.
 - `internal/nativereview` owns the Codex/Claude invocation contracts, recovery state machine, attempt ledger, locks, frozen evidence lifecycles, safe progress events, and result publication.
+- `internal/reviewrunner` owns private request indexing, bounded action selection, verified reuse and exact-session evidence packaging; CI still owns authoritative remote PR freshness and distributed request ownership.
 - `internal/session` owns the owner-controlled session layout, detached current-head checkout, materialized provider-range diff, and exact target checkout rebuild.
 - Harness owns fix/test/commit/review loops.
 - Company CI owns persistent session/object-store indexing, distributed CAS, trusted reuse, attestation, compare-and-swap publication, lifecycle envelopes, five-minute scheduling, and external message idempotency.

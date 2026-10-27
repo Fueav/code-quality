@@ -11,6 +11,7 @@ daily_max=${LIVE_DAILY_MAX:-10}
 watch_schedule=${LIVE_WATCH_CRON:-17 2 * * *}
 adjudicate_schedule=${LIVE_ADJUDICATE_CRON:-43 3 * * 1}
 mode=once
+umask 077
 
 usage() {
   print -u2 "usage: $0 [--once|--install|--uninstall] [--config <path>] [--data-root <path>] [--max <count>]"
@@ -160,13 +161,13 @@ if [[ "$mode" == install ]]; then
   validate_schedule "$adjudicate_schedule"
   initialize_config
   mkdir -p "$data_root/logs" "$data_root/state" "$data_root/reviews" "$data_root/adjudications" "$data_root/snapshots" "$data_root/bin"
-  [[ "$script_dir/live_watch.sh" == "$data_root/bin/live_watch.sh" ]] || cp "$script_dir/live_watch.sh" "$data_root/bin/live_watch.sh.tmp"
-  [[ "$script_dir/live_adjudicate.py" == "$data_root/bin/live_adjudicate.py" ]] || cp "$script_dir/live_adjudicate.py" "$data_root/bin/live_adjudicate.py.tmp"
-  [[ -f "$data_root/bin/live_watch.sh.tmp" ]] || cp "$data_root/bin/live_watch.sh" "$data_root/bin/live_watch.sh.tmp"
-  [[ -f "$data_root/bin/live_adjudicate.py.tmp" ]] || cp "$data_root/bin/live_adjudicate.py" "$data_root/bin/live_adjudicate.py.tmp"
-  chmod 700 "$data_root/bin/live_watch.sh.tmp" "$data_root/bin/live_adjudicate.py.tmp"
-  mv "$data_root/bin/live_watch.sh.tmp" "$data_root/bin/live_watch.sh"
-  mv "$data_root/bin/live_adjudicate.py.tmp" "$data_root/bin/live_adjudicate.py"
+  for component in live_watch.sh live_adjudicate.py native_records.py; do
+    if [[ "$script_dir/$component" != "$data_root/bin/$component" ]]; then
+      cp "$script_dir/$component" "$data_root/bin/$component.tmp"
+      chmod 700 "$data_root/bin/$component.tmp"
+      mv "$data_root/bin/$component.tmp" "$data_root/bin/$component"
+    fi
+  done
   rewrite_crontab install
   print "installed code-quality live cron"
   print "watch schedule: $watch_schedule"
@@ -337,55 +338,17 @@ run_product_lane() {
   local base=$3
   local target=$4
   local result_destination=$5
-  local run_dir=$runtime_root/$repo_name-$target
-  local clone_dir=$run_dir/repository
-  mkdir -p "$run_dir"
-  setup_clone "$source_repo" "$target" "$clone_dir"
-  if [[ -n "${LIVE_REVIEW_RUNNER:-}" ]]; then
-    "$LIVE_REVIEW_RUNNER" "$quality_binary" "$clone_dir" "$repo_name" "$base" "$target" "$result_destination"
-    local runner_exit=$?
-    (( runner_exit == 0 )) || return "$runner_exit"
-    "$quality_binary" validate "$result_destination" >/dev/null
-    return
+  local archive=$data_root/reviews/$repo_name/$target
+  local clone_dir=$archive/source-repository
+  mkdir -p "$archive"
+  if [[ ! -d "$clone_dir" ]]; then
+    setup_clone "$source_repo" "$target" "$clone_dir" || return $?
   fi
+  "$python_bin" "$script_dir/native_records.py" \
+    --quality-bin "$quality_binary" --repository "$clone_dir" --config "$config_file" \
+    --archive "$archive" --repo-name "$repo_name" --base "$base" --target "$target" \
+    --result-destination "$result_destination" --record "$result_destination.record.json"
 
-  local codex_bin
-  codex_bin=$($python_bin - "$config_file" <<'PY'
-import json, pathlib, sys
-print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")).get("codex_bin", ""))
-PY
-)
-  [[ -x "$codex_bin" ]] || { print -u2 "codex binary is not executable: $codex_bin"; return 1; }
-  local host_auth=${HOST_CODEX_AUTH:-$HOME/.codex/auth.json}
-  [[ -f "$host_auth" && ! -L "$host_auth" ]] || { print -u2 "Codex auth file is unavailable"; return 1; }
-  local isolated_home=$run_dir/codex-home
-  mkdir -m 700 "$isolated_home"
-  cp "$host_auth" "$isolated_home/auth.json"
-  chmod 600 "$isolated_home/auth.json"
-  local prompt
-  prompt="你在自动 live 代码审查环境中。用户已批准本次 prepare 以及 CLI 管理的隔离 checkout。严格执行：
-1. 运行：$quality_binary prepare --host codex --base $base --target $target --diff-reason live-forward-review，并解析 JSON。
-2. 严格按 workflow_path 审查，将 JSON 写入 main_review_path。
-3. 运行：$quality_binary finalize --session <session_dir>。若 REVIEW_INVALID，按 validation_errors 修复 next_review_path 后再 finalize；若 REREVIEW_REQUIRED，仅按 rereview_scope 复审并写 next_review_path，再 finalize。
-4. 不修改被审仓库。完成后打印最终 review-result.json。"
-  local stdout_log=$run_dir/codex.stdout.jsonl
-  local stderr_log=$run_dir/codex.stderr.log
-  local last_message=$run_dir/codex.last-message.txt
-  set +e
-  CODEX_HOME="$isolated_home" "$codex_bin" exec -s workspace-write -C "$clone_dir" --ignore-user-config --ephemeral --json --output-last-message "$last_message" "$prompt" >"$stdout_log" 2>"$stderr_log"
-  local codex_exit=$?
-  set -e
-  rm -f "$isolated_home/auth.json"
-  if (( codex_exit != 0 )); then
-    mkdir -p "$data_root/logs/runs/$repo_name/$target"
-    cp "$stderr_log" "$data_root/logs/runs/$repo_name/$target/codex.stderr.log"
-    return "$codex_exit"
-  fi
-  local result_source
-  result_source=$(find "$clone_dir/.code-quality" -mindepth 3 -maxdepth 3 -type f -path '*/output/review-result.json' -print 2>/dev/null | head -1)
-  [[ -n "$result_source" && -f "$result_source" ]] || return 1
-  cp "$result_source" "$result_destination"
-  "$quality_binary" validate "$result_destination" >/dev/null
 }
 
 append_index() {
@@ -396,26 +359,27 @@ append_index() {
   local run_status=$5
   local result_file=${6:-}
   local error_message=${7:-}
-  "$python_bin" - "$repo_name" "$sha" "$started_at" "$duration" "$run_status" "$result_file" "$error_message" >>"$data_root/index.jsonl" <<'PY'
+  "$python_bin" - "$repo_name" "$sha" "$started_at" "$duration" "$run_status" "$result_file" "$error_message" "$temporary_result.record.json" >>"$data_root/index.jsonl" <<'PY'
 import datetime as dt
 import json
 import pathlib
 import sys
-repo, sha, started_at, duration, status, result_file, error = sys.argv[1:]
+repo, sha, started_at, duration, status, result_file, error, record_path = sys.argv[1:]
 record = {
-    "schema_version": 1,
+    "schema_version": 2,
     "repo": repo,
     "sha": sha,
     "reviewed_at": started_at,
-    "duration_seconds": int(duration),
+    "wall_duration_ms": int(duration) * 1000,
+    "stage_metrics": [],
+    "semantic_result": None,
     "status": status,
 }
-if status == "COMPLETE":
-    result = json.loads(pathlib.Path(result_file).read_text(encoding="utf-8"))
-    record["finding_count"] = len(result.get("findings", []))
-    record["semantic_result"] = result.get("adjudication", {}).get("semantic_result")
-else:
-    record["error"] = error
+if pathlib.Path(record_path).is_file():
+    record.update(json.loads(pathlib.Path(record_path).read_text(encoding="utf-8")))
+record.setdefault("status", status)
+if status != "COMPLETE":
+    record.setdefault("error", error)
 print(json.dumps(record, sort_keys=True))
 PY
 }

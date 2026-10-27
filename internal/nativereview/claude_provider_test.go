@@ -30,6 +30,7 @@ func TestFullClaudeInvocationPreservesNormalCapabilities(t *testing.T) {
 		"Report actionable findings only. Do not modify files, commit, push, deploy, or change external state.\n" +
 		"Use the priority definitions embedded in the configured JSON Schema. Exclude pure style, naming, preference, ordinary maintainability, and scale speculation without evidence.\n" +
 		"Return only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no concrete defect exists, return an empty findings array.\n"
+	wantPrompt += frozenInputIndexPrompt(options.Plan)
 	want := []string{
 		"-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
 		"--permission-mode", "auto", "--model", "opus", "--effort", "max", "--json-schema", string(options.OutputSchema), wantPrompt,

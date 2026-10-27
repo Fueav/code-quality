@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/Fueav/code-quality/internal/nativereview"
 	"github.com/Fueav/code-quality/internal/onboarding"
 	"github.com/Fueav/code-quality/internal/reviewplan"
+	"github.com/Fueav/code-quality/internal/reviewrunner"
 	reviewsession "github.com/Fueav/code-quality/internal/session"
 	"github.com/Fueav/code-quality/quality"
 )
@@ -27,6 +29,7 @@ var version = "dev"
 var codexBinary = "codex"
 var claudeBinary = "claude"
 var runNativeReview = nativereview.RunTransaction
+var runCoordinatedReview = reviewrunner.Run
 var resumeRestrictedReview = nativereview.ResumeRestricted
 
 func main() {
@@ -77,6 +80,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runPlan(args[1:], stdout, stderr)
 	case "resume-restricted":
 		return runResumeRestricted(args[1:], stdout, stderr)
+	case "package-evidence":
+		return runPackageEvidence(args[1:], stdout, stderr)
 	}
 	policy, err := loadPolicy()
 	if err != nil {
@@ -115,6 +120,8 @@ func printHelp(writer io.Writer) {
 	fmt.Fprintln(writer, "  quality-review run-codex [flags]")
 	fmt.Fprintln(writer, "  quality-review run-claude [flags]")
 	fmt.Fprintln(writer, "  quality-review resume-restricted --session <absolute-session-dir>")
+	fmt.Fprintln(writer, "  quality-review package-evidence --run <absolute-json-path> --evidence-root <absolute-path> --destination <absolute-path>")
+	fmt.Fprintln(writer, "  quality-review validate <result-json-path>")
 	fmt.Fprintln(writer, "  quality-review version")
 }
 
@@ -158,8 +165,13 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	reasoningEffort := flags.String("reasoning-effort", "max", config.effortHelp)
 	executionProfile := flags.String("execution-profile", quality.ExecutionProfilePersonal, "execution profile: personal or production-ci")
 	outputRoot := flags.String("output-root", "", "absolute session output root outside the repository (default: private system temp directory)")
+	stateRoot := flags.String("state-root", "", "private durable runner state outside the repository; selects scope/reuse/recovery automatically")
+	runnerPolicy := flags.String("runner-policy-version", "", "trusted runner policy attestation for durable coordination")
+	executionFingerprint := flags.String("execution-fingerprint", "", "trusted effective Provider/model/configuration fingerprint for durable coordination")
 	nativeTimeout := flags.Duration("native-timeout", 45*time.Minute, "Native Review deadline")
 	restrictedTimeout := flags.Duration("restricted-timeout", 15*time.Minute, "Restricted Adjudication deadline")
+	totalTimeout := flags.Duration("total-timeout", 65*time.Minute, "total review deadline including preparation and evidence")
+	finalizeReserve := flags.Duration("finalize-reserve", 5*time.Minute, "time reserved in the total budget for evidence and cleanup")
 	heartbeatInterval := flags.Duration("heartbeat-interval", 45*time.Second, "safe progress heartbeat interval")
 	progressFormatValue := flags.String("progress-format", "text", "progress output format: text or jsonl")
 	if err := flags.Parse(args); err != nil {
@@ -173,6 +185,18 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		fmt.Fprintln(stderr, "quality-review: timeouts and heartbeat interval must be positive")
 		return 2
 	}
+	if err := reviewrunner.ValidateBudget(*totalTimeout, *nativeTimeout, *restrictedTimeout, *finalizeReserve); err != nil {
+		fmt.Fprintf(stderr, "quality-review: %v\n", err)
+		return 2
+	}
+	if *stateRoot == "" && (*runnerPolicy != "" || *executionFingerprint != "") {
+		fmt.Fprintln(stderr, "quality-review: runner attestations require --state-root")
+		return 2
+	}
+	if *stateRoot != "" && *outputRoot != "" {
+		fmt.Fprintln(stderr, "quality-review: --state-root owns durable evidence; do not combine it with --output-root")
+		return 2
+	}
 	progressFormat, err := nativereview.ParseProgressFormat(*progressFormatValue)
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: %v\n", err)
@@ -180,7 +204,9 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	transaction, err := runNativeReview(ctx, nativereview.TransactionOptions{
+	ctx, cancel := context.WithTimeout(ctx, *totalTimeout)
+	defer cancel()
+	options := nativereview.TransactionOptions{
 		RepositoryPath:     *repository,
 		Base:               *base,
 		Target:             *target,
@@ -200,7 +226,22 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		HeartbeatInterval:  *heartbeatInterval,
 		ProgressWriter:     stderr,
 		ProgressFormat:     progressFormat,
-	})
+	}
+	var transaction nativereview.TransactionResult
+	var runner *runnerMetadata
+	if *stateRoot == "" {
+		transaction, err = runNativeReview(ctx, options)
+	} else {
+		var coordinated reviewrunner.Result
+		coordinated, err = runCoordinatedReview(ctx, reviewrunner.Options{
+			Transaction: options, StateRoot: *stateRoot, RunnerPolicyVersion: *runnerPolicy,
+			ExecutionFingerprint: *executionFingerprint,
+			Current:              func(ctx context.Context) (string, string, error) { return observeLocalReviewTarget(ctx, options) },
+		})
+		transaction = coordinated.Transaction
+		transaction.ExitCode = coordinated.ExitCode
+		runner = &runnerMetadata{ResultSource: coordinated.ResultSource, LifecycleStatus: coordinated.LifecycleStatus}
+	}
 	if errors.Is(err, nativereview.ErrNativeReviewActive) {
 		fmt.Fprintln(stderr, "quality-review: another native review is active for this user; retry after it finishes or review directly in the current host agent")
 		return 1
@@ -229,11 +270,67 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 	for _, warning := range transaction.Warnings {
 		fmt.Fprintf(stderr, "quality-review: warning: %s\n", warning)
 	}
-	if err := quality.EncodeJSON(stdout, transaction.Summary); err != nil {
+	var output any = transaction.Summary
+	if runner != nil {
+		output = struct {
+			nativereview.NativeRunSummary
+			Runner *runnerMetadata `json:"runner"`
+		}{transaction.Summary, runner}
+	}
+	if err := quality.EncodeJSON(stdout, output); err != nil {
 		fmt.Fprintf(stderr, "quality-review: encode native review summary: %v\n", err)
 		return 2
 	}
 	return transaction.ExitCode
+}
+
+type runnerMetadata struct {
+	ResultSource    string `json:"result_source"`
+	LifecycleStatus string `json:"lifecycle_status"`
+}
+
+func runPackageEvidence(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("package-evidence", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	runPath := flags.String("run", "", "absolute structured run-output JSON path")
+	evidenceRoot := flags.String("evidence-root", "", "absolute trusted parent of review evidence")
+	destination := flags.String("destination", "", "absolute artifact destination")
+	if err := flags.Parse(args); err != nil {
+		return flagParseExitCode(err)
+	}
+	if flags.NArg() != 0 || !filepath.IsAbs(*runPath) || !filepath.IsAbs(*evidenceRoot) || !filepath.IsAbs(*destination) {
+		fmt.Fprintln(stderr, "quality-review: package-evidence requires absolute --run, --evidence-root and --destination paths")
+		return 2
+	}
+	result, err := reviewrunner.PackageEvidence(reviewrunner.PackageOptions{RunPath: *runPath, EvidenceRoot: *evidenceRoot, Destination: *destination})
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: package evidence: %v\n", err)
+		return 1
+	}
+	if err := quality.EncodeJSON(stdout, result); err != nil {
+		fmt.Fprintf(stderr, "quality-review: encode package result: %v\n", err)
+		return 2
+	}
+	return 0
+}
+
+// This observes local Git facts only. CI must independently re-read its remote
+// PR before accepting a required check; an event payload is not that authority.
+func observeLocalReviewTarget(ctx context.Context, options nativereview.TransactionOptions) (string, string, error) {
+	contract, err := nativereview.ResolveContract(options.Provider, options.Model, options.ReasoningEffort, options.ExecutionProfile, quality.ReviewScopeFull)
+	if err != nil {
+		return "", "", err
+	}
+	plan, err := reviewplan.Build(ctx, reviewplan.Input{
+		RepositoryPath: options.RepositoryPath, Base: options.Base, Target: options.Target,
+		BaseRef: options.BaseRef, HeadRef: options.HeadRef, DiffReason: options.DiffReason,
+		ReviewScope: quality.ReviewScopeFull, ReviewGoal: options.Goal, Environment: options.Environment,
+		Contract: contract.Contract, ParentContract: contract.Contract,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return plan.BaseTipCommit, plan.CurrentHead, nil
 }
 
 func runResumeRestricted(args []string, stdout, stderr io.Writer) int {
@@ -704,7 +801,39 @@ func runValidate(args []string, policy quality.PolicyManifest, stdout, stderr io
 		fmt.Fprintln(stderr, "usage: quality-review validate <review-result.json>")
 		return 2
 	}
-	result, err := decodeReviewResultFile(args[0])
+	raw, err := reviewsession.ReadRegularFile(args[0], 16<<20)
+	if err != nil {
+		fmt.Fprintf(stderr, "quality-review: invalid result: %v\n", err)
+		return 1
+	}
+	var header struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(raw, &header); err != nil {
+		fmt.Fprintf(stderr, "quality-review: invalid result: %v\n", err)
+		return 1
+	}
+	if header.SchemaVersion == quality.NativeResultSchemaVersion {
+		result, err := quality.DecodeStrict[quality.NativeReviewResult](bytes.NewReader(raw))
+		if err == nil {
+			var outcome quality.NativeOutcome
+			outcome, err = quality.RestoreNativeOutcome(result)
+			if err == nil {
+				err = outcome.ValidatePublication()
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "quality-review: invalid native result: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "review result is valid")
+		return 0
+	}
+	if header.SchemaVersion != 1 {
+		fmt.Fprintf(stderr, "quality-review: unsupported result schema_version %d\n", header.SchemaVersion)
+		return 1
+	}
+	result, err := quality.DecodeReviewResult(bytes.NewReader(raw))
 	if err != nil {
 		fmt.Fprintf(stderr, "quality-review: invalid result: %v\n", err)
 		return 1

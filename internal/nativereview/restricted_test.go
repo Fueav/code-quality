@@ -2,6 +2,8 @@ package nativereview
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -31,16 +33,28 @@ func restrictedFixturePlan(session reviewsession.NativeSession) reviewplan.Decis
 	}
 }
 
-func TestRestrictedDecisionCannotBlockOnUnsafeEvidenceReference(t *testing.T) {
+func TestRestrictedDecisionRejectsInvalidEvidenceReferences(t *testing.T) {
 	session, _ := nativeFixture(t)
 	finding := restrictedFixtureFinding(t)
-	payload := restrictedFixturePayload(finding.ID, "BLOCK", "../outside.go")
-	decisions, err := decodeRestrictedAdjudication([]byte(payload), []quality.NativeFinding{finding}, session.RepositoryDirectory())
-	if err != nil {
+	if err := os.Symlink("app.go", filepath.Join(session.RepositoryDirectory(), "linked.go")); err != nil {
 		t.Fatal(err)
 	}
-	if len(decisions) != 1 || decisions[0].Retain {
-		t.Fatalf("unsafe evidence retained a blocker: %#v", decisions)
+	valid := restrictedFixturePayload(finding.ID, "BLOCK", "app.go")
+	for name, payload := range map[string]string{
+		"outside":    restrictedFixturePayload(finding.ID, "BLOCK", "../outside.go"),
+		"missing":    restrictedFixturePayload(finding.ID, "BLOCK", "missing.go"),
+		"symlink":    restrictedFixturePayload(finding.ID, "BLOCK", "linked.go"),
+		"absolute":   restrictedFixturePayload(finding.ID, "BLOCK", filepath.Join(session.RepositoryDirectory(), "app.go")),
+		"past end":   strings.Replace(valid, `"end_line":2`, `"end_line":9999`, 1),
+		"zero start": strings.Replace(valid, `"start_line":2`, `"start_line":0`, 1),
+		"reversed":   strings.Replace(valid, `"end_line":2`, `"end_line":1`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			decisions, err := decodeRestrictedAdjudication([]byte(payload), []quality.NativeFinding{finding}, session.RepositoryDirectory())
+			if err == nil || decisions != nil {
+				t.Fatalf("invalid evidence became a filtering decision: %#v, %v", decisions, err)
+			}
+		})
 	}
 }
 

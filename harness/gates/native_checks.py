@@ -67,6 +67,8 @@ def main():
     commands += [['make',group] for group in python_groups(paths, './...' in packages or any(name.endswith('/cmd/quality-review') for name in packages))]
     commands += [shell_check(path, root) for path in sorted(paths) if path.endswith('.sh') and (root/path).is_file()]
     if any(path.startswith('harness/gates/') for path in paths): commands.append(['python3','harness/gates/native_checks_test.py'])
+    if any(path.startswith(('harness/test_delivery_', '.github/workflows/')) or path in {'scripts/release.py', 'harness/ci_approval.py', 'harness/repository_verification.py', 'Makefile'} for path in paths):
+        commands.append(['make', 'delivery-test'])
     for command in commands:
         print('native check: '+ ' '.join(command), flush=True)
         subprocess.run(command, cwd=root, check=True)

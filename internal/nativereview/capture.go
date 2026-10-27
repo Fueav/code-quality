@@ -50,6 +50,8 @@ type NativeRunMetrics struct {
 	Stage                      string `json:"stage"`
 	Attempt                    int    `json:"attempt"`
 	DurationMS                 int64  `json:"duration_ms"`
+	ProcessDurationMS          *int64 `json:"process_duration_ms,omitempty"`
+	FreezeDurationMS           *int64 `json:"freeze_duration_ms,omitempty"`
 	InputTokens                *int64 `json:"input_tokens"`
 	OutputTokens               *int64 `json:"output_tokens"`
 	CachedInputTokens          *int64 `json:"cached_input_tokens"`
@@ -81,6 +83,7 @@ func captureNativeEvidence(ctx context.Context, options nativeRunOptions) (captu
 	invocation.progress.transition(ProgressNativeStarted, ProgressStageNative, 1)
 	started := time.Now()
 	processErr := runNativeProcess(ctx, invocation)
+	processFinished := time.Now()
 	invocation.progress.transition(ProgressNativeFreezing, ProgressStageNativeFreeze, 1)
 	materializeErr := materializeProviderFinalMessage(options.Provider, invocation.paths)
 	frozen, err := freezeNativeArtifacts(invocation.paths, options.Provider)
@@ -88,11 +91,20 @@ func captureNativeEvidence(ctx context.Context, options nativeRunOptions) (captu
 		return capturedNativeEvidence{}, err
 	}
 	processErr = errors.Join(processErr, materializeErr, frozen.ProtocolError)
-	metrics := collectRunMetrics(options.Session.Request(), time.Since(started), int64(len(trustedDiff)), frozen)
+	freezeFinished := time.Now()
+	metrics := collectRunMetrics(options.Session.Request(), freezeFinished.Sub(started), int64(len(trustedDiff)), frozen)
+	metrics.setMeasuredDurations(processFinished.Sub(started), freezeFinished.Sub(processFinished))
 	if err := writeExclusiveJSON(invocation.paths.metrics, metrics); err != nil {
 		return capturedNativeEvidence{}, fmt.Errorf("write native run metrics: %w", err)
 	}
 	return capturedNativeEvidence{finalMessage: frozen.FinalMessage, processErr: processErr}, nil
+}
+
+// Missing durations mean a recovered interrupted attempt, not a zero-length
+// process. The historical duration_ms remains process plus evidence freezing.
+func (metrics *NativeRunMetrics) setMeasuredDurations(process, freeze time.Duration) {
+	processMS, freezeMS := process.Milliseconds(), freeze.Milliseconds()
+	metrics.ProcessDurationMS, metrics.FreezeDurationMS = &processMS, &freezeMS
 }
 
 func runNativeProcess(ctx context.Context, invocation reviewInvocation) error {

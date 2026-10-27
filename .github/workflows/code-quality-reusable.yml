@@ -34,12 +34,17 @@ jobs:
     runs-on:
       group: code-quality
       labels: [self-hosted, linux, code-quality]
-    timeout-minutes: 30
+    timeout-minutes: 70
     permissions:
       contents: read
+      pull-requests: read
     concurrency:
-      group: quality-review-${{ github.repository }}-pr-${{ github.event.pull_request.number }}-${{ inputs.provider }}
-      cancel-in-progress: true
+      group: quality-review-${{ github.repository }}-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      QUALITY_REVIEW_STATE_ROOT: ${{ vars.CODE_QUALITY_STATE_ROOT }}
+      QUALITY_REVIEW_RUNNER_POLICY: ${{ vars.CODE_QUALITY_RUNNER_POLICY_VERSION }}
+      QUALITY_REVIEW_EXECUTION_ATTESTATION: ${{ vars.CODE_QUALITY_EXECUTION_FINGERPRINT }}
 
     steps:
       - name: Validate workflow inputs
@@ -65,6 +70,9 @@ jobs:
           printf '%s\n' "$TARGET_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'
           test "$ARTIFACT_RETENTION_DAYS" -ge 1
           test "$ARTIFACT_RETENTION_DAYS" -le 90
+          case "$QUALITY_REVIEW_STATE_ROOT" in /*) ;; *) echo 'A persistent absolute CODE_QUALITY_STATE_ROOT is required' >&2; exit 2 ;; esac
+          test -n "$QUALITY_REVIEW_RUNNER_POLICY"
+          test -n "$QUALITY_REVIEW_EXECUTION_ATTESTATION"
 
       - name: Check out the exact target
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -73,13 +81,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify quality-review v0.5.12
+      - name: Verify quality-review v0.6.0
         run: |
           set -eu
           review_bin=$(command -v quality-review)
-          test "$("$review_bin" version)" = 'quality-review v0.5.12'
+          test "$("$review_bin" version)" = 'quality-review v0.6.0'
           printf 'QUALITY_REVIEW_BIN=%s\n' "$review_bin" >> "$GITHUB_ENV"
-          printf 'QUALITY_REVIEW_OUTPUT_ROOT=%s\n' "$RUNNER_TEMP/code-quality" >> "$GITHUB_ENV"
+          printf 'QUALITY_REVIEW_OUTPUT_ROOT=%s\n' "$QUALITY_REVIEW_STATE_ROOT" >> "$GITHUB_ENV"
 
       - name: Resolve one review contract
         env:
@@ -103,6 +111,9 @@ jobs:
           esac
           model="$MODEL_INPUT"
           if [ -z "$model" ]; then model="$default_model"; fi
+          export PROVIDER_VERSION
+          PROVIDER_VERSION=$("$PROVIDER" --version)
+          fingerprint=$(python3 -I -c 'import hashlib,json,os; print(hashlib.sha256(json.dumps([os.environ["PROVIDER_VERSION"],os.environ["QUALITY_REVIEW_EXECUTION_ATTESTATION"]]).encode()).hexdigest())')
           {
             printf 'QUALITY_REVIEW_HOST=%s\n' "$host"
             printf 'QUALITY_REVIEW_COMMAND=%s\n' "$command"
@@ -110,6 +121,7 @@ jobs:
             printf 'QUALITY_REVIEW_REASONING_EFFORT=%s\n' "$REASONING_EFFORT"
             printf 'QUALITY_REVIEW_EXECUTION_PROFILE=production-ci\n'
             printf 'DISABLE_AUTOUPDATER=1\n'
+            printf 'QUALITY_REVIEW_FINGERPRINT=%s\n' "$fingerprint"
           } >> "$GITHUB_ENV"
 
       - name: Run release-gate review
@@ -118,20 +130,56 @@ jobs:
         run: |
           set -euo pipefail
           "$QUALITY_REVIEW_BIN" "$QUALITY_REVIEW_COMMAND" --repo "$GITHUB_WORKSPACE" \
-            --review-scope full --diff-reason github_pull_request \
             --model "$QUALITY_REVIEW_MODEL" \
             --reasoning-effort "$QUALITY_REVIEW_REASONING_EFFORT" \
             --execution-profile "$QUALITY_REVIEW_EXECUTION_PROFILE" \
-            --output-root "$QUALITY_REVIEW_OUTPUT_ROOT" |
+            --state-root "$QUALITY_REVIEW_STATE_ROOT" \
+            --runner-policy-version "$QUALITY_REVIEW_RUNNER_POLICY" \
+            --execution-fingerprint "$QUALITY_REVIEW_FINGERPRINT" \
+            --total-timeout 65m --finalize-reserve 5m --progress-format jsonl |
             tee "$RUNNER_TEMP/quality-review-run.json"
 
-      - name: Publish job summary
+      - name: Verify current PR base and head
+        id: current_target
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 -I - <<'PY'
+          import json, os, pathlib, urllib.request
+          url = os.environ['GITHUB_API_URL'] + '/repos/' + os.environ['GITHUB_REPOSITORY'] + '/pulls/' + os.environ['PR_NUMBER']
+          request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              current = json.load(response)
+          matched = current['base']['sha'] == os.environ['EXPECTED_BASE'] and current['head']['sha'] == os.environ['EXPECTED_HEAD']
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'quality-review-publication.json').write_text(json.dumps({'lifecycle_status': 'CURRENT' if matched else 'SUPERSEDED', 'current_base': current['base']['sha'], 'current_head': current['head']['sha']}))
+          if not matched:
+              raise SystemExit('Review is SUPERSEDED; the current PR requires its own review evidence.')
+          PY
+
+      - name: Package exact review session
+        id: package
         if: always()
         run: |
           set -eu
-          output_root="${QUALITY_REVIEW_OUTPUT_ROOT:-$RUNNER_TEMP/code-quality}"
-          review_summary=$(find "$output_root" -path '*/output/review-summary.md' -type f -print -quit 2>/dev/null || true)
-          if [ -n "$review_summary" ]; then
+          "$QUALITY_REVIEW_BIN" package-evidence \
+            --run "$RUNNER_TEMP/quality-review-run.json" \
+            --evidence-root "$QUALITY_REVIEW_OUTPUT_ROOT" \
+            --destination "$RUNNER_TEMP/code-quality-artifact"
+          cp "$RUNNER_TEMP/quality-review-publication.json" "$RUNNER_TEMP/code-quality-artifact/publication.json"
+
+      - name: Publish job summary
+        if: always()
+        env:
+          CURRENT_OUTCOME: ${{ steps.current_target.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+        run: |
+          set -eu
+          review_summary="$RUNNER_TEMP/code-quality-artifact/review-summary.md"
+          if [ "$CURRENT_OUTCOME" = success ] && [ "$PACKAGE_OUTCOME" = success ] && [ -f "$review_summary" ]; then
             cat "$review_summary" >> "$GITHUB_STEP_SUMMARY"
           else
             {
@@ -139,33 +187,8 @@ jobs:
               echo
               echo 'Release: `HOLD`'
               echo
-              echo 'The review did not run. Inspect the review execution evidence.'
+              echo 'The review has no current, verified publication. Inspect the execution and publication evidence.'
             } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Package concise result and evidence
-        if: always()
-        env:
-          CURRENT_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -eu
-          output_root="${QUALITY_REVIEW_OUTPUT_ROOT:-$RUNNER_TEMP/code-quality}"
-          artifact_root="$RUNNER_TEMP/code-quality-artifact"
-          rm -rf "$artifact_root"
-          mkdir -p "$artifact_root"
-          for candidate in "$RUNNER_TEMP"/quality-review-run.json; do
-            if [ -f "$candidate" ]; then cp "$candidate" "$artifact_root/"; fi
-          done
-          for name in review-summary.md review-summary.json; do
-            candidate=$(find "$output_root" -path "*/output/$name" -type f -print -quit 2>/dev/null || true)
-            if [ -n "$candidate" ]; then cp "$candidate" "$artifact_root/$name"; fi
-          done
-          if [ ! -f "$artifact_root/review-summary.md" ]; then
-            printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect the review execution evidence.' > "$artifact_root/review-summary.md"
-            printf '%s\n' "{\"schema_version\":3,\"result\":\"ERROR\",\"release\":\"HOLD\",\"review_scope\":\"FULL\",\"review_key\":\"review-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"current_head\":\"$CURRENT_HEAD\",\"blocking_issues\":0,\"advisory_issues\":0,\"resolved_previous_findings\":0,\"unresolved_previous_findings\":0,\"new_findings\":0,\"issues\":[]}" > "$artifact_root/review-summary.json"
-          fi
-          if [ -d "$output_root" ]; then
-            tar -czf "$artifact_root/evidence.tar.gz" -C "$output_root" .
           fi
 
       - name: Upload frozen review evidence
@@ -186,6 +209,10 @@ jobs:
         if: always()
         env:
           RUN_OUTCOME: ${{ steps.review_run.outcome }}
+          CURRENT_OUTCOME: ${{ steps.current_target.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
         run: |
           set -eu
           test "$RUN_OUTCOME" = success
+          test "$CURRENT_OUTCOME" = success
+          test "$PACKAGE_OUTCOME" = success

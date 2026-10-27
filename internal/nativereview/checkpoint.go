@@ -140,7 +140,7 @@ var (
 
 func newSessionCheckpoint(session reviewsession.NativeSession, plan reviewplan.Decision, goal string) (SessionCheckpoint, error) {
 	previousBlockingFindings := plan.PreviousBlockingFindings()
-	nativePrompt := []byte(buildPlanReviewPromptWithPrevious(plan, goal, plan.Contract.ExecutionProfile == quality.ExecutionProfileProductionCI, previousBlockingFindings))
+	nativePrompt := []byte(buildPlanReviewPromptWithPrevious(plan, goal, nativeReportOnlyBoundary(plan), previousBlockingFindings))
 	rubric, err := bundle.ReviewLens()
 	if err != nil {
 		return SessionCheckpoint{}, err
@@ -510,7 +510,7 @@ func validateArtifactNames(artifacts []ArtifactDigest, expected []string) error 
 }
 
 func verifyContractArtifacts(checkpoint SessionCheckpoint) error {
-	nativePrompt := []byte(buildPlanReviewPromptWithPrevious(checkpoint.Plan, checkpoint.ReviewGoal, checkpoint.Plan.Contract.ExecutionProfile == quality.ExecutionProfileProductionCI, checkpoint.PreviousBlockingFindings))
+	nativePrompt := []byte(buildPlanReviewPromptWithPrevious(checkpoint.Plan, checkpoint.ReviewGoal, nativeReportOnlyBoundary(checkpoint.Plan), checkpoint.PreviousBlockingFindings))
 	rubric, err := bundle.ReviewLens()
 	if err != nil {
 		return err

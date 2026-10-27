@@ -1,37 +1,23 @@
-# Jenkins 生产 CI 接入（v0.5.12）
+# Jenkins 生产 CI 接入（v0.6.0）
 
-适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态，不配置 Provider API Key。CLI 先冻结原生发现，仅在出现 P0/P1 时追加只读受限裁决；第二次 Restricted 只能通过受限恢复入口执行。
-
-运维只需完成四件事：准备一个专用 Agent、以 Agent 服务用户安装并登录 Provider、创建 Multibranch Pipeline、把下面的 Jenkinsfile 合入受保护分支。
-
-下方是单次 workspace 流程，不会跨 GitHub rerun 自动恢复。需要公司级恢复时，session/Git object store 必须持久化在 workspace 之外，并按 [公司 CI 恢复合同](company-ci-review-result-envelope.md) 实现 CAS/分布式锁、`resume-restricted` 和 envelope-v3；不得从 raw log 自行推断状态。
+适用于 GitHub 私有仓库、Jenkins Multibranch Pipeline 和专用 Linux Agent。审查单位是整个 PR 的 `merge-base → head`；Provider 使用 Agent 系统用户已有的 Codex 或 Claude Code 登录态。现有 `run-codex` / `run-claude` 入口通过共享协调器选择可信复用、只恢复 Restricted、一次合法 INCREMENTAL，或首次 FULL。
 
 ## 1. 准备 Agent
 
-先确认实际运行 Jenkins Agent 的 Linux 系统用户，并始终以这个用户执行安装和登录。Agent 要求：
-
-- 标签为 `code-quality`，每个系统用户只设 1 个 executor。
-- 使用专用低权限用户，不保存与审查无关的凭据。
-- 已安装 `bash`、`git`、`curl` 和 `tar`，能够访问 GitHub 与所选 Provider。
-- 同一用户预装 `quality-review v0.5.12` 和一个已登录的 Provider。
+- 使用专用低权限系统用户、`code-quality` 标签和 1 个 executor，不保存与审查无关的凭据。
+- 同一用户预装 `quality-review v0.6.0`、`bash`、`git`、`python3`、`curl`、`tar` 和一个已登录 Provider。安装升级使用发布资产校验与回滚流程，参见 [发布指南](release.md)。
+- Agent 服务的 `PATH` 包含 CLI 与 Provider。不设置 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`，不把登录目录复制进 Workspace。
+- 管理员预建 workspace 外 owner-only `0700` 持久目录，设置 `CODE_QUALITY_STATE_ROOT`。保持 PR 固定路由、持久 Git object store 和足够保留期；不能在每次构建清空目录。
+- 管理员设置 `CODE_QUALITY_RUNNER_POLICY_VERSION` 和 `CODE_QUALITY_EXECUTION_FINGERPRINT`。后者绑定有效配置、工具权限、插件和环境；脚本再纳入实际 Provider `--version`。配置变化必须更新声明。未知声明不能复用。
 
 ```sh
-command -v bash git curl tar
-
-curl -fsSL https://github.com/Fueav/code-quality/releases/download/v0.5.12/install.sh |
-  INSTALL_DIR="$HOME/.local/bin" sh -s -- v0.5.12
-
-command -v quality-review
-quality-review version          # 必须是 quality-review v0.5.12
+command -v quality-review bash git python3
+quality-review version          # 必须是 quality-review v0.6.0
 codex login status              # Codex 二选一
 claude auth status --json       # Claude Code 二选一
 ```
 
-确保 Jenkins Agent 服务的 `PATH` 包含 `$HOME/.local/bin`。不安装交互式插件，不设置 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`，也不要把登录目录复制进 Workspace。
-
 ## 2. 配置 Jenkins
-
-固定配置如下：
 
 | 配置 | 值 |
 | --- | --- |
@@ -42,126 +28,115 @@ claude auth status --json       # Claude Code 二选一
 | Provider | `codex` 或 `claude`，一次只选一个 |
 | Required check | 将该 Multibranch Job 的实际 GitHub status context 设为 required check |
 
-此审查 stage 必须在编译、测试等会产生文件的步骤之前运行。
+审查 stage 在编译、测试等会产生文件的步骤之前运行。Jenkinsfile/Shared Library 必须来自受保护分支并受 CODEOWNERS 控制，不能直接运行未信任 PR 修改后的审查脚本。以下流程按 PR 串行排队；多个 Agent 共享同一 PR 时，调度层另需业务 CAS/分布式锁，文件锁不替代分布式所有权。
 
 ## 3. Jenkinsfile
 
-将以下 stage 合入受保护的 Jenkins Pipeline；如使用 Claude，把 `CODE_QUALITY_PROVIDER` 改为 `claude`。
+将以下 stage 合入受保护 Pipeline；如用 Claude，改 `CODE_QUALITY_PROVIDER`。三个状态配置由管理员注入，不从 PR 文件读取。
 
 ```groovy
 pipeline {
   agent none
-
   options {
     skipDefaultCheckout(true)
-    disableConcurrentBuilds(abortPrevious: true)
+    disableConcurrentBuilds(abortPrevious: false)
     buildDiscarder(logRotator(numToKeepStr: '30'))
     timestamps()
   }
-
-  environment {
-    CODE_QUALITY_PROVIDER = 'codex' // codex 或 claude
-  }
-
+  environment { CODE_QUALITY_PROVIDER = 'codex' }
   stages {
     stage('Code Quality PR Review') {
-      when {
-        beforeAgent true
-        changeRequest()
-      }
+      when { beforeAgent true; changeRequest() }
       agent { label 'code-quality' }
-      options { timeout(time: 30, unit: 'MINUTES') }
-
+      options { timeout(time: 70, unit: 'MINUTES') }
       steps {
         checkout scm
-
-        // 清理上一次构建导出的未跟踪报告，保证 doctor 看到干净工作区。
-        sh 'rm -rf "$WORKSPACE/code-quality-artifacts"'
-
         script {
           env.REVIEW_ROOT = "${pwd(tmp: true)}/code-quality-${env.BUILD_NUMBER}"
         }
-
+        // 仅清理该 Job 导出的报告，不得删除业务文件或持久审查状态。
+        sh 'rm -rf "$WORKSPACE/code-quality-artifacts"'
         sshagent(credentials: ['github-readonly']) {
           sh '''#!/usr/bin/env bash
 set -euo pipefail
+umask 077
 test -n "${CHANGE_ID:-}"
 test -n "${CHANGE_TARGET:-}"
 test -z "${CHANGE_FORK:-}"
 case "$CHANGE_ID" in *[!0-9]*|'') exit 2 ;; esac
 git check-ref-format --branch "$CHANGE_TARGET" >/dev/null
-
 mkdir -p "$REVIEW_ROOT"
 git fetch --no-tags origin \
   "+refs/heads/${CHANGE_TARGET}:refs/remotes/origin/${CHANGE_TARGET}" \
   "+refs/pull/${CHANGE_ID}/head:refs/remotes/origin/pr/${CHANGE_ID}/head"
-
 base_ref="refs/remotes/origin/${CHANGE_TARGET}"
 head_ref="refs/remotes/origin/pr/${CHANGE_ID}/head"
-git rev-parse "${base_ref}^{commit}" "${head_ref}^{commit}" >/dev/null
-printf 'BASE_REF=%s\nHEAD_REF=%s\n' "$base_ref" "$head_ref" > "$REVIEW_ROOT/range.env"
+git rev-parse "${base_ref}^{commit}" > "$REVIEW_ROOT/base.sha"
+git rev-parse "${head_ref}^{commit}" > "$REVIEW_ROOT/head.sha"
 '''
         }
-
         sh '''#!/usr/bin/env bash
 set -euo pipefail
-. "$REVIEW_ROOT/range.env"
-test "$(quality-review version)" = 'quality-review v0.5.12'
-
+umask 077
+test "$(quality-review version)" = 'quality-review v0.6.0'
+case "${CODE_QUALITY_STATE_ROOT:-}" in /*) ;; *) exit 2 ;; esac
+test -n "${CODE_QUALITY_RUNNER_POLICY_VERSION:-}"
+test -n "${CODE_QUALITY_EXECUTION_FINGERPRINT:-}"
 case "$CODE_QUALITY_PROVIDER" in
-  codex) host=codex; command=run-codex; model=gpt-5.6-sol ;;
-  claude) host=claude-code; command=run-claude; model=sonnet; export DISABLE_AUTOUPDATER=1 ;;
+  codex) command=run-codex; model=gpt-5.6-sol ;;
+  claude) command=run-claude; model=sonnet; export DISABLE_AUTOUPDATER=1 ;;
   *) exit 2 ;;
 esac
-
+export PROVIDER_VERSION
+PROVIDER_VERSION=$("$CODE_QUALITY_PROVIDER" --version)
+fingerprint=$(python3 -I -c 'import hashlib,json,os; print(hashlib.sha256(json.dumps([os.environ["PROVIDER_VERSION"],os.environ["CODE_QUALITY_EXECUTION_FINGERPRINT"]]).encode()).hexdigest())')
 effort=max
-profile=production-ci
 review_args=(
   --repo "$WORKSPACE"
-  --base-ref "$BASE_REF" --head-ref "$HEAD_REF"
+  --base-ref "refs/remotes/origin/${CHANGE_TARGET}"
+  --head-ref "refs/remotes/origin/pr/${CHANGE_ID}/head"
   --diff-reason jenkins_github_pull_request
-  --review-scope full
   --model "$model" --reasoning-effort "$effort"
-  --execution-profile "$profile"
+  --execution-profile production-ci
+  --state-root "$CODE_QUALITY_STATE_ROOT"
+  --runner-policy-version "$CODE_QUALITY_RUNNER_POLICY_VERSION"
+  --execution-fingerprint "$fingerprint"
+  --total-timeout 65m --finalize-reserve 5m --progress-format jsonl
 )
-
-
-set +e
-quality-review "$command" "${review_args[@]}" \
-  --output-root "$REVIEW_ROOT/sessions" | tee "$REVIEW_ROOT/run.json"
-review_exit=${PIPESTATUS[0]}
-set -e
-summary=$(find "$REVIEW_ROOT/sessions" -path '*/output/review-summary.md' -type f -print -quit)
-if [ -n "$summary" ]; then cat "$summary"; fi
-exit "$review_exit"
+quality-review "$command" "${review_args[@]}" | tee "$REVIEW_ROOT/run.json"
 '''
+        // 只有审查退出0才到这里；失败或未知远端状态均不能发布成功。
+        sshagent(credentials: ['github-readonly']) {
+          sh '''#!/usr/bin/env bash
+set -euo pipefail
+git ls-remote --exit-code origin "refs/heads/${CHANGE_TARGET}" > "$REVIEW_ROOT/current-base.txt"
+git ls-remote --exit-code origin "refs/pull/${CHANGE_ID}/head" > "$REVIEW_ROOT/current-head.txt"
+python3 -I - <<'PY'
+import os, pathlib
+root = pathlib.Path(os.environ['REVIEW_ROOT'])
+def current(name):
+    lines = (root / name).read_text().splitlines()
+    if len(lines) != 1:
+        raise SystemExit('Ambiguous current PR revision; HOLD')
+    return lines[0].split()[0]
+if current('current-base.txt') != (root / 'base.sha').read_text().strip() or current('current-head.txt') != (root / 'head.sha').read_text().strip():
+    raise SystemExit('SUPERSEDED: current PR base/head require new evidence; HOLD')
+PY
+'''
+        }
       }
-
       post {
         always {
           sh '''#!/usr/bin/env bash
-set -eu
-artifact_root="$WORKSPACE/code-quality-artifacts"
-rm -rf "$artifact_root"
-mkdir -p "$artifact_root"
-if [ -n "${REVIEW_ROOT:-}" ] && [ -d "$REVIEW_ROOT" ]; then
-  for name in plan.json doctor.json run.json; do
-    if [ -f "$REVIEW_ROOT/$name" ]; then cp "$REVIEW_ROOT/$name" "$artifact_root/$name"; fi
-  done
-  for name in review-summary.md review-summary.json; do
-    candidate=$(find "$REVIEW_ROOT/sessions" -path "*/output/$name" -type f -print -quit 2>/dev/null || true)
-    if [ -n "$candidate" ]; then cp "$candidate" "$artifact_root/$name"; fi
-  done
-  tar -czf "$artifact_root/evidence.tar.gz" -C "$REVIEW_ROOT" .
-fi
-if [ ! -f "$artifact_root/review-summary.md" ]; then
-  printf '%s\n' '# ⚠️ AI Code Review: ERROR' '' 'Release: `HOLD`' '' 'The review did not run. Inspect review execution evidence.' > "$artifact_root/review-summary.md"
-  printf '%s\n' '{"schema_version":3,"result":"ERROR","release":"HOLD","review_scope":"FULL","review_key":"review-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000","current_head":"UNAVAILABLE","blocking_issues":0,"advisory_issues":0,"resolved_previous_findings":0,"unresolved_previous_findings":0,"new_findings":0,"issues":[]}' > "$artifact_root/review-summary.json"
-fi
-cat "$artifact_root/review-summary.md"
+set -euo pipefail
+umask 077
+quality-review package-evidence \
+  --run "$REVIEW_ROOT/run.json" \
+  --evidence-root "$CODE_QUALITY_STATE_ROOT" \
+  --destination "$WORKSPACE/code-quality-artifacts"
 '''
           archiveArtifacts artifacts: 'code-quality-artifacts/*',
-            allowEmptyArchive: true, fingerprint: true
+            allowEmptyArchive: false, fingerprint: true
         }
       }
     }
@@ -169,36 +144,24 @@ cat "$artifact_root/review-summary.md"
 }
 ```
 
+总预算 65 分钟包含 Native 45 分钟、Restricted 15 分钟及 5 分钟预算余量；Jenkins 70 分钟留出归档时间。`finalize-reserve` 参与启动预算校验，队列与准备也消耗总 deadline，不保证收尾时仍有完整 5 分钟。这修复旧 30 分钟 job 提前终止的问题，不是性能提升承诺。Provider 不会收到 SSH Agent 暴露的 SCM 凭据；现有受信 checkout/known_hosts 由运维管理，脚本不降低主机密钥校验。
+
 ## 4. 结果与验收
 
-- `PASS`：没有达到生产下限的 P0/P1 阻塞问题，可以继续发布流程；P2/P3 advisory 仍会展示，Jenkins stage 成功。
-- `BLOCK`：至少一个 P0/P1 通过受限生产下限裁决；`ERROR`：扫描或裁决不可信。两者都使 Jenkins stage 失败。
-- 开发者只看 `review-summary.md`；机器读取 `review-summary.json`；完整原始证据统一放在 `evidence.tar.gz`。
+- `PASS`：没有生产下限的 P0/P1 阻塞问题，P2/P3 advisory 仍保留；只有当前远端 base/head 与冻结目标一致、归档成功后，Job 才成功。
+- `BLOCK`、`ERROR`、`FULL_REQUIRED`、`MANUAL_REQUIRED`、`SUPERSEDED`、权限失败或缺失 checkpoint 均不能标绿。缺失摘要不伪造 `review-summary.json`。
+- Artifact 保存本次 `run.json`、`review-summary.md/json`（若本次真实存在）、`package.json` 与 `evidence.tar.gz`。共享打包命令直接读取 stdout 指定的 session，不搜索首个摘要，不重复打包整个共享根。
+- stdout 外层 `runner.result_source` 表示 `EXECUTED` / `REUSED`。原始 schema-v10 和 summary 不改写。Jenkins 远端检查是独立发布门禁；其失败必须覆盖 stdout 中仅代表本地 refs 的 `CURRENT`。
 
-Jenkins 控制台和 Artifact 中的主结论类似：
+首次上线使用可信同仓 PR 验证：
 
-```text
-# ✅ AI Code Review: PASS
-Release: CONTINUE
-Blocking issues: 0
-Advisory issues: 0
-```
+1. 同请求再次执行 Provider 调用数为 0，PASS/BLOCK 不变；并发请求串行且只有一次 Native。
+2. head 严格追加仅允许 FULL 后一次 INCREMENTAL；第三轮 MANUAL_REQUIRED。base、contract、policy、Provider 版本或配置改变都不得误命中缓存。
+3. 故障注入丢失 checkpoint、损坏状态、Restricted 中断以及旧 PR head：保持 HOLD，只允许合法 Restricted 恢复，不能自动 FULL 或旧证据标绿。
+4. Artifact 对应本次精确 session，摘要与压缩包 digest 可追溯。中断后无摘要的包不混入旧 PASS。
 
-首次上线必须用一个可信同仓 PR 验证：
+## 5. 故障与升级
 
-1. `plan.json` 和 `doctor.json` 的状态均为 `READY`，且合同摘要一致。
-2. 控制台能直接看到 `PASS`、`BLOCK` 或 `ERROR`；`BLOCK/ERROR` 会让 Job 失败。
-3. Artifact 的 `code-quality-artifacts/` 目录包含 `plan.json`、`doctor.json`、`run.json`、`review-summary.md`、`review-summary.json` 和 `evidence.tar.gz`。
-4. 再次推送同一 PR 时旧构建被取消；fork PR 不运行。
+登录或版本故障由 Agent 服务用户修复；workspace 不干净时仅清理该 Job 自己的产物。升级先用可信 PR 验证，再推广 required check；更换 Provider 版本和有效配置时同步更新执行声明，不能通过复制旧指纹继续缓存。
 
-## 5. 常见故障与升级
-
-- `quality-review` 找不到：把 `$HOME/.local/bin` 加入 Jenkins Agent 服务的 `PATH`，然后重启 Agent。
-- `doctor` 返回 `BLOCKED`：以 Agent 服务用户重新执行 `codex login` 或 `claude auth login`，再运行对应的 status 命令。
-- 版本不匹配：重新运行第 1 节的固定版本安装命令，并同步修改 Jenkinsfile 中的版本断言。
-- Workspace 不干净：确认审查 stage 位于构建步骤之前，并清理该 Job 自己生成的文件；不要删除业务仓库内容。
-- 升级新版本时先在一条可信 PR 验证，再将 required check 应用于全部受保护分支。
-
-需要跨构建复用 `review_key`、执行 INCREMENTAL 或防止旧构建覆盖新 push 时，在 Jenkins Shared Library 中实现 [公司 CI 结果 envelope 合同](company-ci-review-result-envelope.md)；不要把缓存、`REUSED / SUPERSEDED` 或修复循环写进 CLI。公司侧固定 `reasoning-effort=max`，并将同一组 `review_args` 原样传给 plan、doctor 和 run。
-
-安全边界：Provider 登录用户不得保存其他生产凭据；只在 `sshagent` 块内暴露只读 SCM 凭据；Jenkinsfile 或共享库必须由运维/CODEOWNERS 保护，不能让未信任 PR 修改后直接执行。外围额外限制必须绑定独立 `runner_policy_version`，policy 变化时强制 FULL。
+状态存储缺失/损坏、目标 Git object 不在或 policy 变化时，保留日志并人工处理。不得删除索引、换空目录或循环调用 FULL 来“修复”失败；完整持久卷丢失也需要运维恢复或明确批准新 lineage。跨机器 Service 的 CAS、持久保留和 envelope-v3 见 [公司 CI 恢复合同](company-ci-review-result-envelope.md)。
