@@ -74,11 +74,21 @@ func newInstallationFixture(t *testing.T, host string, existing bool) *installat
 		writeContractExecutable(t, filepath.Join(fixture.installDir, "quality-review"), "#!/bin/sh\nprintf '%s\\n' 'quality-review v0.5.12'\n")
 	}
 	writeJSONFile(t, filepath.Join(root, "host-state.json"), state)
+	configuration := filepath.Join(root, "claude-config")
+	if err := os.MkdirAll(configuration, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	declarations := map[string]any{}
+	if existing {
+		declarations[marketplaceName] = map[string]any{"source": map[string]string{"source": "git", "url": "https://github.com/Fueav/code-quality.git", "ref": "v0.5.12"}}
+	}
+	writeJSONFile(t, filepath.Join(configuration, "settings.json"), map[string]any{"unrelated": "preserve-other-setting", "extraKnownMarketplaces": declarations})
 	installer, err := filepath.Abs("install.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	fixture.env = append(os.Environ(), "PATH="+commands+":/usr/bin:/bin", "INSTALL_DIR="+fixture.installDir,
+		"CLAUDE_CONFIG_DIR="+configuration,
 		"QUALITY_REVIEW_RELEASE_BASE=https://release.invalid/v0.6.0", "FAKE_ROOT="+root, "FAKE_INSTALLER="+installer,
 		"FAKE_FINAL_BINARY="+filepath.Join(fixture.installDir, "quality-review"))
 	writeContractExecutable(t, filepath.Join(commands, "curl"), "#!"+python+"\n"+fakeReleaseCurl)
@@ -169,8 +179,10 @@ func TestBootstrapTransactionInstallsOnceAndRetainsOfflineRollback(t *testing.T)
 				}
 				after, _ := os.ReadFile(filepath.Join(fixture.root, "commands.log"))
 				delta := string(after[len(before):])
-				if strings.Contains(delta, "curl ") || strings.Contains(delta, "marketplace add") || strings.Contains(delta, "plugin remove") || strings.Contains(delta, "plugin uninstall") {
-					t.Fatalf("same-version receipt caused a reinstall: %s", delta)
+				for _, line := range strings.Split(delta, "\n") {
+					if !strings.HasSuffix(line, "--help") && (strings.Contains(line, "curl ") || strings.Contains(line, "marketplace add") || strings.Contains(line, "plugin remove") || strings.Contains(line, "plugin uninstall")) {
+						t.Fatalf("same-version receipt caused a reinstall: %s", delta)
+					}
 				}
 				command := exec.Command("sh", rollback)
 				command.Env = append(fixture.env, "FAKE_NO_NETWORK=1")
@@ -209,6 +221,206 @@ func TestBootstrapTransactionRestoresPreviousPairAfterEachFailure(t *testing.T) 
 				}
 			})
 		}
+	}
+}
+
+func TestBootstrapClaudeLegacyAndScopedRemovalRetainOfflineRollback(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%t", legacy), func(t *testing.T) {
+			fixture := newInstallationFixture(t, "claude", true)
+			if legacy {
+				fixture.env = append(fixture.env, "FAKE_CLAUDE_LEGACY=1")
+			}
+			output, err := fixture.run("plugins/code-quality/scripts/bootstrap.sh")
+			if err != nil {
+				t.Fatalf("install: %v\n%s", err, output)
+			}
+			command := exec.Command("sh", outputField(output, "QUALITY_REVIEW_ROLLBACK"))
+			command.Env = append(fixture.env, "FAKE_NO_NETWORK=1")
+			command.Dir = fixture.root
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("offline rollback: %v\n%s", err, output)
+			}
+			if fixture.binaryVersion() != "quality-review v0.5.12" || fixture.state()["plugin"].(map[string]any)["version"] != "0.5.12" {
+				t.Fatal("old CLI/plugin pair was not restored")
+			}
+			log, _ := os.ReadFile(filepath.Join(fixture.root, "commands.log"))
+			removals := 0
+			for _, line := range strings.Split(string(log), "\n") {
+				if strings.HasPrefix(line, "claude plugin marketplace remove ") && !strings.HasSuffix(line, "--help") {
+					removals++
+					if strings.Contains(line, "--scope user") == legacy {
+						t.Fatalf("remove did not use verified capability: %s", line)
+					}
+				}
+			}
+			if removals != 2 {
+				t.Fatalf("expected install and rollback removals, got %d", removals)
+			}
+			var settings map[string]any
+			readContractJSON(t, filepath.Join(fixture.root, "claude-config", "settings.json"), &settings)
+			if settings["unrelated"] != "preserve-other-setting" {
+				t.Fatal("unrelated configuration changed")
+			}
+		})
+	}
+}
+
+func TestBootstrapClaudeLegacyFailureRestoresPreviousPair(t *testing.T) {
+	for _, failure := range []string{"plugin-remove", "marketplace-remove", "marketplace-add", "plugin-add", "activation-version"} {
+		t.Run(failure, func(t *testing.T) {
+			fixture := newInstallationFixture(t, "claude", true)
+			output, err := fixture.run("plugins/code-quality/scripts/bootstrap.sh", "FAKE_CLAUDE_LEGACY=1", "FAKE_FAILURE="+failure)
+			if err == nil || fixture.binaryVersion() != "quality-review v0.5.12" || fixture.state()["plugin"].(map[string]any)["version"] != "0.5.12" {
+				t.Fatalf("legacy failure did not restore old pair: %v\n%s", err, output)
+			}
+		})
+	}
+}
+
+func TestBootstrapClaudeRejectsUnsupportedOrUnknownScopeBeforeUninstall(t *testing.T) {
+	for _, scenario := range []string{"missing-capability", "unsupported-remove", "missing-user", "source-mismatch", "empty-source", "project-declaration", "local-declaration", "project-settings-alias", "project-directory-alias", "local-settings-alias", "unreadable-scope", "multiple-marketplaces", "unknown-marketplace", "project-plugin", "unknown-override", "relative-config"} {
+		t.Run(scenario, func(t *testing.T) {
+			fixture := newInstallationFixture(t, "claude", true)
+			extra := []string{"FAKE_CLAUDE_LEGACY=1"}
+			settings := filepath.Join(fixture.root, "claude-config", "settings.json")
+			switch scenario {
+			case "missing-capability":
+				extra = append(extra, "FAKE_MISSING_CAPABILITY=plugin uninstall")
+			case "unsupported-remove":
+				extra = append(extra, "FAKE_MISSING_CAPABILITY=plugin marketplace remove")
+			case "missing-user":
+				writeJSONFile(t, settings, map[string]any{})
+			case "source-mismatch":
+				writeJSONFile(t, settings, map[string]any{"extraKnownMarketplaces": map[string]any{marketplaceName: map[string]any{"source": map[string]string{"source": "git", "url": "https://other.invalid/source"}}}})
+			case "empty-source":
+				writeJSONFile(t, settings, map[string]any{"extraKnownMarketplaces": map[string]any{marketplaceName: map[string]any{"source": map[string]string{"source": "git", "url": ""}}}})
+				state := fixture.state()
+				state["marketplace"].(map[string]any)["source"] = ""
+				writeJSONFile(t, filepath.Join(fixture.root, "host-state.json"), state)
+			case "project-settings-alias":
+				directory := filepath.Join(fixture.root, ".claude")
+				if err := os.MkdirAll(directory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(settings, filepath.Join(directory, "settings.json")); err != nil {
+					t.Fatal(err)
+				}
+			case "project-directory-alias":
+				if err := os.Symlink(filepath.Dir(settings), filepath.Join(fixture.root, ".claude")); err != nil {
+					t.Fatal(err)
+				}
+			case "local-settings-alias":
+				if err := os.Symlink(settings, filepath.Join(filepath.Dir(settings), "settings.local.json")); err != nil {
+					t.Fatal(err)
+				}
+			case "project-declaration", "local-declaration", "unreadable-scope":
+				directory := filepath.Join(fixture.root, ".claude")
+				if err := os.MkdirAll(directory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				filename := "settings.json"
+				if scenario == "local-declaration" {
+					filename = "settings.local.json"
+				}
+				writeJSONFile(t, filepath.Join(directory, filename), map[string]any{"extraKnownMarketplaces": map[string]any{marketplaceName: map[string]string{"source": "unknown"}}})
+				if scenario == "unreadable-scope" {
+					if os.Geteuid() == 0 {
+						t.Skip("root bypasses filesystem access permissions")
+					}
+					if err := os.Chmod(directory, 0); err != nil {
+						t.Fatal(err)
+					}
+					defer os.Chmod(directory, 0o700)
+				}
+			case "multiple-marketplaces":
+				extra = append(extra, "FAKE_MULTIPLE_MARKETPLACES=1")
+			case "unknown-marketplace":
+				extra = append(extra, "FAKE_MARKETPLACE_SCOPE=unknown")
+			case "project-plugin":
+				extra = append(extra, "FAKE_PLUGIN_SCOPE=project")
+			case "unknown-override":
+				extra = append(extra, "CLAUDE_CODE_SETTINGS_SOURCE=unknown")
+			case "relative-config":
+				extra = append(extra, "CLAUDE_CONFIG_DIR=claude-config")
+			}
+			before, _ := os.ReadFile(filepath.Join(fixture.root, "host-state.json"))
+			output, err := fixture.run("plugins/code-quality/scripts/bootstrap.sh", extra...)
+			after, _ := os.ReadFile(filepath.Join(fixture.root, "host-state.json"))
+			if err == nil || string(before) != string(after) || fixture.binaryVersion() != "quality-review v0.5.12" {
+				t.Fatalf("unsafe preflight did not preserve installation: %v\n%s", err, output)
+			}
+			log, _ := os.ReadFile(filepath.Join(fixture.root, "commands.log"))
+			for _, line := range strings.Split(string(log), "\n") {
+				if !strings.HasSuffix(line, "--help") && (strings.Contains(line, "curl ") || strings.Contains(line, " remove ") || strings.Contains(line, " uninstall ") || strings.Contains(line, " add ") || strings.Contains(line, " install ")) {
+					t.Fatalf("preflight rejection happened after mutation/download: %s", line)
+				}
+			}
+		})
+	}
+}
+
+func TestBootstrapClaudeLegacyFreshInstallPreflightsFutureRollback(t *testing.T) {
+	for _, scenario := range []string{"unknown-override", "project-declaration", "plugin-add-failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			fixture := newInstallationFixture(t, "claude", false)
+			extra := []string{"FAKE_CLAUDE_LEGACY=1"}
+			if scenario == "unknown-override" {
+				extra = append(extra, "CLAUDE_CODE_SETTINGS_SOURCE=unknown")
+			} else if scenario == "project-declaration" {
+				directory := filepath.Join(fixture.root, ".claude")
+				if err := os.MkdirAll(directory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				writeJSONFile(t, filepath.Join(directory, "settings.json"), map[string]any{"extraKnownMarketplaces": map[string]any{marketplaceName: map[string]string{"source": "unknown"}}})
+			} else {
+				extra = append(extra, "FAKE_FAILURE=plugin-add")
+			}
+			output, err := fixture.run("plugins/code-quality/scripts/bootstrap.sh", extra...)
+			state := fixture.state()
+			if err == nil || state["plugin"] != nil || state["marketplace"] != nil || fixture.binaryVersion() != "" {
+				t.Fatalf("fresh legacy installation was not preserved: %v %#v\n%s", err, state, output)
+			}
+			if scenario != "plugin-add-failure" {
+				log, _ := os.ReadFile(filepath.Join(fixture.root, "commands.log"))
+				for _, line := range strings.Split(string(log), "\n") {
+					if !strings.HasSuffix(line, "--help") && (strings.Contains(line, "curl ") || strings.Contains(line, " add ") || strings.Contains(line, " install ")) {
+						t.Fatalf("unsafe fresh install started before scope proof: %s", line)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestBootstrapRollbackRejectsChangedHostCapabilitiesBeforeUninstall(t *testing.T) {
+	fixture := newInstallationFixture(t, "claude", true)
+	output, err := fixture.run("plugins/code-quality/scripts/bootstrap.sh", "FAKE_CLAUDE_LEGACY=1")
+	if err != nil {
+		t.Fatalf("install: %v\n%s", err, output)
+	}
+	rollback := outputField(output, "QUALITY_REVIEW_ROLLBACK")
+	before, _ := os.ReadFile(filepath.Join(fixture.root, "commands.log"))
+	command := exec.Command("sh", rollback)
+	command.Env = fixture.env // The host now advertises scoped remove, unlike the retained capability.
+	command.Dir = fixture.root
+	if output, err := command.CombinedOutput(); err == nil || !strings.Contains(string(output), "capabilities changed") {
+		t.Fatalf("changed host capability was not rejected: %v\n%s", err, output)
+	}
+	if fixture.binaryVersion() != "quality-review v0.6.0" || fixture.state()["plugin"].(map[string]any)["version"] != "0.6.0" {
+		t.Fatal("changed host capability rollback modified the installed pair")
+	}
+	after, _ := os.ReadFile(filepath.Join(fixture.root, "commands.log"))
+	for _, line := range strings.Split(string(after[len(before):]), "\n") {
+		if line != "" && !strings.HasSuffix(line, "--help") {
+			t.Fatalf("capability mismatch passed preflight: %s", line)
+		}
+	}
+	command = exec.Command("sh", rollback)
+	command.Env = append(fixture.env, "FAKE_CLAUDE_LEGACY=1", "FAKE_NO_NETWORK=1")
+	command.Dir = fixture.root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("rollback with original capabilities failed: %v\n%s", err, output)
 	}
 }
 
@@ -393,22 +605,40 @@ root=pathlib.Path(os.environ['FAKE_ROOT']); path=root/'host-state.json'; state=j
 host=pathlib.Path(sys.argv[0]).name; args=sys.argv[1:]
 with (root/'commands.log').open('a') as f: f.write(host+' '+' '.join(args)+'\n')
 failure=os.environ.get('FAKE_FAILURE',''); marker=root/'failed-once'
-def save(): path.write_text(json.dumps(state))
+def save():
+    path.write_text(json.dumps(state))
+    if host=='claude':
+        settings_path=pathlib.Path(os.environ['CLAUDE_CONFIG_DIR'])/'settings.json'
+        settings=json.loads(settings_path.read_text()); declarations=settings.setdefault('extraKnownMarketplaces',{})
+        source=state['marketplace']
+        if source:
+            value={'source':'directory','path':source['root']} if source['source'].startswith('/') else {'source':'git','url':source['source'].split('#')[0]}
+            declarations['fueav-code-quality']={'source':value}
+        else: declarations.pop('fueav-code-quality',None)
+        settings_path.write_text(json.dumps(settings))
 def fail(action):
     if failure==action and not marker.exists(): marker.touch(); sys.exit(92)
+if args[-1:]==['--help']:
+    text='Usage: '+host+' '+' '.join(args[:-1])+' [options]\n--json --ref --scope --keep-data'
+    if host=='claude' and args[:-1]==['plugin','marketplace','remove'] and os.environ.get('FAKE_CLAUDE_LEGACY'): text=text.replace('--scope','')
+    if os.environ.get('FAKE_MISSING_CAPABILITY')==' '.join(args[:-1]): text='Usage: command [options]\n'
+    print(text); sys.exit(0)
 if args==['plugin','marketplace','list','--json']:
     fail('preflight'); source=state['marketplace']; rows=[]
     if source:
         if host=='codex': rows=[{'name':'fueav-code-quality','root':source['root'],'marketplaceSource':{'sourceType':'git','source':source['source']}}]
-        else: rows=[{'name':'fueav-code-quality','source':'git','url':source['source'],'ref':source.get('ref'),'installLocation':source['root']}]
+        else: rows=[{'name':'fueav-code-quality','source':'directory' if source['source'].startswith('/') else 'git','url':source['source'].split('#')[0],'ref':source.get('ref'),'installLocation':source['root']}]
+        if os.environ.get('FAKE_MARKETPLACE_SCOPE'): rows[0]['scope']=os.environ['FAKE_MARKETPLACE_SCOPE']
+        if os.environ.get('FAKE_MULTIPLE_MARKETPLACES'): rows.append(dict(rows[0],scope='project'))
     print(json.dumps({'marketplaces':rows} if host=='codex' else rows))
 elif args==['plugin','list','--json']:
     plugin=state['plugin']; rows=[]
     if plugin:
         if host=='codex': rows=[{'pluginId':'code-quality@fueav-code-quality','version':plugin['version'],'enabled':True,'source':{'source':'local','path':plugin['path']}}]
-        else: rows=[{'id':'code-quality@fueav-code-quality','version':plugin['version'],'scope':'user','enabled':True,'installPath':plugin['path']}]
+        else: rows=[{'id':'code-quality@fueav-code-quality','version':plugin['version'],'scope':os.environ.get('FAKE_PLUGIN_SCOPE','user'),'enabled':True,'installPath':plugin['path']}]
     print(json.dumps({'installed':rows} if host=='codex' else rows))
 elif args[:3]==['plugin','marketplace','remove']:
+    if host=='claude' and (('--scope' in args)==bool(os.environ.get('FAKE_CLAUDE_LEGACY'))): sys.exit(98)
     state['marketplace']=None; save(); fail('marketplace-remove')
 elif args[:2] in (['plugin','remove'],['plugin','uninstall']):
     state['plugin']=None; save(); fail('plugin-remove')

@@ -149,6 +149,169 @@ class FrozenBundle:
         return evidence.verify(self.suite_path, self.evidence_path, expected_contract, self.validator)
 
 
+class LimitedEvidenceInterfaceTests(unittest.TestCase):
+    """Synthetic failed executions exercise LIMITED without claiming model effectiveness."""
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="offline-limited-evidence-test-")
+        self.addCleanup(self.temporary.cleanup)
+        self.fixture_count = 0
+
+    def bundle(self) -> FrozenBundle:
+        self.fixture_count += 1
+        directory = Path(self.temporary.name) / str(self.fixture_count)
+        directory.mkdir()
+        bundle = FrozenBundle(directory)
+        failed_id = "interrupted"
+        synthetic = copy.deepcopy(bundle.results["severe"])
+        synthetic["review_key"] = "review-v1:sha256:" + "3" * 64
+        synthetic["current_head"] = synthetic["request"]["target_commit"] = "d" * 40
+        session = bundle.root / failed_id / "session"
+        for relative, stage, duration in (("output/native-run-metrics.json", "NATIVE", 95),
+                                          ("output/restricted-attempts/0001/restricted-adjudication-metrics.json", "RESTRICTED", 150)):
+            write_json(session / relative, {"schema_version": 2, "stage": stage, "attempt": 1,
+                                          "duration_ms": duration, "input_tokens": 400,
+                                          "output_tokens": 30, "cached_input_tokens": 0})
+        record = record_from_result(synthetic, session, wall_ms=260)
+        record.update(status="FAILED", semantic_result=None)
+        bundle.results[failed_id] = synthetic
+        bundle.result_paths[failed_id] = session / "output/review-result.json"
+        bundle.record_paths[failed_id] = bundle.root / failed_id / "record.json"
+        write_json(bundle.record_paths[failed_id], record)
+        bundle.cases.append({"id": failed_id, "base": "a" * 40, "target": "d" * 40, "expected_result": "BLOCK"})
+        bundle.document["runs"].append({"case_id": failed_id, "record": {}})
+        bundle.refresh_record_hash(failed_id)
+        for case in bundle.cases:
+            case["review_key"] = bundle.results[case["id"]]["review_key"]
+            case["contract_digest"] = CONTRACT
+        self.freeze_suite(bundle, {"schema_version": 1, "cases": bundle.cases,
+                                 "review_config": {"host": "codex", "model": "synthetic-model", "reasoning_effort": "high"}})
+        return bundle
+
+    def freeze_suite(self, bundle: FrozenBundle, suite: dict) -> None:
+        write_json(bundle.suite_path, suite)
+        bundle.document["suite_sha256"] = digest(bundle.suite_path)
+        bundle.save_manifest()
+
+    def run_verify(self, bundle: FrozenBundle, allow_incomplete: bool = True) -> subprocess.CompletedProcess:
+        bundle.save_manifest()
+        command = [sys.executable, "-B", str(PILOT / "review_evidence.py"), "verify",
+                   "--suite", str(bundle.suite_path), "--evidence", str(bundle.evidence_path),
+                   "--expected-contract", CONTRACT, "--quality-bin", str(bundle.validator)]
+        if allow_incomplete:
+            command.append("--allow-incomplete")
+        return subprocess.run(command, text=True, capture_output=True, check=False,
+                              env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+
+    def assert_hold(self, bundle: FrozenBundle, allow_incomplete: bool = True) -> None:
+        completed = self.run_verify(bundle, allow_incomplete)
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        self.assertEqual(json.loads(completed.stdout)["status"], "HOLD")
+
+    def test_strict_rejects_failure_but_explicit_limited_retains_three_cases(self) -> None:
+        bundle = self.bundle()
+        self.assert_hold(bundle, allow_incomplete=False)
+        report = evidence.verify(bundle.suite_path, bundle.evidence_path, CONTRACT, bundle.validator, allow_incomplete=True)
+        self.assertEqual(report["status"], "LIMITED")
+        self.assertEqual(report["case_count"], 3)
+        self.assertEqual(report["completed_cases"], ["severe", "clean"])
+        self.assertEqual(report["failed_cases"], ["interrupted"])
+        self.assertEqual(report["incomplete_cases"], ["interrupted"])
+        self.assertEqual(report["mismatches"], [])
+        group = report["summary"]["groups"][0]
+        self.assertEqual((group["samples"], group["completed"], group["failed"]), (3, 2, 1))
+        self.assertEqual(report["summary"]["failed_observations"], 1)
+        self.assertEqual(group["quality"]["effectiveness"], "INCOMPLETE_LABELED_SUITE")
+        completed = self.run_verify(bundle)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(json.loads(completed.stdout)["status"], "LIMITED")
+
+    def test_limited_never_exempts_a_completed_wrong_answer(self) -> None:
+        bundle = self.bundle()
+        result = bundle.results["severe"]
+        result["adjudication"]["semantic_result"] = "PASS"
+        result["findings"] = []
+        result["execution"]["restricted_attempts"] = 0
+        bundle.refresh_result("severe")
+        completed = self.run_verify(bundle)
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertEqual(report["status"], "BLOCK")
+        self.assertEqual(report["mismatches"], ["severe"])
+        self.assertEqual(report["completed_cases"], ["severe", "clean"])
+        self.assertEqual(report["failed_cases"], ["interrupted"])
+
+    def test_failed_evidence_tampering_and_hidden_publication_hold(self) -> None:
+        record_mutations = {
+            "review_key": "review-v1:sha256:" + "f" * 64,
+            "contract_digest": "contract-v1:sha256:" + "f" * 64,
+            "current_head": "e" * 40, "review_scope": "INCREMENTAL",
+            "execution_profile": "interactive", "provider": "claude-code",
+            "model": "different-model", "reasoning_effort": "max", "semantic_result": "PASS",
+            "result_sha256": "sha256:" + "f" * 64,
+        }
+        modes = [*record_mutations, "metric_hash", "metric_value", "metric_identity", "metric_path",
+                 "negative_metric", "hidden_result", "missing_frozen_review_key"]
+        for mode in modes:
+            with self.subTest(mode=mode):
+                bundle = self.bundle()
+                record_path = bundle.record_paths["interrupted"]
+                record = json.loads(record_path.read_text())
+                row = record["stage_metrics"][0]
+                metric_path = Path(row["artifact_path"])
+                raw = json.loads(metric_path.read_text())
+                if mode in record_mutations:
+                    record[mode] = record_mutations[mode]
+                elif mode == "metric_hash":
+                    metric_path.write_text(metric_path.read_text() + " ")
+                elif mode == "metric_value":
+                    row["input_tokens"] = 1
+                elif mode == "metric_identity":
+                    raw["stage"] = "RESTRICTED"
+                    write_json(metric_path, raw)
+                    row["artifact_sha256"] = digest(metric_path)
+                elif mode == "metric_path":
+                    other = json.loads(bundle.record_paths["severe"].read_text())
+                    record["stage_metrics"][0] = other["stage_metrics"][0]
+                elif mode == "negative_metric":
+                    raw["input_tokens"] = row["input_tokens"] = -1
+                    write_json(metric_path, raw)
+                    row["artifact_sha256"] = digest(metric_path)
+                elif mode == "hidden_result":
+                    write_json(bundle.result_paths["interrupted"], bundle.results["interrupted"])
+                elif mode == "missing_frozen_review_key":
+                    suite = json.loads(bundle.suite_path.read_text())
+                    suite["cases"][-1].pop("review_key")
+                    self.freeze_suite(bundle, suite)
+                write_json(record_path, record)
+                bundle.refresh_record_hash("interrupted")
+                self.assert_hold(bundle)
+
+    def test_limited_still_requires_every_case_exactly_once(self) -> None:
+        for mode in ("missing", "duplicate"):
+            with self.subTest(mode=mode):
+                bundle = self.bundle()
+                if mode == "missing":
+                    bundle.document["runs"].pop()
+                else:
+                    bundle.document["runs"].append(copy.deepcopy(bundle.document["runs"][-1]))
+                self.assert_hold(bundle)
+
+    def test_limited_requires_both_completed_correct_block_and_pass(self) -> None:
+        for case_id in ("severe", "clean"):
+            with self.subTest(additional_failed_case=case_id):
+                bundle = self.bundle()
+                path = bundle.record_paths[case_id]
+                record = json.loads(path.read_text())
+                record.update(status="FAILED", semantic_result=None)
+                record.pop("result_path")
+                record.pop("result_sha256")
+                bundle.result_paths[case_id].unlink()
+                write_json(path, record)
+                bundle.refresh_record_hash(case_id)
+                self.assert_hold(bundle)
+
+
 class ReviewSummaryTests(unittest.TestCase):
     def test_recovered_review_counts_latest_metrics_once_and_retains_observations(self) -> None:
         review_key = "review-v1:sha256:" + "1" * 64

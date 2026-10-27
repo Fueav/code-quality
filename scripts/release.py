@@ -120,6 +120,12 @@ def digest(path):
 
 
 def qualification_inputs(environment):
+    scope = environment.get("RELEASE_EVAL_SCOPE", "strict")
+    limitation = environment.get("RELEASE_EVAL_LIMITATION_EVIDENCE", "").strip()
+    if scope not in ("strict", "limited"):
+        raise ReleaseError("HOLD: RELEASE_EVAL_SCOPE must be strict or limited")
+    if scope == "limited" and (not limitation or len(limitation) > 512 or any(c in limitation for c in "\x00\r\n")):
+        raise ReleaseError("HOLD: limited qualification requires explicit RELEASE_EVAL_LIMITATION_EVIDENCE")
     names = ("RELEASE_EVAL_SUITE", "RELEASE_EVAL_EVIDENCE", "RELEASE_EVAL_CONTRACT")
     if any(not environment.get(name) for name in names):
         raise ReleaseError("HOLD: release requires RELEASE_EVAL_SUITE, RELEASE_EVAL_EVIDENCE and RELEASE_EVAL_CONTRACT")
@@ -135,6 +141,7 @@ def qualification_inputs(environment):
             any(not isinstance(value, str) or not value.strip() for value in config.values())):
         raise ReleaseError("HOLD: trusted suite requires explicit review_config host, model and reasoning_effort")
     return {"suite": suite, "evidence": evidence, "config": config,
+            "scope": scope, "limitation_evidence": limitation if scope == "limited" else "",
             "contract": environment[names[2]], "suite_sha256": digest(suite), "evidence_sha256": digest(evidence)}
 
 
@@ -149,9 +156,12 @@ def qualify(snapshot, root, source, binary, inputs, environment):
             plan.get("request", {}).get("base_commit") != source["compare_sha"] or
             plan.get("contract_digest") != inputs["contract"]):
         raise ReleaseError("HOLD: evaluation contract must match the current built CLI and approved commit range")
-    result = subprocess.run([sys.executable, "-B", str(snapshot / "pilot/review_evidence.py"), "verify",
-                             "--suite", str(inputs["suite"]), "--evidence", str(inputs["evidence"]),
-                             "--expected-contract", inputs["contract"], "--quality-bin", str(binary)],
+    command = [sys.executable, "-B", str(snapshot / "pilot/review_evidence.py"), "verify",
+               "--suite", str(inputs["suite"]), "--evidence", str(inputs["evidence"]),
+               "--expected-contract", inputs["contract"], "--quality-bin", str(binary)]
+    if inputs["scope"] == "limited":
+        command.append("--allow-incomplete")
+    result = subprocess.run(command,
                             cwd=snapshot, env=environment, text=True, capture_output=True, check=False)
     try:
         output = json.loads(result.stdout)
@@ -159,13 +169,17 @@ def qualify(snapshot, root, source, binary, inputs, environment):
         raise ReleaseError("HOLD: evaluation verification did not return a JSON result") from error
     if not isinstance(output, dict):
         raise ReleaseError("HOLD: invalid evaluation result")
-    write_json(root / ".artifacts/release-qualification.json", output)
-    if result.returncode or output.get("status") != "PASS":
-        raise ReleaseError(f"{output.get('status', 'HOLD')}: frozen evaluation did not pass; see .artifacts/release-qualification.json")
+    write_json(root / ".artifacts/release-qualification.json", {
+        **output, "scope": inputs["scope"], "limitation_evidence": inputs["limitation_evidence"],
+    })
+    expected_status = "LIMITED" if inputs["scope"] == "limited" else "PASS"
+    if result.returncode or output.get("status") != expected_status:
+        raise ReleaseError(f"{output.get('status', 'HOLD')}: frozen evaluation did not meet {inputs['scope']} qualification; see .artifacts/release-qualification.json")
     if (digest(inputs["suite"]) != inputs["suite_sha256"] or digest(inputs["evidence"]) != inputs["evidence_sha256"] or
             output.get("contract_digest") != inputs["contract"] or output.get("suite_sha256") != inputs["suite_sha256"]):
         raise ReleaseError("HOLD: evaluation inputs or qualification identity changed")
     return {"verification": output, "suite_sha256": inputs["suite_sha256"],
+            "scope": inputs["scope"], "limitation_evidence": inputs["limitation_evidence"],
             "evidence_sha256": inputs["evidence_sha256"], "review_config": config}
 
 

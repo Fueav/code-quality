@@ -38,18 +38,24 @@ type nativeRunOptions struct {
 }
 
 func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.NativeOutcome, error) {
+	outcome, _, err := runNativeSessionWithFailure(ctx, options)
+	return outcome, err
+}
+
+func runNativeSessionWithFailure(ctx context.Context, options nativeRunOptions) (quality.NativeOutcome, *AttemptFailure, error) {
 	if err := normalizeRunOptions(&options); err != nil {
-		return quality.NativeOutcome{}, err
+		return quality.NativeOutcome{}, nil, err
 	}
 	captured, err := captureNativeEvidence(ctx, options)
 	if err != nil {
-		return quality.NativeOutcome{}, err
+		return quality.NativeOutcome{}, nil, err
 	}
-	return quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
+	outcome, err := quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
 		Request: options.Plan.Request, ProviderRequest: options.Plan.ProviderRequest,
 		Identity: options.Plan.ReviewIdentity, PreviousBlockingFindings: options.Plan.PreviousBlockingFindings(),
 		ReviewGoal: options.Goal,
 	}, captured.finalMessage, captured.processErr)
+	return outcome, captured.failure, err
 }
 
 func normalizeRunOptions(options *nativeRunOptions) error {

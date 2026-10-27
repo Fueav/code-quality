@@ -247,8 +247,7 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 		return 1
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: %v\n", err)
-		return nativereview.TransactionExitCode(err)
+		return writeTransactionFailure(stdout, stderr, transaction, err)
 	}
 	if transaction.Plan.Status == reviewplan.StatusFullRequired || transaction.Plan.Status == reviewplan.StatusManualRequired {
 		if err := quality.EncodeJSON(stdout, transaction.Plan); err != nil {
@@ -287,6 +286,19 @@ func runNativeProvider(args []string, stdout, stderr io.Writer, config nativePro
 type runnerMetadata struct {
 	ResultSource    string `json:"result_source"`
 	LifecycleStatus string `json:"lifecycle_status"`
+}
+
+// A failed request may still own a durable session. Expose its status for
+// inspection without presenting a successful review summary or changing exit.
+func writeTransactionFailure(stdout, stderr io.Writer, transaction nativereview.TransactionResult, failure error) int {
+	fmt.Fprintf(stderr, "quality-review: %v\n", failure)
+	if transaction.Status.SessionDir != "" {
+		if err := quality.EncodeJSON(stdout, transaction.Status); err != nil {
+			fmt.Fprintf(stderr, "quality-review: encode failed review session status: %v\n", err)
+			return 2
+		}
+	}
+	return nativereview.TransactionExitCode(failure)
 }
 
 func runPackageEvidence(args []string, stdout, stderr io.Writer) int {
@@ -367,8 +379,7 @@ func runResumeRestricted(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "quality-review: %v\n", err)
-		return nativereview.TransactionExitCode(err)
+		return writeTransactionFailure(stdout, stderr, transaction, err)
 	}
 	if transaction.Status.State == nativereview.StatePublished {
 		if err := quality.EncodeJSON(stdout, transaction.Summary); err != nil {

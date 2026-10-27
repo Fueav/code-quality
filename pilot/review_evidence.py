@@ -11,7 +11,7 @@ import statistics
 import subprocess
 import sys
 
-from live.native_records import GROUP_FIELDS, TOKEN_FIELDS, digest, integer, read_json, record_from_result, validate_result
+from live.native_records import GROUP_FIELDS, METRIC_FIELDS, TOKEN_FIELDS, contained, digest, integer, read_json, record_from_result, validate_result
 
 
 def distribution(values: list[int | None]) -> dict:
@@ -103,7 +103,49 @@ def artifact(reference: dict, root: Path) -> Path:
     return path
 
 
-def verify(suite_path: Path, evidence_path: Path, expected_contract: str, quality_bin: Path) -> dict:
+def verify_failed_record(record: dict, case: dict, suite: dict, expected_contract: str, root: Path) -> None:
+    """Retain an incomplete execution as failed evidence, never as a clean result."""
+    if record.get("semantic_result") is not None or record.get("result_sha256"):
+        raise ValueError("failed execution must not assert a result")
+    if (not case.get("review_key") or record.get("review_key") != case["review_key"] or
+            case.get("contract_digest") != expected_contract or
+            record.get("contract_digest") != expected_contract or record.get("current_head") != case["target"] or
+            record.get("review_scope") != "FULL" or record.get("execution_profile") != "production-ci"):
+        raise ValueError("failed execution identity does not match the frozen benchmark")
+    config = suite.get("review_config", {})
+    if not record.get("tool_version") or any(not config.get(key) or record.get(field) != config[key]
+            for key, field in (("host", "provider"), ("model", "model"), ("reasoning_effort", "reasoning_effort"))):
+        raise ValueError("failed execution configuration does not match the frozen benchmark")
+    session = contained(Path(record.get("session_dir", "")), root)
+    if record.get("wall_duration_ms") is not None and not integer(record["wall_duration_ms"], 1):
+        raise ValueError("failed execution wall duration is invalid")
+    published = session / "output/review-result.json"
+    if published.exists() or published.is_symlink():
+        raise ValueError("failed execution hides a published result")
+    stages = record.get("stage_metrics")
+    if not isinstance(stages, list) or not 1 <= len(stages) <= 3:
+        raise ValueError("failed execution needs actual stage metrics")
+    for index, row in enumerate(stages):
+        stage, attempt = ("NATIVE", 1) if index == 0 else ("RESTRICTED", index)
+        if not isinstance(row, dict) or row.get("stage") != stage or not integer(row.get("attempt"), 1) or row["attempt"] != attempt:
+            raise ValueError("failed execution stage identity mismatch")
+        path = artifact({"path": row.get("artifact_path"), "sha256": row.get("artifact_sha256")}, root)
+        expected = session / ("output/native-run-metrics.json" if index == 0 else
+                              f"output/restricted-attempts/{attempt:04d}/restricted-adjudication-metrics.json")
+        if path.resolve() != expected.resolve():
+            raise ValueError("failed execution metrics belong to another session")
+        raw = read_json(path)
+        if raw.get("schema_version") != 2 or raw.get("stage") != stage or not integer(raw.get("attempt"), 1) or raw["attempt"] != attempt:
+            raise ValueError("failed execution metric artifact identity mismatch")
+        for field in METRIC_FIELDS:
+            value = raw.get(field)
+            if value != row.get(field) or (value is not None and not integer(value)):
+                raise ValueError("failed execution record differs from stage metrics")
+        if not integer(raw.get("duration_ms"), 1):
+            raise ValueError("failed execution actual stage duration is missing")
+
+
+def verify(suite_path: Path, evidence_path: Path, expected_contract: str, quality_bin: Path, allow_incomplete: bool = False) -> dict:
     """Caller supplies trusted labels/contract. Hashes bind evidence, not its human provenance."""
     suite = read_json(suite_path)
     evidence = read_json(evidence_path)
@@ -126,7 +168,7 @@ def verify(suite_path: Path, evidence_path: Path, expected_contract: str, qualit
         raise ValueError("evaluation does not bind the frozen benchmark")
     if not isinstance(evidence.get("runs"), list):
         raise ValueError("model runs are missing")
-    records, seen = [], set()
+    records, seen, seen_records = [], set(), set()
     root = evidence_path.parent.resolve()
     for run in evidence["runs"]:
         if not isinstance(run, dict):
@@ -135,16 +177,24 @@ def verify(suite_path: Path, evidence_path: Path, expected_contract: str, qualit
         if case_id not in cases or case_id in seen:
             raise ValueError("unknown or duplicate benchmark case")
         seen.add(case_id)
-        record = read_json(artifact(run.get("record"), root))
+        record_path = artifact(run.get("record"), root)
+        if record_path.resolve() in seen_records:
+            raise ValueError("benchmark cases must have unique records")
+        seen_records.add(record_path.resolve())
+        record = read_json(record_path)
         if record.get("schema_version") != 2 or record.get("origin") != "production_cli":
             raise ValueError("model evidence must come from the production CLI adapter")
+        case = cases[case_id]
+        if allow_incomplete and record.get("status") == "FAILED" and not record.get("result_path"):
+            verify_failed_record(record, case, suite, expected_contract, root)
+            records.append({**record, "case_id": case_id, "expected_result": case["expected_result"]})
+            continue
         result_path = artifact({"path": record.get("result_path"), "sha256": record.get("result_sha256")}, root)
         validation = subprocess.run([str(quality_bin), "validate", str(result_path)], text=True, capture_output=True, check=False)
         if validation.returncode:
             raise ValueError(f"native result validation failed for {case_id}")
         result = read_json(result_path)
         validate_result(result)
-        case = cases[case_id]
         if result["contract_digest"] != expected_contract or result["contract"]["execution_profile"] != "production-ci":
             raise ValueError("result uses an unexpected review contract")
         if result["review_scope"] != "FULL":
@@ -164,10 +214,22 @@ def verify(suite_path: Path, evidence_path: Path, expected_contract: str, qualit
         records.append({**record, "case_id": case_id, "expected_result": case["expected_result"]})
     if seen != set(cases):
         raise ValueError("benchmark execution is incomplete")
-    mismatches = [row["case_id"] for row in records if row["semantic_result"] != row["expected_result"]]
-    return {"schema_version": 1, "status": "BLOCK" if mismatches else "PASS", "claim": "FROZEN_SUITE_ONLY",
+    completed = [row for row in records if row["status"] == "COMPLETE"]
+    incomplete = [row["case_id"] for row in records if row["status"] == "FAILED"]
+    mismatches = [row["case_id"] for row in completed if row["semantic_result"] != row["expected_result"]]
+    if incomplete and not mismatches and {row["semantic_result"] for row in completed} != {"PASS", "BLOCK"}:
+        raise ValueError("limited evidence requires completed matching severe and clean cases")
+    summary = summarize(records)
+    if incomplete:
+        for group in summary["groups"]:
+            if group["failed"]:
+                group["quality"]["effectiveness"] = "INCOMPLETE_LABELED_SUITE"
+    return {"schema_version": 1, "status": "BLOCK" if mismatches else ("LIMITED" if incomplete else "PASS"),
+            "claim": "FROZEN_SUITE_INCOMPLETE" if incomplete else "FROZEN_SUITE_ONLY",
             "contract_digest": expected_contract, "suite_sha256": digest(suite_path),
-            "mismatches": mismatches, "summary": summarize(records)}
+            "case_count": len(cases), "completed_cases": [row["case_id"] for row in completed],
+            "failed_cases": incomplete, "incomplete_cases": incomplete,
+            "mismatches": mismatches, "summary": summary}
 
 
 def main() -> int:
@@ -180,13 +242,14 @@ def main() -> int:
     check.add_argument("--evidence", required=True, type=Path)
     check.add_argument("--expected-contract", required=True)
     check.add_argument("--quality-bin", required=True, type=Path)
+    check.add_argument("--allow-incomplete", action="store_true", help="retain verified failed executions as LIMITED, never as PASS")
     args = parser.parse_args()
     try:
         if args.command == "summarize":
             records = [json.loads(line) for line in args.records.read_text().splitlines() if line.strip()]
             output = summarize(records)
         else:
-            output = verify(args.suite, args.evidence, args.expected_contract, args.quality_bin)
+            output = verify(args.suite, args.evidence, args.expected_contract, args.quality_bin, args.allow_incomplete)
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(json.dumps({"schema_version": 1, "status": "HOLD", "reason": str(error)}))
         return 1

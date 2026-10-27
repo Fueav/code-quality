@@ -2,9 +2,70 @@ package bundle
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestReusableCIFailedExecutionCannotDisplayRetainedPass(t *testing.T) {
+	raw, err := os.ReadFile(".github/workflows/code-quality-reusable.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, step, found := strings.Cut(string(raw), "      - name: Publish job summary\n")
+	if !found {
+		t.Fatal("job summary step is missing")
+	}
+	step, _, _ = strings.Cut(step, "      - name: Upload frozen review evidence\n")
+	if !strings.Contains(step, "RUN_OUTCOME: ${{ steps.review_run.outcome }}") {
+		t.Fatal("job summary does not receive the actual run outcome")
+	}
+	_, script, found := strings.Cut(step, "        run: |\n")
+	if !found {
+		t.Fatal("job summary shell script is missing")
+	}
+	lines := strings.Split(script, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimPrefix(lines[i], "          ")
+	}
+	script = strings.Join(lines, "\n")
+	for _, outcome := range []string{"success", "failure", "cancelled", "skipped", ""} {
+		t.Run(outcome, func(t *testing.T) {
+			root := t.TempDir()
+			artifact := filepath.Join(root, "code-quality-artifact", "review-summary.md")
+			if err := os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			const original = "# AI Code Review: PASS\nRelease: CONTINUE\n"
+			if err := os.WriteFile(artifact, []byte(original), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			summary := filepath.Join(root, "job-summary.md")
+			command := exec.Command("bash", "-c", script)
+			command.Env = []string{"PATH=" + os.Getenv("PATH"), "RUNNER_TEMP=" + root, "GITHUB_STEP_SUMMARY=" + summary,
+				"RUN_OUTCOME=" + outcome, "CURRENT_OUTCOME=success", "PACKAGE_OUTCOME=success"}
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("summary script failed: %v: %s", err, output)
+			}
+			published, err := os.ReadFile(summary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if outcome == "success" {
+				if string(published) != original {
+					t.Fatalf("successful current review changed: %s", published)
+				}
+			} else if !strings.Contains(string(published), "HOLD") || strings.Contains(string(published), "PASS") {
+				t.Fatalf("failed execution displayed a retained PASS: %s", published)
+			}
+			retained, err := os.ReadFile(artifact)
+			if err != nil || string(retained) != original {
+				t.Fatalf("immutable result artifact changed: %s, %v", retained, err)
+			}
+		})
+	}
+}
 
 func TestReusableCIWorkflowPublishesConciseReleaseGateForBothProviders(t *testing.T) {
 	raw, err := os.ReadFile(".github/workflows/code-quality-reusable.yml")

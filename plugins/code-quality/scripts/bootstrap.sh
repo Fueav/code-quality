@@ -14,6 +14,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,117 @@ def sync_tree(path):
     sync_directory(path)
 
 
+def host_capabilities(host):
+    commands = [(['plugin', 'list'], ['--json']), (['plugin', 'marketplace', 'list'], ['--json'])]
+    if host == 'codex':
+        commands += [(['plugin', 'marketplace', 'add'], ['--ref']),
+                     (['plugin', 'marketplace', 'remove'], []), (['plugin', 'add'], []), (['plugin', 'remove'], [])]
+    else:
+        commands += [(['plugin', 'marketplace', 'add'], ['--scope']),
+                     (['plugin', 'install'], ['--scope']), (['plugin', 'uninstall'], ['--scope', '--keep-data'])]
+    for command, required in commands:
+        help_text = run([host, *command, '--help'])
+        if not command_help_matches(host, command, help_text) or any(not has_option(help_text, flag) for flag in required):
+            raise RuntimeError('host lacks a required plugin command capability; nothing was changed')
+    scoped_remove = False
+    if host == 'claude':
+        help_text = run([host, 'plugin', 'marketplace', 'remove', '--help'])
+        if not command_help_matches(host, ['plugin', 'marketplace', 'remove'], help_text):
+            raise RuntimeError('host cannot safely remove a marketplace; nothing was changed')
+        scoped_remove = has_option(help_text, '--scope')
+    capabilities = {'schema_version': 1, 'claude_marketplace_remove_scope': scoped_remove}
+    if host == 'claude':
+        capabilities['claude_user_config'] = str(Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))).resolve())
+    return capabilities
+
+
+def has_option(help_text, option):
+    return re.search(r'(?<![\w-])' + re.escape(option) + r'(?=[\s=,]|$)', help_text) is not None
+
+
+def command_help_matches(host, command, help_text):
+    tokens = [host, *command]
+    expression = r'(?im)^usage:\s+' + r'\s+'.join(re.escape(token) + r'(?:\|[\w-]+)*' for token in tokens) + r'(?=\s|$)'
+    return re.search(expression, help_text) is not None
+
+
+def marketplace_declaration(path):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise RuntimeError('cannot establish marketplace scope from unreadable settings') from None
+    if not stat.S_ISREG(info.st_mode):
+        raise RuntimeError('cannot establish marketplace scope from non-regular settings')
+    try:
+        settings = json.loads(path.read_text(encoding='utf-8'))
+        entries = settings.get('extraKnownMarketplaces', {})
+        if not isinstance(entries, dict):
+            raise ValueError('invalid marketplace declarations')
+        if MARKETPLACE not in entries:
+            return None
+        entry = entries[MARKETPLACE]
+        if not isinstance(entry, dict) or not isinstance(entry.get('source'), dict):
+            raise ValueError('invalid product declaration')
+        return entry
+    except (OSError, ValueError, AttributeError):
+        raise RuntimeError('cannot establish marketplace scope from settings') from None
+
+
+def validate_removal_scope(host, state, capabilities):
+    if host != 'claude' or capabilities['claude_marketplace_remove_scope']:
+        return
+    # Older Claude lists effective marketplaces without scope. A user-scoped
+    # plugin alone does not prove its marketplace is exclusively user-scoped.
+    overrides = [name for name, value in os.environ.items() if value and name != 'CLAUDE_CONFIG_DIR' and
+                 (re.fullmatch(r'CLAUDE_.*(?:CONFIG|SETTINGS).*', name) or name in ('CLAUDE_CODE_SIMPLE', 'CLAUDE_CODE_PLUGIN_SEED_DIR'))]
+    if overrides:
+        raise RuntimeError('HOLD: legacy marketplace removal cannot establish scope with configuration overrides')
+    config = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude')))
+    if not config.is_absolute() or config.is_symlink():
+        raise RuntimeError('HOLD: legacy marketplace removal needs a known user configuration directory')
+    user_settings = config / 'settings.json'
+    declaration = marketplace_declaration(user_settings)
+    candidates = {config / 'settings.local.json'}
+    for directory in (Path.cwd(), *Path.cwd().parents):
+        candidates.update((directory / '.claude/settings.json', directory / '.claude/settings.local.json'))
+    managed = Path('/Library/Application Support/ClaudeCode') if sys.platform == 'darwin' else Path('/etc/claude-code')
+    candidates.add(managed / 'managed-settings.json')
+    # Fragmented managed policy is not safely attributable by these older APIs.
+    fragments = managed / 'managed-settings.d'
+    try:
+        fragments.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        raise RuntimeError('HOLD: legacy marketplace removal cannot inspect managed policy scope') from None
+    else:
+        raise RuntimeError('HOLD: legacy marketplace removal cannot establish managed policy scope')
+    for path in candidates:
+        # Scope belongs to the settings path, not the inode it resolves to.
+        # A project/local alias of the user file still needs fail-closed inspection.
+        if os.path.abspath(path) == os.path.abspath(user_settings):
+            continue
+        if marketplace_declaration(path) is not None:
+            raise RuntimeError('HOLD: marketplace has another or unknown scope; refusing unscoped removal')
+    listed = state['marketplace']
+    if listed is None:
+        if declaration is not None:
+            raise RuntimeError('HOLD: user marketplace declaration is absent from host state')
+        return
+    if not isinstance(declaration, dict) or not isinstance(declaration.get('source'), dict):
+        raise RuntimeError('HOLD: legacy marketplace removal needs an explicit user marketplace declaration')
+    declared = declaration['source']
+    url, directory = declared.get('url'), declared.get('path')
+    same_git = (declared.get('source') == listed.get('source') == 'git' and
+                isinstance(url, str) and bool(url.strip()) and url == listed.get('url'))
+    same_directory = (declared.get('source') == listed.get('source') == 'directory' and
+                      isinstance(directory, str) and bool(directory.strip()) and directory == listed.get('installLocation'))
+    if not (same_git or same_directory):
+        raise RuntimeError('HOLD: user declaration does not identify the listed marketplace source')
+
+
 def host_state(host, strict=False):
     marketplaces = json.loads(run([host, 'plugin', 'marketplace', 'list', '--json']))
     plugins = json.loads(run([host, 'plugin', 'list', '--json']))
@@ -102,12 +214,17 @@ def host_state(host, strict=False):
         plugins = plugins['installed']
         installed = [x for x in plugins if x.get('pluginId') == PLUGIN]
     else:
-        installed = [x for x in plugins if x.get('id') == PLUGIN and x.get('scope') == 'user']
+        installed = [x for x in plugins if x.get('id') == PLUGIN]
+        if any(x.get('scope') != 'user' for x in installed):
+            raise RuntimeError('HOLD: Code Quality plugin has another or unknown scope')
     sources = [x for x in marketplaces if x.get('name') == MARKETPLACE]
     if len(installed) > 1 or len(sources) > 1:
         raise RuntimeError('ambiguous Code Quality installation; nothing can be replaced safely')
     plugin = installed[0] if installed else None
     source = sources[0] if sources else None
+    if host == 'claude' and source and (source.get('scope', 'user') != 'user' or
+                                      ('scopes' in source and source['scopes'] != ['user'])):
+        raise RuntimeError('HOLD: Code Quality marketplace has another or unknown scope')
     if strict and plugin is not None and (not source or plugin.get('enabled') is not True):
         raise RuntimeError('existing Code Quality plugin is disabled or its source is unknown; preserve it for manual inspection')
     return {'plugin': plugin, 'marketplace': source}
@@ -179,7 +296,8 @@ def marketplace_snapshot(host, state, destination):
     return tree_digest(destination)
 
 
-def remove_current(host, state):
+def remove_current(host, state, capabilities):
+    validate_removal_scope(host, state, capabilities)
     if state['plugin']:
         if host == 'codex':
             run([host, 'plugin', 'remove', PLUGIN])
@@ -187,7 +305,7 @@ def remove_current(host, state):
             run([host, 'plugin', 'uninstall', PLUGIN, '--scope', 'user', '--keep-data'])
     if state['marketplace']:
         args = [host, 'plugin', 'marketplace', 'remove', MARKETPLACE]
-        if host == 'claude':
+        if host == 'claude' and capabilities['claude_marketplace_remove_scope']:
             args += ['--scope', 'user']
         run(args)
 
@@ -225,6 +343,9 @@ def replace_binary(source, target):
 def rollback(directory, active=False):
     state = json.loads((directory / 'transaction.json').read_text())
     host = state['host']
+    capabilities = host_capabilities(host)
+    if capabilities != state.get('host_capabilities'):
+        raise RuntimeError('host capabilities changed; inspect retained rollback before proceeding')
     target = Path(state['binary'])
     old = directory / 'quality-review.previous'
     current = host_state(host)
@@ -242,7 +363,7 @@ def rollback(directory, active=False):
     snapshot = directory / 'marketplace.previous'
     if state['before']['marketplace'] and tree_digest(snapshot) != state['previous_marketplace_sha256']:
         raise RuntimeError('retained plugin backup failed its digest check')
-    remove_current(host, current)
+    remove_current(host, current, capabilities)
     if state['before']['marketplace']:
         add_plugin(host, str(snapshot), install=bool(state['before']['plugin']))
     restored = host_state(host)
@@ -282,7 +403,8 @@ def bootstrap(version, host):
     for executable in (host, 'curl', 'sh'):
         if shutil.which(executable) is None:
             raise RuntimeError(executable + ' is not installed; nothing was changed')
-    host_state(host, strict=True)  # Capability preflight happens before any installation.
+    capabilities = host_capabilities(host)
+    validate_removal_scope(host, host_state(host, strict=True), capabilities)
     install_dir = Path(os.environ.get('INSTALL_DIR', str(Path.home() / '.local/bin'))).resolve()
     install_dir.mkdir(parents=True, exist_ok=True)
     target = install_dir / 'quality-review'
@@ -299,6 +421,7 @@ def bootstrap(version, host):
     try:
         # The lock, rather than the earlier capability check, defines this transaction.
         before = host_state(host, strict=True)
+        validate_removal_scope(host, before, capabilities)
         receipts = install_dir / '.quality-review-installations'
         private_dir(receipts)
         receipt = receipts / (host + '.json')
@@ -318,7 +441,7 @@ def bootstrap(version, host):
         private_dir(root)
         backup = Path(tempfile.mkdtemp(prefix='bootstrap.', dir=root))
         os.chmod(backup, 0o700)
-        state = {'schema_version': 1, 'host': host, 'binary': str(target), 'requested_version': version, 'before': before, 'status': 'PREPARING'}
+        state = {'schema_version': 1, 'host': host, 'host_capabilities': capabilities, 'binary': str(target), 'requested_version': version, 'before': before, 'status': 'PREPARING'}
         if target.exists():
             state['previous_binary_version'] = run([target, 'version'])
             shutil.copy2(target, backup / 'quality-review.previous')
@@ -351,6 +474,9 @@ def bootstrap(version, host):
             state['new_binary_sha256'] = digest(staged)
             if host_state(host, strict=True) != before:
                 raise RuntimeError('host plugin state changed while the upgrade was being prepared')
+            if host_capabilities(host) != capabilities:
+                raise RuntimeError('host capabilities changed while the upgrade was being prepared')
+            validate_removal_scope(host, before, capabilities)
             current_digest = digest(target) if target.is_file() and not target.is_symlink() else None
             if target.is_symlink() or (target.exists() and not target.is_file()) or current_digest != state.get('previous_binary_sha256'):
                 raise RuntimeError('installed CLI changed while the upgrade was being prepared')
@@ -359,7 +485,7 @@ def bootstrap(version, host):
             state['status'] = 'SWITCHING'
             write_json(backup / 'transaction.json', state)
             changed = True  # A command can mutate before returning failure; always compensate.
-            remove_current(host, before)
+            remove_current(host, before, capabilities)
             source = 'Fueav/code-quality' if host == 'codex' else REPOSITORY + '#' + version
             add_plugin(host, source, version)
             installed = host_state(host)

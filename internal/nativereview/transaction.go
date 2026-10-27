@@ -209,7 +209,7 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	}
 
 	nativeCtx, cancelNative := withOptionalTimeout(ctx, options.NativeTimeout)
-	outcome, err := runNativeSession(nativeCtx, nativeRunOptions{
+	outcome, nativeFailure, err := runNativeSessionWithFailure(nativeCtx, nativeRunOptions{
 		Session: session, Plan: plan, Goal: options.Goal, Model: contract.Contract.Model,
 		ReasoningEffort: contract.Contract.ReasoningEffort, ExecutionProfile: contract.Contract.ExecutionProfile,
 		Provider: provider, LeaseFile: leaseFile, SessionLockFile: sessionLock.inheritedFile(),
@@ -222,6 +222,21 @@ func RunTransaction(ctx context.Context, options TransactionOptions) (transactio
 	}
 	if err := checkpointNativeFrozen(&checkpoint, session, outcome); err != nil {
 		return TransactionResult{}, atStage("freeze native checkpoint", 1, err)
+	}
+	if !checkpoint.NativeEvidence[0].Present {
+		checkpoint.State = StateTerminalError
+		if nativeFailure == nil {
+			nativeFailure = &AttemptFailure{Class: FailureProviderProtocol, Reason: "Native review final message is missing"}
+		}
+		checkpoint.LastFailure = nativeFailure
+		if err := writeCheckpoint(session.Directory(), &checkpoint); err != nil {
+			return TransactionResult{Plan: plan, Status: statusFromCheckpoint(checkpoint, session.Directory(), 1, 0), ExitCode: 1},
+				atStage("write terminal Native checkpoint", 1, err)
+		}
+		progress.failed()
+		// A persisted failure is a completed transaction with exit code 1, so
+		// the CLI emits its structured session status instead of empty stdout.
+		return TransactionResult{Plan: plan, Status: statusFromCheckpoint(checkpoint, session.Directory(), 1, 0), ExitCode: 1}, nil
 	}
 	if err := verifySessionInputs(ctx, session, checkpoint.InputArtifacts); err != nil {
 		checkpoint.State = StateTerminalError

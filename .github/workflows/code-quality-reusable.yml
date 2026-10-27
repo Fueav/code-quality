@@ -174,12 +174,13 @@ jobs:
       - name: Publish job summary
         if: always()
         env:
+          RUN_OUTCOME: ${{ steps.review_run.outcome }}
           CURRENT_OUTCOME: ${{ steps.current_target.outcome }}
           PACKAGE_OUTCOME: ${{ steps.package.outcome }}
         run: |
           set -eu
           review_summary="$RUNNER_TEMP/code-quality-artifact/review-summary.md"
-          if [ "$CURRENT_OUTCOME" = success ] && [ "$PACKAGE_OUTCOME" = success ] && [ -f "$review_summary" ]; then
+          if [ "$RUN_OUTCOME" = success ] && [ "$CURRENT_OUTCOME" = success ] && [ "$PACKAGE_OUTCOME" = success ] && [ -f "$review_summary" ]; then
             cat "$review_summary" >> "$GITHUB_STEP_SUMMARY"
           else
             {

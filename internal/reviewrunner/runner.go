@@ -173,6 +173,9 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		return Result{}, err
 	}
 	if runErr != nil {
+		if record.SessionDir != "" {
+			return Result{Transaction: result, ResultSource: Executed, ExitCode: 1}, runErr
+		}
 		return Result{}, runErr
 	}
 	if result.Plan.Status != reviewplan.StatusReady {
@@ -207,6 +210,9 @@ func continueRequest(ctx context.Context, options Options, executor Executor, st
 		transaction, err = executor.Resume(ctx, resumeOptions(options, record.SessionDir))
 	}
 	if err != nil {
+		if transaction.Status.State != "" && transaction.Status.SessionDir == record.SessionDir && transaction.Plan.ReviewKey == record.ReviewKey {
+			return Result{Transaction: transaction, ResultSource: source, ExitCode: 1}, err
+		}
 		return Result{}, err
 	}
 	if transaction.Plan.ReviewKey != record.ReviewKey {
@@ -262,14 +268,34 @@ func finish(ctx context.Context, options Options, transaction nativereview.Trans
 	if transaction.ExitCode == 0 && (transaction.Status.State != nativereview.StatePublished || transaction.Summary.Result != quality.ResultPass) {
 		return Result{}, errors.New("successful exit requires a published PASS; incomplete or failed evidence cannot be green")
 	}
-	result := Result{Transaction: transaction, ResultSource: source, LifecycleStatus: Current, ExitCode: transaction.ExitCode}
-	base, head, err := options.Current(ctx)
-	if err != nil {
-		return Result{}, fmt.Errorf("observe current review target: %w", err)
+	result := Result{Transaction: transaction, ResultSource: source, ExitCode: transaction.ExitCode}
+	// An unpublished failure has no review result to publish. Preserve its
+	// verified session status even when the parent execution deadline expired;
+	// observing another target cannot make that failure current or successful.
+	if transaction.Status.State != nativereview.StatePublished {
+		return result, nil
 	}
+	observation := ctx
+	if ctx.Err() != nil {
+		// Only this read-only observation gets a bounded cleanup context. Never
+		// pass it to a Provider, evidence validation or checkpoint recovery.
+		var cancel context.CancelFunc
+		observation, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+	}
+	base, head, err := options.Current(observation)
+	if err != nil {
+		result.ExitCode = 1
+		return result, fmt.Errorf("observe current review target: %w", err)
+	}
+	result.LifecycleStatus = Current
 	if base != transaction.Plan.BaseTipCommit || head != transaction.Plan.CurrentHead {
 		result.LifecycleStatus = Superseded
 		result.ExitCode = 1
+	}
+	if err := ctx.Err(); err != nil {
+		result.ExitCode = 1
+		return result, fmt.Errorf("review deadline or cancellation prevents publication: %w", err)
 	}
 	return result, nil
 }

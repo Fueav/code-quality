@@ -43,6 +43,7 @@ type reviewInvocation struct {
 type capturedNativeEvidence struct {
 	finalMessage []byte
 	processErr   error
+	failure      *AttemptFailure
 }
 
 type NativeRunMetrics struct {
@@ -90,6 +91,18 @@ func captureNativeEvidence(ctx context.Context, options nativeRunOptions) (captu
 	if err != nil {
 		return capturedNativeEvidence{}, err
 	}
+	var failure *AttemptFailure
+	processErr = errors.Join(processErr, ctx.Err())
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		failure = &AttemptFailure{Class: FailureDeadlineExceeded, Reason: "Native review deadline exceeded"}
+	case errors.Is(ctx.Err(), context.Canceled):
+		failure = &AttemptFailure{Class: FailureProcessInterrupted, Reason: "Native review process was interrupted"}
+	case processErr != nil:
+		failure = &AttemptFailure{Class: FailureProviderProcess, Reason: "Native review process did not complete successfully"}
+	case materializeErr != nil || frozen.ProtocolError != nil:
+		failure = &AttemptFailure{Class: FailureProviderProtocol, Reason: "Native review transcript is not verifiable"}
+	}
 	processErr = errors.Join(processErr, materializeErr, frozen.ProtocolError)
 	freezeFinished := time.Now()
 	metrics := collectRunMetrics(options.Session.Request(), freezeFinished.Sub(started), int64(len(trustedDiff)), frozen)
@@ -97,7 +110,7 @@ func captureNativeEvidence(ctx context.Context, options nativeRunOptions) (captu
 	if err := writeExclusiveJSON(invocation.paths.metrics, metrics); err != nil {
 		return capturedNativeEvidence{}, fmt.Errorf("write native run metrics: %w", err)
 	}
-	return capturedNativeEvidence{finalMessage: frozen.FinalMessage, processErr: processErr}, nil
+	return capturedNativeEvidence{finalMessage: frozen.FinalMessage, processErr: processErr, failure: failure}, nil
 }
 
 // Missing durations mean a recovered interrupted attempt, not a zero-length

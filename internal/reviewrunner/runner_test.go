@@ -25,6 +25,7 @@ type fakeExecutor struct {
 	entered                       chan struct{}
 	release                       chan struct{}
 	retryable, broken             bool
+	runErr                        error
 }
 
 func newFake() *fakeExecutor {
@@ -92,12 +93,15 @@ func (fake *fakeExecutor) Run(ctx context.Context, options nativereview.Transact
 	if fake.retryable {
 		state = nativereview.StateRestrictedRetryable
 	}
+	if fake.runErr != nil {
+		state = nativereview.StateTerminalError
+	}
 	result := nativereview.TransactionResult{Plan: plan, Status: nativereview.SessionStatus{State: state, SessionDir: session, ReviewKey: plan.ReviewKey, NativeInvocationsThisRun: 1, ProviderInvocationsThisRun: 1},
 		Summary: nativereview.NativeRunSummary{NativeReleaseSummary: quality.NativeReleaseSummary{Result: fake.verdict}}}
 	if fake.verdict == quality.ResultBlock {
 		result.ExitCode = 3
 	}
-	if fake.verdict == quality.ResultError || fake.retryable {
+	if fake.verdict == quality.ResultError || fake.retryable || fake.runErr != nil {
 		result.ExitCode = 1
 	}
 	fake.results[session] = result
@@ -105,7 +109,7 @@ func (fake *fakeExecutor) Run(ctx context.Context, options nativereview.Transact
 	if err := os.WriteFile(filepath.Join(session, "checkpoint.json"), raw, 0o600); err != nil {
 		return result, err
 	}
-	return result, nil
+	return result, fake.runErr
 }
 
 func (fake *fakeExecutor) Resume(_ context.Context, options nativereview.ResumeOptions) (nativereview.TransactionResult, error) {
@@ -211,6 +215,106 @@ func TestIncompleteOrFailedEvidenceCannotExitSuccessfully(t *testing.T) {
 		if _, err := finish(context.Background(), options, value, Executed); err == nil {
 			t.Fatal("invalid zero exit was accepted")
 		}
+	}
+}
+
+func TestUnpublishedFailureRetainsStatusAfterDeadlineWithoutPublicationObservation(t *testing.T) {
+	fake := newFake()
+	options := fakeOptions(t, fake)
+	options.Current = func(context.Context) (string, string, error) {
+		t.Fatal("unpublished failure attempted publication observation")
+		return "", "", nil
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	transaction := nativereview.TransactionResult{
+		Status: nativereview.SessionStatus{State: nativereview.StateTerminalError, SessionDir: "/private/session"}, ExitCode: 1,
+	}
+	result, err := finish(ctx, options, transaction, Executed)
+	if err != nil || result.ExitCode != 1 || result.Transaction.Status.SessionDir != transaction.Status.SessionDir || result.LifecycleStatus != "" {
+		t.Fatalf("failed session status was lost or became current: %#v, %v", result, err)
+	}
+}
+
+func TestRunErrorRetainsActualSessionStatus(t *testing.T) {
+	fake := newFake()
+	fake.runErr = context.DeadlineExceeded
+	options := fakeOptions(t, fake)
+	result, err := Run(context.Background(), options)
+	if !errors.Is(err, context.DeadlineExceeded) || result.ExitCode != 1 || result.Transaction.Status.State != nativereview.StateTerminalError || result.Transaction.Status.SessionDir == "" || result.LifecycleStatus != "" || fake.runs != 1 {
+		t.Fatalf("Native failure lost its actual session status: %#v, %v", result, err)
+	}
+}
+
+func TestResumeErrorRetainsActualIndexedSessionStatus(t *testing.T) {
+	fake := newFake()
+	fake.retryable = true
+	options := fakeOptions(t, fake)
+	first, err := Run(context.Background(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.broken = true
+	result, err := Run(context.Background(), options)
+	if err == nil || result.ExitCode != 1 || result.Transaction.Status.SessionDir != first.Transaction.Status.SessionDir || result.LifecycleStatus != "" || fake.runs != 1 || fake.resumes != 1 {
+		t.Fatalf("recovery failure lost its actual session status or repeated Native: %#v, %v", result, err)
+	}
+}
+
+func TestExpiredPublicationUsesOnlyBoundedObservationAndKeepsFailureStatus(t *testing.T) {
+	for _, mode := range []string{"expired_before", "deadline_before", "expired_during", "observation_error"} {
+		t.Run(mode, func(t *testing.T) {
+			fake := newFake()
+			options := fakeOptions(t, fake)
+			ctx, cancel := context.WithCancel(context.Background())
+			if mode == "deadline_before" {
+				cancel()
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			}
+			defer cancel()
+			if mode == "expired_before" {
+				cancel()
+			}
+			observations := 0
+			options.Current = func(observation context.Context) (string, string, error) {
+				observations++
+				if mode == "expired_before" || mode == "deadline_before" {
+					deadline, bounded := observation.Deadline()
+					if observation.Err() != nil || !bounded || time.Until(deadline) > 5*time.Second || time.Until(deadline) <= 0 {
+						t.Fatal("cleanup observation did not receive a live bounded context")
+					}
+				}
+				if mode == "expired_during" {
+					cancel()
+				}
+				if mode == "observation_error" {
+					return "", "", errors.New("target unavailable")
+				}
+				return fake.base, fake.head, nil
+			}
+			plan, err := fake.Plan(context.Background(), options.Transaction)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transaction := nativereview.TransactionResult{
+				Plan: plan, Status: nativereview.SessionStatus{State: nativereview.StatePublished, SessionDir: "/private/session"},
+				Summary: nativereview.NativeRunSummary{NativeReleaseSummary: quality.NativeReleaseSummary{Result: quality.ResultPass}},
+			}
+			result, err := finish(ctx, options, transaction, Executed)
+			if err == nil || result.ExitCode != 1 || result.Transaction.Status.SessionDir != transaction.Status.SessionDir || result.Transaction.Status.State != nativereview.StatePublished || observations != 1 || fake.runs != 0 || fake.resumes != 0 {
+				t.Fatalf("publication observation lost status or became successful: %#v, %v", result, err)
+			}
+			if mode == "observation_error" && result.LifecycleStatus != "" {
+				t.Fatal("unobserved target claimed a lifecycle state")
+			}
+			expectedFailure := context.Canceled
+			if mode == "deadline_before" {
+				expectedFailure = context.DeadlineExceeded
+			}
+			if mode != "observation_error" && !errors.Is(err, expectedFailure) {
+				t.Fatalf("parent cancellation was lost: %v", err)
+			}
+		})
 	}
 }
 

@@ -57,10 +57,12 @@ with pathlib.Path(os.environ['FIXTURE_TRACE']).open('a') as stream: stream.write
 suite = pathlib.Path(sys.argv[sys.argv.index('--suite') + 1])
 assert pathlib.Path(sys.argv[sys.argv.index('--quality-bin') + 1]).is_file()
 status = os.environ.get('FIXTURE_QUALIFICATION', 'PASS')
+assert ('--allow-incomplete' in sys.argv) == (os.environ.get('RELEASE_EVAL_SCOPE') == 'limited')
 print(json.dumps({'status': status, 'claim': 'STRUCTURAL_FIXTURE_ONLY',
                   'contract_digest': sys.argv[sys.argv.index('--expected-contract') + 1],
+                  'incomplete_cases': ['fixture-failed-case'] if status == 'LIMITED' else [],
                   'suite_sha256': hashlib.sha256(suite.read_bytes()).hexdigest()}))
-sys.exit(0 if status == 'PASS' else 1)
+sys.exit(0 if status in ('PASS', 'LIMITED') else 1)
 '''
 
 BUILDER = r'''#!/usr/bin/env python3
@@ -241,6 +243,41 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(status=status), self.assertRaisesRegex(release.ReleaseError, status):
                 self.execute()
             self.assertEqual((self.root / "dist/release-manifest.json").read_bytes(), before)
+
+    def test_limited_qualification_requires_explicit_limitation_evidence(self):
+        self.environment["RELEASE_EVAL_SCOPE"] = "limited"
+        for reference in ("", "  ", "user-request:one\nuser-request:two"):
+            self.environment["RELEASE_EVAL_LIMITATION_EVIDENCE"] = reference
+            with self.subTest(reference=reference), self.assertRaisesRegex(release.ReleaseError, "LIMITATION_EVIDENCE"):
+                self.execute()
+        self.environment["RELEASE_EVAL_SCOPE"] = "unknown"
+        with self.assertRaisesRegex(release.ReleaseError, "RELEASE_EVAL_SCOPE"):
+            self.execute()
+        self.assertEqual(self.trace(), [])
+
+    def test_strict_default_rejects_limited_even_with_successful_verifier_exit(self):
+        self.environment["FIXTURE_QUALIFICATION"] = "LIMITED"
+        with self.assertRaisesRegex(release.ReleaseError, "strict qualification"):
+            self.execute()
+        self.assertFalse((self.root / "dist").exists())
+
+    def test_limited_retains_scope_failures_and_reference_without_claiming_pass(self):
+        self.environment.update(RELEASE_EVAL_SCOPE="limited", RELEASE_EVAL_LIMITATION_EVIDENCE="user-request:offline-fixture-only",
+                                FIXTURE_QUALIFICATION="LIMITED")
+        self.execute()
+        manifest = json.loads((self.root / "dist/release-manifest.json").read_text())
+        qualification = json.loads((self.root / "dist/release-qualification.json").read_text())
+        self.assertEqual(manifest["qualification"], qualification)
+        self.assertEqual(qualification["scope"], "limited")
+        self.assertEqual(qualification["limitation_evidence"], "user-request:offline-fixture-only")
+        self.assertEqual(qualification["verification"]["status"], "LIMITED")
+        self.assertEqual(qualification["verification"]["incomplete_cases"], ["fixture-failed-case"])
+        previous = (self.root / "dist/release-manifest.json").read_bytes()
+        for status in ("HOLD", "BLOCK", "PASS"):
+            self.environment["FIXTURE_QUALIFICATION"] = status
+            with self.subTest(status=status), self.assertRaisesRegex(release.ReleaseError, "limited qualification"):
+                self.execute()
+            self.assertEqual((self.root / "dist/release-manifest.json").read_bytes(), previous)
 
     def test_untracked_file_stops_before_verification(self):
         (self.root / "untracked").write_text("new source\n")

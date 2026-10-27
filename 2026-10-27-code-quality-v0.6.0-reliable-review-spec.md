@@ -10,6 +10,7 @@ The existing host commands remain the entrypoints. A shared coordinator may sele
 - Native discovery and restricted adjudication use the exact committed target. Native checkout drift prevents trustworthy publication, including an otherwise empty finding set. First execution and recovery enforce the same target-view invariant.
 - A frozen input index identifies full PR scope, Provider scope, changed files and the trusted diff. It does not treat Native reasoning as independent evidence or restrict adjudication to excerpts.
 - Stage metrics preserve their existing meaning and gain optional process/freeze timings. Missing measurements are unknown, never zero. Historical model comparisons do not establish current latency or justify changing defaults.
+- A Native process that ends without its final message retains its partial logs and metrics as an unpublished terminal error. A message in streamed output cannot substitute for the missing final artifact. The session exposes a non-retryable failure and must never resume Native or become a clean review. Request errors retain an available durable session status on stdout, alongside a nonzero exit and stderr diagnostic; they never emit a successful review summary.
 
 ## Trusted coordination
 
@@ -23,9 +24,13 @@ The coordinator and CI share one total execution budget, reserving time for evid
 
 Live evaluation calls the production run entrypoint directly using the existing host login. It no longer copies authentication or delegates legacy prepare/finalize orchestration to another model. Current native findings are consumed without losing identity or locations; unknown schemas are rejected. Errors/timeouts remain in completion statistics and cannot count as successful clean reviews. Quality and timing use the same frozen run records, grouped by contract/model/effort/scope. Offline regression evidence is identified as offline; no unexecuted or fabricated model-efficacy evaluation may qualify a release.
 
+The owner's subsequent 2026-10-27 request to publish without further model testing permits an explicit limited model qualification. Every frozen case and its available evidence remains represented; incomplete cases stay failed, complete wrong outcomes remain blocking, and invalid evidence remains HOLD. Limited qualification must name its authorization and limitations in the release manifest and cannot claim a fully passing suite. Strict qualification remains the default. This exception does not waive final-source owner approval, deterministic checks or installation integrity.
+
 `make dist` becomes the single distribution entrypoint: reject dirty state, freeze the source SHA and explicit comparison baseline, verify the complete release contract once with genuine owner authorization bound to those SHAs, validate sealed evidence, then build from the frozen source. The manifest records version, source SHA, baseline and asset digests. Candidate checks retain affected-test selection; candidate success does not substitute for full release verification. CI human approval must come from an actual eligible human review on the relevant SHA; an agent must not fabricate it.
 
 The fixed-version bootstrap preflights its host, stages and validates replacement files, retains the previous CLI/plugin combination and an executable rollback, then switches. Any failure restores the previous product-specific installation where present. It must not overwrite unrelated plugins or user settings. Same-version verified installations are idempotent. CI continues to use a preinstalled CLI.
+
+Host command capabilities are checked before changing either installation. An older Claude CLI lacking scoped marketplace removal is supported only when the existing Code Quality marketplace is proven to be a single user-scoped declaration with the expected source; ambiguous or unreadable scope state stops before uninstall. Rollback preserves and rechecks that same boundary.
 
 ## Required regression evidence
 
