@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -189,6 +190,50 @@ class ApprovalTests(unittest.TestCase):
                 for other_event, _ in expected.values():
                     if other_event != event:
                         self.assertNotIn("  " + other_event, before_steps)
+
+    def test_linux_workflows_ensure_zsh_before_verification_without_skipping_live_tests(self):
+        directory = Path(__file__).resolve().parents[1] / ".github/workflows"
+        for filename, verification in (("ci.yml", "make verify-candidate"), ("release.yml", "make dist")):
+            workflow = (directory / filename).read_text()
+            start = workflow.index("      - name: Ensure zsh test dependency\n")
+            end = workflow.index("      - name:", start + 1)
+            self.assertLess(start, workflow.index(verification))
+            block = workflow[start:end].split("        run: |\n", 1)[1]
+            script = "\n".join(line[10:] for line in block.splitlines())
+            for state in ("missing", "installed", "install-failure"):
+                with self.subTest(workflow=filename, state=state), tempfile.TemporaryDirectory() as directory_name:
+                    root = Path(directory_name)
+                    zsh, trace = root / "fixture-zsh", root / "trace"
+                    if state == "installed":
+                        zsh.write_text("#!/bin/sh\nprintf 'fixture zsh version\\n'\n")
+                        zsh.chmod(0o700)
+                    sudo = root / "sudo"
+                    sudo.write_text("#!/usr/bin/env python3\n" + """
+import os, pathlib, sys
+arguments = sys.argv[1:]
+assert arguments in (['apt-get', 'update'], ['apt-get', 'install', '-y', '--no-install-recommends', 'zsh'])
+with pathlib.Path(os.environ['FIXTURE_TRACE']).open('a') as stream: stream.write(' '.join(arguments) + '\\n')
+if os.environ['FIXTURE_STATE'] == 'install-failure': sys.exit(23)
+if arguments[1] == 'install':
+    zsh = pathlib.Path(os.environ['FIXTURE_ZSH'])
+    zsh.write_text("#!/bin/sh\\nprintf 'fixture zsh version\\\\n'\\n")
+    zsh.chmod(0o700)
+""")
+                    sudo.chmod(0o700)
+                    environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                                       FIXTURE_STATE=state, FIXTURE_ZSH=str(zsh), FIXTURE_TRACE=str(trace))
+                    result = subprocess.run(["bash", "-c", script.replace("/bin/zsh", shlex.quote(str(zsh)))],
+                                            env=environment, text=True, capture_output=True)
+                    calls = trace.read_text().splitlines() if trace.exists() else []
+                    if state == "install-failure":
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertEqual(calls, ["apt-get update"])
+                        self.assertFalse(zsh.exists())
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("fixture zsh version", result.stdout)
+                        self.assertEqual(calls, [] if state == "installed" else [
+                            "apt-get update", "apt-get install -y --no-install-recommends zsh"])
 
 
 if __name__ == "__main__":

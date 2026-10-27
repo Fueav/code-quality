@@ -84,6 +84,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Ensure zsh test dependency
+        run: |
+          set -euo pipefail
+          if [ ! -x /bin/zsh ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends zsh
+          fi
+          /bin/zsh --version
       - name: Install pinned verification engine and selected tools
         run: scripts/harnessctl.sh install-tools --profile release --compare-ref "$COMPARE_SHA"
       - name: Verify once and package the approved source
