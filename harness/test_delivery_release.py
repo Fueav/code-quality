@@ -61,7 +61,7 @@ assert ('--allow-incomplete' in sys.argv) == (os.environ.get('RELEASE_EVAL_SCOPE
 print(json.dumps({'status': status, 'claim': 'STRUCTURAL_FIXTURE_ONLY',
                   'contract_digest': sys.argv[sys.argv.index('--expected-contract') + 1],
                   'incomplete_cases': ['fixture-failed-case'] if status == 'LIMITED' else [],
-                  'suite_sha256': hashlib.sha256(suite.read_bytes()).hexdigest()}))
+                  'suite_sha256': os.environ.get('FIXTURE_SUITE_DIGEST', 'sha256:' + hashlib.sha256(suite.read_bytes()).hexdigest())}))
 sys.exit(0 if status in ('PASS', 'LIMITED') else 1)
 '''
 
@@ -234,6 +234,16 @@ class ReleaseTests(unittest.TestCase):
             self.execute()
         self.assertNotIn("qualify structural fixture", self.trace())
         self.assertFalse((self.root / "dist").exists())
+
+    def test_evaluation_rejects_wrong_or_bare_suite_digest(self):
+        bare = hashlib.sha256(Path(self.environment["RELEASE_EVAL_SUITE"]).read_bytes()).hexdigest()
+        wrong = ("0" if bare[0] != "0" else "1") + bare[1:]
+        for value in (bare, "sha256:" + wrong):
+            with self.subTest(digest=value):
+                self.environment["FIXTURE_SUITE_DIGEST"] = value
+                with self.assertRaisesRegex(release.ReleaseError, "qualification identity changed"):
+                    self.execute()
+                self.assertFalse((self.root / "dist").exists())
 
     def test_evaluation_hold_and_block_preserve_previous_distribution(self):
         self.execute()

@@ -176,7 +176,7 @@ def qualify(snapshot, root, source, binary, inputs, environment):
     if result.returncode or output.get("status") != expected_status:
         raise ReleaseError(f"{output.get('status', 'HOLD')}: frozen evaluation did not meet {inputs['scope']} qualification; see .artifacts/release-qualification.json")
     if (digest(inputs["suite"]) != inputs["suite_sha256"] or digest(inputs["evidence"]) != inputs["evidence_sha256"] or
-            output.get("contract_digest") != inputs["contract"] or output.get("suite_sha256") != inputs["suite_sha256"]):
+            output.get("contract_digest") != inputs["contract"] or output.get("suite_sha256") != "sha256:" + inputs["suite_sha256"]):
         raise ReleaseError("HOLD: evaluation inputs or qualification identity changed")
     return {"verification": output, "suite_sha256": inputs["suite_sha256"],
             "scope": inputs["scope"], "limitation_evidence": inputs["limitation_evidence"],
