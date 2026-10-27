@@ -9,7 +9,7 @@ import (
 	"github.com/Fueav/code-quality/quality"
 )
 
-const NativePromptContractVersion = "3"
+const NativePromptContractVersion = "4"
 
 type ContractBundle struct {
 	Contract         quality.NativeReviewContract

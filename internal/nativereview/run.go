@@ -38,18 +38,24 @@ type nativeRunOptions struct {
 }
 
 func runNativeSession(ctx context.Context, options nativeRunOptions) (quality.NativeOutcome, error) {
+	outcome, _, err := runNativeSessionWithFailure(ctx, options)
+	return outcome, err
+}
+
+func runNativeSessionWithFailure(ctx context.Context, options nativeRunOptions) (quality.NativeOutcome, *AttemptFailure, error) {
 	if err := normalizeRunOptions(&options); err != nil {
-		return quality.NativeOutcome{}, err
+		return quality.NativeOutcome{}, nil, err
 	}
 	captured, err := captureNativeEvidence(ctx, options)
 	if err != nil {
-		return quality.NativeOutcome{}, err
+		return quality.NativeOutcome{}, nil, err
 	}
-	return quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
+	outcome, err := quality.ClassifyFrozenNativeReview(quality.NativeOutcomeOptions{
 		Request: options.Plan.Request, ProviderRequest: options.Plan.ProviderRequest,
 		Identity: options.Plan.ReviewIdentity, PreviousBlockingFindings: options.Plan.PreviousBlockingFindings(),
 		ReviewGoal: options.Goal,
 	}, captured.finalMessage, captured.processErr)
+	return outcome, captured.failure, err
 }
 
 func normalizeRunOptions(options *nativeRunOptions) error {
@@ -179,7 +185,7 @@ func buildPlanReviewPrompt(plan reviewplan.Decision, goal string, reportOnlyBoun
 
 func buildPlanReviewPromptWithPrevious(plan reviewplan.Decision, goal string, reportOnlyBoundary bool, previous []quality.NativeFinding) string {
 	if plan.ReviewScope != quality.ReviewScopeIncremental {
-		return buildReviewPrompt(plan.ProviderRequest, goal, reportOnlyBoundary)
+		return buildReviewPrompt(plan.ProviderRequest, goal, reportOnlyBoundary) + frozenInputIndexPrompt(plan)
 	}
 	var prompt strings.Builder
 	fmt.Fprintf(&prompt, "Review only the committed incremental delta %s..%s inside the full pull-request scope %s..%s.\n", plan.ProviderRequest.BaseCommit, plan.ProviderRequest.TargetCommit, plan.Request.BaseCommit, plan.Request.TargetCommit)
@@ -195,6 +201,7 @@ func buildPlanReviewPromptWithPrevious(plan reviewplan.Decision, goal string, re
 	fmt.Fprintf(&prompt, "Re-evaluate every previous P0/P1 finding below against the current head and return exactly one RESOLVED or UNRESOLVED resolution for each finding_id:\n%s\n", encoded)
 	prompt.WriteString("Report new findings only when they are introduced or worsened by the incremental delta. New finding locations must be in the incremental changed files. An unresolved previous finding may point anywhere in the full pull-request changed files.\n")
 	prompt.WriteString("Use the priority definitions embedded in the configured JSON Schema. Exclude pure style, naming, preference, ordinary maintainability, and scale speculation without evidence.\nReturn only the structured incremental document required by the configured JSON Schema. Use repository-relative paths and the smallest useful line range.\n")
+	prompt.WriteString(frozenInputIndexPrompt(plan))
 	return prompt.String()
 }
 

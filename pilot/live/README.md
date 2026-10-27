@@ -1,86 +1,77 @@
-# Live Review And Git-Forward Adjudication
+# Live review and frozen evaluation evidence
 
-This directory implements Route A: unattended daily review followed by weekly adjudication against later Git history. It does not install hooks, change CI, modify the review engine or policy, or ask maintainers to label findings.
+`live_watch.sh` watches committed changes and invokes the shipped `quality-review run-codex --execution-profile production-ci` directly. It uses the runner user's existing login and PATH. There is no outer review agent, credential copy, temporary `CODEX_HOME`, or `prepare/finalize` loop. Optional `model` and `reasoning_effort` config fields override the CLI defaults.
 
-## The tradeoff
+The watcher keeps the existing daily watermark, source-change filter, 3,000-line ceiling, and ten-commit budget. Each sample uses a target-only detached clone with no remotes or shared-object alternate, preserving historical blindness. The product binary is built from local `main` and cached by source commit. The clone and CLI evidence are retained outside the reviewed repository so an interrupted Restricted session can still be resumed.
 
-Automatic Git-forward adjudication is weaker than human labeling. A later commit that independently fixes the reported root cause strongly confirms the finding, but code that remains unchanged cannot distinguish noise from a real unfixed defect. After 30 days without a nearby candidate, the system therefore emits the deliberately weak label `stale_probable_noise`, not a factual false-positive verdict.
+Only schema-v10 results accepted by the CLI's offline `validate` enter completed samples. `PASS` exits 0; a valid `BLOCK` exits 3 and also counts as completed. `ERROR`, unsupported schemas, inconsistent exits, and validation failures count as failed. `RESTRICTED_RETRYABLE` and `MANUAL_REQUIRED` retain `operator-required.json`; later scheduled runs wait without starting Native again. Once an operator has resumed and published the retained session, the watcher validates and adopts that exact result without another Provider call. The watcher does not automatically expand scope or reset a review lineage.
 
-The most valuable label is `confirmed_by_later_fix`: the product reported a defect at commit N and a later developer fixed the same problem at N+k. If separate evidence shows that the developer had not seen the report, set `independent_confirmation` in the adjudication record; that is the strongest evidence that the tool found the problem first.
+Before starting the CLI, the watcher exclusively creates `attempt-intent.json` and syncs both the file and parent directory. If the adapter or archive step is interrupted, the next run checks that retained attempt and adopts a valid publication using only local validation. A saved process completion preserves its known exit code and wall duration during archive replay. Missing or undecodable output is `WAITING_OPERATOR`; it cannot silently cause another paid invocation. Retained session pointers remain available even after adoption so a failed watermark write cannot restart Native.
 
-## Architecture
+Each attempt retains `stdout.json`, progress/diagnostic `stderr.jsonl`, native evidence, and one `record.json` with the exact result digest, contract, version/model/effort/scope, outcome, total CLI wall time, and per-attempt stage metrics. Failed retained sessions preserve their available stage metrics and contract identity. `index.jsonl` projects these same records for aggregation. Missing duration/token/cache data remains `null`, never zero. Native and Restricted durations include their evidence-freezing work. Wall time includes the CLI transaction; it does not measure CI queue time or preparing the target-only clone. A manually recovered session has unknown total wall time across invocations.
 
-`live_watch.sh` runs once per day and maintains an observed-HEAD watermark plus a pending review queue for every configured repository. It discovers new commits across merged history, ignores merge commits and commits without source changes, rejects changes over 3,000 added/deleted lines, and processes at most ten eligible commits per invocation. Filtered commits advance the watermark. A failed review is recorded once and remains pending for the next invocation.
+## Install and operate
 
-Every product lane uses a binary built from the local `main` ref's current HEAD, never a pinned release tag. The build is cached by main commit under the external data directory. Each review uses a fresh detached shared clone, removes refs and remotes, copies target-reachable objects locally, and removes the shared-object alternate. Each `codex exec` receives a new `CODEX_HOME` containing only a temporary copy of `~/.codex/auth.json`, plus `--ignore-user-config --ephemeral`; the entire runtime directory and copied authentication file are deleted on exit. The prompt handles both `REVIEW_INVALID` repair and `REREVIEW_REQUIRED` counterexample review.
-
-`live_adjudicate.py` runs weekly. For each non-terminal finding it scans later non-merge commits for diff hunks in the same file within ±10 lines. Each unseen candidate is paired once with the finding and sent through an isolated `codex exec -s read-only --output-schema` decision:
-
-- `fixes` → `confirmed_by_later_fix` (terminal)
-- `touches_only` → `superseded` (terminal and not counted as noise)
-- `unclear` → remains `open`
-- no candidate for at least 30 days → `stale_probable_noise` (terminal, weak noise mapping)
-
-Terminal findings are never re-adjudicated. `summary.md` reports label shares, zero-finding rate, D1–D4 splits, and repository splits. For compatibility with the existing live-report vocabulary, `confirmed_by_later_fix` maps to adopted and `stale_probable_noise` maps to noise.
-
-## Install
-
-The defaults are daily at 02:17 and Mondays at 03:43 in the machine's cron timezone:
+Install only when scheduling has been authorized:
 
 ```sh
 make live-install
-```
-
-Override either five-field schedule or the external data root at installation:
-
-```sh
-make live-install \
-  LIVE_WATCH_CRON='11 1 * * *' \
-  LIVE_ADJUDICATE_CRON='29 3 * * 1' \
-  LIVE_DATA_ROOT="$HOME/AiProject/code-quality-live"
-```
-
-Installation is idempotent and changes only the marked `# BEGIN code-quality-live` crontab block. It copies the two runtime components into the external `bin/` directory, so later branch switches in this checkout do not remove the scheduled executable. It creates `config.json` only when absent, initially monitoring:
-
-- `~/AiProject/agent_marketplace`
-- `~/AiProject/general-agent-ai`
-- `~/AiProject/code-quality` at local `main`
-
-Edit `config.json` to change repositories or refs. The first watch of a repository initializes its watermark at the configured ref without reviewing history.
-
-Remove only the cron entries while retaining all evidence:
-
-```sh
 make live-uninstall
 ```
 
-Run either component manually:
+Installation updates only the marked code-quality crontab block. Defaults are daily at 02:17 and Mondays at 03:43 in the machine's cron timezone. Override `LIVE_WATCH_CRON`, `LIVE_ADJUDICATE_CRON`, and `LIVE_DATA_ROOT` through Make. All mutable data defaults to `~/AiProject/code-quality-live/`; the installer copies the three runtime files into its `bin/` directory.
 
 ```sh
 pilot/live/live_watch.sh --once
-python3 pilot/live/live_adjudicate.py
-make live-test
+python3 -B pilot/live/live_adjudicate.py
+python3 -B pilot/review_evidence.py summarize --records /absolute/live-root/index.jsonl
 ```
 
-## External data layout
+The summary groups execution sample count, failures, wall/native/restricted P50 and nearest-rank P95, stage process/freezing durations, and tokens by tool version, contract, provider, model, effort, and scope. It counts each session once using its latest cumulative metrics; independent sessions with the same review key retain their separate costs. `logical_reviews` separately counts unique review keys, and failed observations remain visible. Waiting checks do not add execution samples. Unknown metrics include their own denominator. A live summary without trusted severe/clean labels reports effectiveness as `UNKNOWN`.
 
-All mutable data stays outside this repository, by default under `~/AiProject/code-quality-live/`:
+## Git-forward labels
 
-```text
-config.json
-index.jsonl
-state/<repo>.json
-reviews/<repo>/<sha>/review-result.json
-adjudications/<repo>/<sha>.json
-summary.json
-summary.md
-snapshots/<ISO-year>-W<week>.md
-bin/quality-review-main-<sha>
-bin/live_watch.sh
-bin/live_adjudicate.py
-logs/live-watch.log
-logs/live-adjudicate.log
-logs/runs/<repo>/<sha>/codex.stderr.log
+`live_adjudicate.py` accepts current findings with their stable ID and exact file/range. Current native findings do not contain D1–D4 labels, so the dimension is `unknown`. Old result/state schemas require explicit migration and are excluded from completed denominators.
+
+Weekly adjudication scans later non-merge commits touching the same file within ten lines. A fresh read-only Codex call labels each unseen pair `fixes`, `touches_only`, or `unclear`; it uses the existing login without copying authentication files. `fixes` becomes `confirmed_by_later_fix`, `touches_only` becomes `superseded`, and a 30-day absence of candidates becomes `stale_probable_noise`.
+
+A process lock prevents concurrent weekly runs. Each pair has a persisted intent before invocation and each completed decision is saved immediately. An interrupted or failed pair retains `pending_adjudication` and returns `HOLD`; an operator must inspect and explicitly authorize its handling. The scheduler does not clear it or repeat a possibly paid call automatically.
+
+These labels are observational: code remaining unchanged is not proof of a false positive. Line movement and renames can defeat the simple prefilter. Neither a weak noise label nor this weekly summary qualifies a release. Preserve human-confirmed incidents and clean fixes as frozen benchmark cases instead.
+
+## Offline contract-bound benchmark check
+
+Retain the existing historical corpus and deterministic tests; do not rerun mining or retired synthetic experiments for every change. The historical structure check stays offline:
+
+```sh
+python3 -B pilot/mining/validate_dataset.py pilot/dataset/v2/targets.json
 ```
 
-`index.jsonl` contains one line per completed or failed lane with repository, SHA, UTC time, duration, status, and either result counts or a failure reason. Review failures are not retried within the same invocation.
+That verifies dataset structure and size, not model effectiveness. For actual model qualification, a trusted operator supplies a frozen suite with exact `id`, `base`, `target`, and expected `PASS`/`BLOCK` for every case. The suite must contain both severe and clean cases. An evidence manifest has this shape:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "model",
+  "contract_digest": "contract-v1:sha256:<64 hex characters>",
+  "suite_sha256": "sha256:<hash of suite bytes>",
+  "runs": [{"case_id": "case-id", "record": {"path": "case/record.json", "sha256": "sha256:<hash of record bytes>"}}]
+}
+```
+
+The suite format is `{"schema_version":1,"cases":[{"id":"case-id","base":"<full SHA>","target":"<full SHA>","expected_result":"BLOCK"}, ...]}`. All referenced result and metric artifacts must reside in the frozen evidence bundle. Hashes bind the supplied artifacts; they do not authenticate the person providing labels or prove the provenance of arbitrary user-created files. Keep the suite and evidence under the CI's trusted review/approval process. Test fixtures and mock CLI output are not real-model evidence.
+
+Formal `dist` qualification also requires owner-reviewed suite `review_config` with `host` (`codex` or `claude-code`), `model`, and `reasoning_effort`. The release task uses those trusted settings with the current built CLI's read-only plan to derive the expected contract. Full qualification requires `FULL` scope and `production-ci`. The trusted suite is not copied from a model-produced evidence manifest; test fixtures remain offline tests even when their synthetic fields resemble model evidence.
+
+```sh
+python3 -B pilot/review_evidence.py verify \
+  --suite /trusted/eval/suite.json --evidence /trusted/eval/evidence.json \
+  --expected-contract 'contract-v1:sha256:<current contract digest>' \
+  --quality-bin /absolute/path/to/quality-review
+```
+
+Verification invokes only local `validate`. Missing evidence, structural-only fixtures, stale contracts, changed hashes, missing cases, `ERROR`, or absent actual stage timings return `HOLD` and exit 1. A known case whose result changed returns `BLOCK`. `PASS` means only that every case in this exact frozen suite matches; it is not population-level superiority. The same output includes quality counts and latency distributions, so another metrics pipeline is unnecessary. Restricted-policy changes can reuse frozen candidate evidence for a separately declared restricted-only experiment; they must not label that experiment as a full-review qualification.
+
+The suite labels the expected `PASS`/`BLOCK` gate, not an exact defect match. Summary quality includes `label_scope: EXPECTED_GATE_ONLY`; `severe_retained` counts severe cases with a blocking gate. It does not prove the original incident was found, because an unrelated blocking finding can produce the same gate. Exact defect recall needs separately trusted finding-level adjudication and remains unknown here. A release job must derive its expected contract using the current built CLI and trusted model/effort settings; accepting the digest asserted by the evidence itself would not establish freshness.
+
+Run offline adapter, fake-CLI, and bundle regressions with `make live-test` and `python3 -B -m unittest discover -s pilot -p test_review_evidence.py`. They never invoke a real Provider.

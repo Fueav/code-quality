@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: candidate-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: scope
+        name: Freeze exact candidate and baseline
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base="$PR_BASE"
+          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            base="$PUSH_BEFORE"
+          else
+            base="$(git rev-list --first-parent --max-count=2 HEAD | tail -1)"
+          fi
+          compare="$(git rev-parse --verify --end-of-options "$base^{commit}")"
+          printf 'head=%s\ncompare=%s\n' "$EXPECTED_HEAD" "$compare" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Ensure zsh test dependency
+        run: |
+          set -euo pipefail
+          if [ ! -x /bin/zsh ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends zsh
+          fi
+          /bin/zsh --version
+      - name: Install pinned verification engine and selected tools
+        env:
+          VERIFY_COMPARE_REF: ${{ steps.scope.outputs.compare }}
+        run: scripts/harnessctl.sh install-tools --profile pull_request --compare-ref "$VERIFY_COMPARE_REF"
+      - name: Verify candidate with deferred approval
+        env:
+          VERIFY_COMPARE_REF: ${{ steps.scope.outputs.compare }}
+        run: make verify-candidate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: candidate-${{ steps.scope.outputs.head }}
+          path: .artifacts/candidate/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

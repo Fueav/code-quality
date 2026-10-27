@@ -47,6 +47,7 @@ func TestFullCodexInvocationRestoresNormalCapabilities(t *testing.T) {
 		"Review the changes introduced by %s relative to %s for concrete defects introduced or worsened by this change.\nUser-supplied context: %q\nUse the priority definitions embedded in the configured JSON Schema. Exclude pure style, naming, preference, ordinary maintainability, and scale speculation without evidence.\nReturn only the structured findings document required by the configured JSON Schema. Use repository-relative changed-file paths and the smallest useful line range. If no concrete defect exists, return an empty findings array.\n",
 		request.TargetCommit, request.BaseCommit, "protect settlement correctness",
 	)
+	wantPrompt += frozenInputIndexPrompt(options.Plan)
 	if invocation.stdin != wantPrompt {
 		t.Fatalf("prompt = %q, want %q", invocation.stdin, wantPrompt)
 	}

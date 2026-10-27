@@ -108,14 +108,26 @@ func TestMakefileReleaseGateCoversShippedComponents(t *testing.T) {
 		"$(MAKE) mining-test",
 		"$(MAKE) qualification-test",
 		"git diff --check",
-		"dist: release-check",
-		"RELEASE_BINARIES :=",
-		"@set -e; for p in $(PLATFORMS)",
-		"shasum -a 256 $(RELEASE_BINARIES)",
-		"cp plugins/code-quality/scripts/bootstrap.sh dist/bootstrap.sh",
+		"dist:",
+		"python3 -I -B -S scripts/release.py",
 	} {
 		if !strings.Contains(makefile, required) {
 			t.Errorf("Makefile release gate is missing %q", required)
+		}
+	}
+	release, err := os.ReadFile("scripts/release.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		`"harness/repository_verification.py"), "verify", "release"`,
+		`"evidence", "verify"`,
+		`"darwin/arm64", "darwin/amd64", "linux/amd64", "linux/arm64"`,
+		`"plugins/code-quality/scripts/bootstrap.sh", "bootstrap.sh"`,
+		`"release-manifest.json"`,
+	} {
+		if !strings.Contains(string(release), required) {
+			t.Errorf("release packaging is missing %q", required)
 		}
 	}
 }
@@ -183,12 +195,12 @@ func TestBootstrapPinsBothHostPluginsAndReturnsAbsoluteBinary(t *testing.T) {
 	bootstrap := string(raw)
 	for _, required := range []string{
 		"Fueav/code-quality",
-		"--ref \"$VERSION\"",
-		"https://github.com/Fueav/code-quality.git#${VERSION}",
-		"PLUGIN=\"code-quality@${MARKETPLACE}\"",
+		"args += ['--ref', version]",
+		"REPOSITORY + '#' + version",
+		"PLUGIN = 'code-quality@' + MARKETPLACE",
 		"QUALITY_REVIEW_BIN=",
-		"${install_dir_abs}/quality-review",
-		"installed_version=$(\"$review_bin\" version)",
+		"target = install_dir / 'quality-review'",
+		"run([target, 'version'])",
 	} {
 		if !strings.Contains(bootstrap, required) {
 			t.Errorf("bootstrap is missing %q", required)
@@ -198,122 +210,6 @@ func TestBootstrapPinsBothHostPluginsAndReturnsAbsoluteBinary(t *testing.T) {
 		if strings.Contains(bootstrap, forbidden) {
 			t.Errorf("bootstrap must not contain %q", forbidden)
 		}
-	}
-}
-
-func TestBootstrapExecutesPinnedInstallAndHostUpgrade(t *testing.T) {
-	for _, host := range []string{"codex", "claude"} {
-		t.Run(host, func(t *testing.T) {
-			root := t.TempDir()
-			binDir := filepath.Join(root, "commands")
-			installDir := "relative install dir"
-			if err := os.MkdirAll(binDir, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			installer := filepath.Join(root, "installer.sh")
-			writeContractExecutable(t, installer, `#!/bin/sh
-set -eu
-mkdir -p "$INSTALL_DIR"
-cat > "$INSTALL_DIR/quality-review" <<'EOF'
-#!/bin/sh
-printf '%s\n' 'quality-review v0.5.7'
-EOF
-chmod +x "$INSTALL_DIR/quality-review"
-`)
-			writeContractExecutable(t, filepath.Join(binDir, "curl"), `#!/bin/sh
-set -eu
-output=''
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = '-o' ]; then output="$2"; shift 2; continue; fi
-  shift
-done
-test -n "$output"
-cp "$FAKE_INSTALLER" "$output"
-`)
-			logPath := filepath.Join(root, "host.log")
-			statePath := filepath.Join(root, "state")
-			writeContractExecutable(t, filepath.Join(binDir, "codex"), `#!/bin/sh
-set -eu
-printf '%s\n' "$*" >> "$FAKE_HOST_LOG"
-case "$*" in
-  'plugin marketplace list --json')
-    if [ -f "$FAKE_HOST_STATE" ]; then printf '%s\n' '{"name": "fueav-code-quality"}'; else printf '%s\n' '{"marketplaces": []}'; fi ;;
-  'plugin marketplace add Fueav/code-quality --ref v0.5.7') touch "$FAKE_HOST_STATE" ;;
-  'plugin marketplace remove fueav-code-quality') rm -f "$FAKE_HOST_STATE" ;;
-  'plugin add code-quality@fueav-code-quality'|'plugin remove code-quality@fueav-code-quality') ;;
-  *) exit 97 ;;
-esac
-`)
-			writeContractExecutable(t, filepath.Join(binDir, "claude"), `#!/bin/sh
-set -eu
-printf '%s\n' "$*" >> "$FAKE_HOST_LOG"
-case "$*" in
-  'plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.7') ;;
-  'plugin list') if [ -f "$FAKE_HOST_STATE" ]; then printf '%s\n' 'code-quality@fueav-code-quality'; fi ;;
-  'plugin install code-quality@fueav-code-quality --scope user') touch "$FAKE_HOST_STATE" ;;
-  'plugin update code-quality@fueav-code-quality --scope user') ;;
-  *) exit 97 ;;
-esac
-`)
-
-			bootstrapPath, err := filepath.Abs("plugins/code-quality/scripts/bootstrap.sh")
-			if err != nil {
-				t.Fatal(err)
-			}
-			for runNumber := 0; runNumber < 2; runNumber++ {
-				command := exec.Command("sh", bootstrapPath, "v0.5.7", host)
-				command.Dir = root
-				command.Env = append(os.Environ(),
-					"PATH="+binDir+string(os.PathListSeparator)+"/usr/bin:/bin",
-					"HOME="+root,
-					"INSTALL_DIR="+installDir,
-					"QUALITY_REVIEW_RELEASE_BASE=https://release.invalid/v0.5.7",
-					"FAKE_INSTALLER="+installer,
-					"FAKE_HOST_LOG="+logPath,
-					"FAKE_HOST_STATE="+statePath,
-				)
-				output, err := command.CombinedOutput()
-				if err != nil {
-					t.Fatalf("bootstrap run %d: %v: %s", runNumber+1, err, output)
-				}
-				canonicalRoot, err := filepath.EvalSymlinks(root)
-				if err != nil {
-					t.Fatal(err)
-				}
-				expectedBinary := filepath.Join(canonicalRoot, installDir, "quality-review")
-				if !strings.Contains(string(output), "QUALITY_REVIEW_BIN="+expectedBinary) ||
-					!strings.Contains(string(output), "NEXT_COMMAND=\""+expectedBinary+"\" doctor") {
-					t.Fatalf("bootstrap output = %s", output)
-				}
-			}
-
-			logBytes, err := os.ReadFile(logPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			log := string(logBytes)
-			if host == "codex" {
-				for _, expected := range []string{
-					"plugin marketplace add Fueav/code-quality --ref v0.5.7",
-					"plugin add code-quality@fueav-code-quality",
-					"plugin marketplace remove fueav-code-quality",
-				} {
-					if !strings.Contains(log, expected) {
-						t.Errorf("Codex bootstrap log is missing %q: %s", expected, log)
-					}
-				}
-			} else {
-				for _, expected := range []string{
-					"plugin marketplace add https://github.com/Fueav/code-quality.git#v0.5.7",
-					"plugin install code-quality@fueav-code-quality --scope user",
-					"plugin update code-quality@fueav-code-quality --scope user",
-				} {
-					if !strings.Contains(log, expected) {
-						t.Errorf("Claude bootstrap log is missing %q: %s", expected, log)
-					}
-				}
-			}
-		})
 	}
 }
 

@@ -1,0 +1,71 @@
+name: Approval
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+
+jobs:
+  approval_finalize:
+    name: human approval
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: approval-${{ github.repository }}-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      COMPARE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - name: Check out trusted base for approval finalization
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify human review and retrieve matching candidate evidence
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$COMPARE_SHA"
+          if [ ! -f harness/ci_approval.py ]; then
+            printf '%s\n' "Human approval: HOLD. The trusted base has no approval runtime yet." \
+              "The initial rollout needs a human review of final source $HEAD_SHA and baseline $COMPARE_SHA, recorded as explicit owner-request evidence." \
+              "Candidate verification is independent. Do not execute the pull-request head's approval helper as a fallback." >> "$GITHUB_STEP_SUMMARY"
+            echo '::error::Trusted approval runtime is not installed in the base; explicit final-SHA owner review is required for bootstrap.'
+            exit 1
+          fi
+          python3 -I -B -S harness/ci_approval.py review --repository "$REPOSITORY" \
+            --number "$PR_NUMBER" --head "$HEAD_SHA" --compare "$COMPARE_SHA" > "$RUNNER_TEMP/approval.json"
+          run_id="$(jq -r .candidate_run_id "$RUNNER_TEMP/approval.json")"
+          gh run download "$run_id" --repo "$REPOSITORY" --name "candidate-$HEAD_SHA" --dir .artifacts/candidate
+          git fetch --no-tags origin "+refs/pull/$PR_NUMBER/head:refs/remotes/origin/pr/$PR_NUMBER"
+          test "$(git rev-parse "refs/remotes/origin/pr/$PR_NUMBER")" = "$HEAD_SHA"
+      - name: Install trusted pinned verification engine
+        run: scripts/harnessctl.sh install-tools --profile pull_request --compare-ref "$COMPARE_SHA"
+      - name: Finalize approval without rerunning tests
+        run: |
+          set -euo pipefail
+          decision="$(jq -r .decision "$RUNNER_TEMP/approval.json")"
+          python3 -I -B -S harness/repository_verification.py approval "$HEAD_SHA" "$COMPARE_SHA" "$decision"
+          python3 -I -B -S harness/ci_approval.py review --repository "$REPOSITORY" \
+            --number "$PR_NUMBER" --head "$HEAD_SHA" --compare "$COMPARE_SHA" > .artifacts/approval/human-review.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: approval-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}
+          path: .artifacts/approval/
+          include-hidden-files: true
+          if-no-files-found: warn

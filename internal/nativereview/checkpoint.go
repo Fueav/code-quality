@@ -140,7 +140,7 @@ var (
 
 func newSessionCheckpoint(session reviewsession.NativeSession, plan reviewplan.Decision, goal string) (SessionCheckpoint, error) {
 	previousBlockingFindings := plan.PreviousBlockingFindings()
-	nativePrompt := []byte(buildPlanReviewPromptWithPrevious(plan, goal, plan.Contract.ExecutionProfile == quality.ExecutionProfileProductionCI, previousBlockingFindings))
+	nativePrompt := []byte(buildPlanReviewPromptWithPrevious(plan, goal, nativeReportOnlyBoundary(plan), previousBlockingFindings))
 	rubric, err := bundle.ReviewLens()
 	if err != nil {
 		return SessionCheckpoint{}, err
@@ -193,9 +193,6 @@ func newSessionCheckpoint(session reviewsession.NativeSession, plan reviewplan.D
 
 func checkpointNativeFrozen(checkpoint *SessionCheckpoint, session reviewsession.NativeSession, outcome quality.NativeOutcome) error {
 	result := outcome.Result()
-	checkpoint.NativeOutcome = &result
-	checkpoint.FrozenBlockingFindings = outcome.BlockingFindings()
-	checkpoint.ContractArtifacts.RestrictedPromptSHA256 = quality.SHA256Digest([]byte(buildRestrictedAdjudicationPrompt(checkpoint.Plan, checkpoint.FrozenBlockingFindings)))
 	artifacts := session.Artifacts()
 	paths := []struct {
 		name string
@@ -207,14 +204,21 @@ func checkpointNativeFrozen(checkpoint *SessionCheckpoint, session reviewsession
 		{name: "native_freeze_manifest", path: artifacts.FreezeManifestPath()},
 		{name: "native_metrics", path: artifacts.MetricsPath()},
 	}
-	checkpoint.NativeEvidence = make([]ArtifactDigest, 0, len(paths))
+	evidence := make([]ArtifactDigest, 0, len(paths))
 	for _, value := range paths {
-		artifact, err := digestArtifact(session.Directory(), value.name, value.path, true)
+		// A failed Native process may never create a final message. Preserve its
+		// absence as evidence; the transaction seals this case as terminal HOLD.
+		required := value.name != "native_final_message" || outcome.SemanticResult() != quality.ResultError
+		artifact, err := digestArtifact(session.Directory(), value.name, value.path, required)
 		if err != nil {
 			return err
 		}
-		checkpoint.NativeEvidence = append(checkpoint.NativeEvidence, artifact)
+		evidence = append(evidence, artifact)
 	}
+	checkpoint.NativeOutcome = &result
+	checkpoint.FrozenBlockingFindings = outcome.BlockingFindings()
+	checkpoint.ContractArtifacts.RestrictedPromptSHA256 = quality.SHA256Digest([]byte(buildRestrictedAdjudicationPrompt(checkpoint.Plan, checkpoint.FrozenBlockingFindings)))
+	checkpoint.NativeEvidence = evidence
 	checkpoint.State = StateNativeFrozen
 	return nil
 }
@@ -306,7 +310,7 @@ func loadAndVerifyCheckpoint(sessionDir string) (SessionCheckpoint, error) {
 		return SessionCheckpoint{}, fmt.Errorf("decode checkpoint: %w", err)
 	}
 	if checkpoint.SchemaVersion != 1 || checkpoint.ToolVersion != quality.SkillVersion || checkpoint.Sequence < 1 {
-		return SessionCheckpoint{}, errors.New("checkpoint is not a current v0.5.9 session")
+		return SessionCheckpoint{}, fmt.Errorf("checkpoint is not a current v%s session", quality.SkillVersion)
 	}
 	wantCheckpointDigest := checkpoint.CheckpointDigest
 	checkpoint.CheckpointDigest = ""
@@ -414,6 +418,12 @@ func validateCheckpointState(checkpoint SessionCheckpoint) error {
 		}); err != nil {
 			return fmt.Errorf("checkpoint Native evidence: %w", err)
 		}
+		if !checkpoint.NativeEvidence[0].Present && (checkpoint.State != StateTerminalError ||
+			checkpoint.NativeOutcome.Adjudication.SemanticResult != quality.ResultError ||
+			checkpoint.LastFailure == nil || checkpoint.LastFailure.Retryable || len(checkpoint.RestrictedAttempts) != 0 ||
+			checkpoint.Publication.Status != "UNPUBLISHED" || len(checkpoint.Publication.Artifacts) != 0) {
+			return errors.New("absent Native final message requires an unpublished terminal failure")
+		}
 	}
 	for index, attempt := range checkpoint.RestrictedAttempts {
 		if attempt.Attempt != index+1 || attempt.SchemaVersion != 1 {
@@ -510,7 +520,7 @@ func validateArtifactNames(artifacts []ArtifactDigest, expected []string) error 
 }
 
 func verifyContractArtifacts(checkpoint SessionCheckpoint) error {
-	nativePrompt := []byte(buildPlanReviewPromptWithPrevious(checkpoint.Plan, checkpoint.ReviewGoal, checkpoint.Plan.Contract.ExecutionProfile == quality.ExecutionProfileProductionCI, checkpoint.PreviousBlockingFindings))
+	nativePrompt := []byte(buildPlanReviewPromptWithPrevious(checkpoint.Plan, checkpoint.ReviewGoal, nativeReportOnlyBoundary(checkpoint.Plan), checkpoint.PreviousBlockingFindings))
 	rubric, err := bundle.ReviewLens()
 	if err != nil {
 		return err

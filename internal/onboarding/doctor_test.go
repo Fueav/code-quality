@@ -100,8 +100,11 @@ func TestDoctorBlocksMissingOriginHeadWithOneNextAction(t *testing.T) {
 	binDir := t.TempDir()
 	writeDoctorProvider(t, binDir, "codex", filepath.Join(binDir, "invocations"), true, true)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// This local-repository fixture must not inherit the runner's unrelated PR.
+	t.Setenv("GITHUB_EVENT_NAME", "pull_request")
+	t.Setenv("GITHUB_EVENT_PATH", filepath.Join(t.TempDir(), "unrelated-pr.json"))
 
-	report, err := Run(context.Background(), Options{Host: "codex", RepositoryPath: repo})
+	report, err := Run(context.Background(), Options{Host: "codex", RepositoryPath: repo, Environment: map[string]string{}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -61,6 +61,7 @@ type restrictedRunOptions struct {
 	ProgressWriter    io.Writer
 	ProgressFormat    ProgressFormat
 	Progress          *progressReporter
+	InputArtifacts    []ArtifactDigest
 }
 
 type restrictedAttemptResult struct {
@@ -117,13 +118,19 @@ func runRestrictedAttempt(ctx context.Context, options restrictedRunOptions, out
 	options.Progress.transition(ProgressRestrictedStarted, ProgressStageRestricted, options.Attempt)
 	started := time.Now()
 	processErr := runNativeProcess(ctx, invocation)
+	if processErr == nil && ctx.Err() != nil {
+		processErr = ctx.Err()
+	}
+	processFinished := time.Now()
 	options.Progress.transition(ProgressRestrictedFreezing, ProgressStageRestrictedFreeze, options.Attempt)
 	materializeErr := materializeProviderFinalMessage(options.Provider, invocation.paths)
 	frozen, err := freezeNativeArtifacts(invocation.paths, options.Provider)
 	if err != nil {
 		return restrictedAttemptResult{}, fmt.Errorf("freeze restricted adjudication: %w", err)
 	}
-	metrics := collectStageRunMetrics(options.Session.Request(), "RESTRICTED", options.Attempt, time.Since(started), int64(len(trustedDiff)), frozen)
+	freezeFinished := time.Now()
+	metrics := collectStageRunMetrics(options.Session.Request(), "RESTRICTED", options.Attempt, freezeFinished.Sub(started), int64(len(trustedDiff)), frozen)
+	metrics.setMeasuredDurations(processFinished.Sub(started), freezeFinished.Sub(processFinished))
 	if err := writeExclusiveJSON(invocation.paths.metrics, metrics); err != nil {
 		return restrictedAttemptResult{}, fmt.Errorf("write restricted adjudication metrics: %w", err)
 	}
@@ -131,6 +138,19 @@ func runRestrictedAttempt(ctx context.Context, options restrictedRunOptions, out
 	record.Artifacts, err = restrictedAttemptArtifacts(options.Session, paths)
 	if err != nil {
 		return restrictedAttemptResult{}, err
+	}
+	integrityErr := verifySessionInputs(ctx, options.Session, options.InputArtifacts)
+	if contextErr := ctx.Err(); contextErr != nil {
+		// Cancellation during verification is an unknown target view, even when
+		// the Provider process itself completed successfully.
+		processErr = errors.Join(processErr, contextErr)
+	} else if integrityErr != nil {
+		record.Status = "FAILED"
+		record.Failure = &AttemptFailure{Class: FailureArtifactIntegrity, Reason: "Restricted changed the frozen target checkout or review inputs"}
+		if err := writeAttemptRecord(options.Session.Directory(), &record); err != nil {
+			return restrictedAttemptResult{}, err
+		}
+		return restrictedAttemptResult{Outcome: outcome, Record: record}, nil
 	}
 	if processErr != nil {
 		failure := classifyRestrictedProcessFailure(ctx, processErr, paths.stderr)
@@ -183,6 +203,7 @@ func buildRestrictedAdjudicationPrompt(plan reviewplan.Decision, findings []qual
 	prompt.WriteString("\nUse target-reachable repository evidence and the exact full Git diff. Do not inspect later commits, remotes, sibling experiments, historical outcomes, or expected labels. Do not add findings. Return exactly one schema-valid adjudication per supplied finding_id, in the supplied order.\n\nFrozen native P0/P1 findings:\n")
 	prompt.Write(encoded)
 	prompt.WriteByte('\n')
+	prompt.WriteString(frozenInputIndexPrompt(plan))
 	return prompt.String()
 }
 
@@ -478,9 +499,9 @@ func decodeRestrictedAdjudication(raw []byte, findings []quality.NativeFinding, 
 			}
 		}
 		validEvidence := len(value.EvidenceRefs) > 0
-		for _, ref := range value.EvidenceRefs {
+		for refIndex, ref := range value.EvidenceRefs {
 			if !restrictedEvidenceRefValid(repository, ref) {
-				validEvidence = false
+				return nil, fmt.Errorf("restricted adjudication %d evidence reference %d is invalid", index, refIndex)
 			}
 		}
 		retain := value.Validity == "SUPPORTED" && value.Severity == "S3" &&
